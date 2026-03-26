@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import auth, instances, agents, messages, webhooks, companies, products
+from app.api.v1.endpoints import auth, instances, agents, messages, webhooks, companies, products, whatsapp
 
 api_router = APIRouter()
 
@@ -10,3 +10,4 @@ api_router.include_router(instances.router, prefix="/instances", tags=["instance
 api_router.include_router(agents.router, prefix="/agents", tags=["agents"])
 api_router.include_router(messages.router, prefix="/messages", tags=["messages"])
 api_router.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
+api_router.include_router(whatsapp.router, prefix="/whatsapp", tags=["whatsapp"])
