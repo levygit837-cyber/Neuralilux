@@ -3,11 +3,11 @@ version: '3.8'
 services:
   # Evolution API - WhatsApp Integration
   evolution-api:
-    image: atendai/evolution-api:latest
+    image: atendai/evolution-api:v2.1.1
     container_name: neuralilux-evolution
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "8081:8080"
     environment:
       # Server
       - SERVER_URL=http://localhost:8080
@@ -29,7 +29,7 @@ services:
       - REDIS_PREFIX_KEY=evolution
 
       # Authentication
-      - AUTHENTICATION_API_KEY=change-me-in-production
+      - AUTHENTICATION_API_KEY=23878528834238489asmdkfnq
       - AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES=true
 
       # Webhook
@@ -68,7 +68,7 @@ services:
     container_name: neuralilux-postgres
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "5434:5432"
     environment:
       - POSTGRES_USER=neuralilux
       - POSTGRES_PASSWORD=neuralilux_password
@@ -91,7 +91,7 @@ services:
     container_name: neuralilux-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "6380:6379"
     command: redis-server --appendonly yes --requirepass redis_password
     volumes:
       - redis_data:/data

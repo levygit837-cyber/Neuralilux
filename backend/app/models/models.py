@@ -1,4 +1,5 @@
-from sqlalchemy import Column, String, DateTime, Boolean, Text, Integer, ForeignKey
+from sqlalchemy import Column, String, DateTime, Boolean, Text, Integer, ForeignKey, Numeric
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -9,6 +10,78 @@ def generate_uuid():
     return str(uuid.uuid4())
 
 
+class BusinessType(Base):
+    __tablename__ = "business_types"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    name = Column(String(100), nullable=False)
+    slug = Column(String(50), unique=True, nullable=False, index=True)
+    description = Column(Text)
+    icon = Column(String(50))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    companies = relationship("Company", back_populates="business_type")
+
+
+class Company(Base):
+    __tablename__ = "companies"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    name = Column(String(200), nullable=False)
+    business_type_id = Column(String, ForeignKey("business_types.id"))
+    description = Column(Text)
+    logo_url = Column(String(500))
+
+    # Address
+    address_street = Column(String(200))
+    address_number = Column(String(20))
+    address_complement = Column(String(100))
+    address_neighborhood = Column(String(100))
+    address_city = Column(String(100))
+    address_state = Column(String(2))
+    address_zip = Column(String(10))
+
+    # Contacts
+    phone = Column(String(20))
+    email = Column(String(100))
+    whatsapp = Column(String(20))
+    website = Column(String(200))
+
+    # Business hours (JSON)
+    business_hours = Column(JSONB)
+
+    # AI Configuration
+    ai_system_prompt = Column(Text)
+    ai_model = Column(String(50), default="gpt-4-turbo-preview")
+    ai_temperature = Column(Integer, default=70)
+    ai_max_tokens = Column(Integer, default=1000)
+
+    # Status
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    business_type = relationship("BusinessType", back_populates="companies")
+    users = relationship("User", back_populates="company")
+    products = relationship("Product", back_populates="company")
+
+
+class ProductType(Base):
+    __tablename__ = "product_types"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    name = Column(String(100), nullable=False)
+    slug = Column(String(50), unique=True, nullable=False, index=True)
+    description = Column(Text)
+    icon = Column(String(50))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    products = relationship("Product", back_populates="product_type")
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -16,12 +89,14 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     full_name = Column(String)
+    company_id = Column(String, ForeignKey("companies.id"), nullable=True)
     is_active = Column(Boolean, default=True)
     is_superuser = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
+    company = relationship("Company", back_populates="users")
     instances = relationship("Instance", back_populates="owner")
     agents = relationship("Agent", back_populates="owner")
 
@@ -104,3 +179,24 @@ class Document(Base):
 
     # Relationships
     agent = relationship("Agent", back_populates="documents")
+
+
+class Product(Base):
+    __tablename__ = "products"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    company_id = Column(String, ForeignKey("companies.id"), nullable=False)
+    product_type_id = Column(String, ForeignKey("product_types.id"))
+    name = Column(String(200), nullable=False)
+    description = Column(Text)
+    price = Column(Numeric(10, 2), nullable=False)
+    image_url = Column(String(500))
+    sku = Column(String(50), unique=True, index=True)
+    is_available = Column(Boolean, default=True)
+    stock_quantity = Column(Integer)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    company = relationship("Company", back_populates="products")
+    product_type = relationship("ProductType", back_populates="products")
