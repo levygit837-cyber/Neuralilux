@@ -20,6 +20,11 @@ from .product_service import (
     update_product,
     delete_product
 )
+from .evolution_api import (
+    evolution_api,
+    EvolutionAPIService,
+    EvolutionAPIError,
+)
 
 __all__ = [
     "get_user_by_email",
@@ -38,4 +43,7 @@ __all__ = [
     "list_products",
     "update_product",
     "delete_product",
+    "evolution_api",
+    "EvolutionAPIService",
+    "EvolutionAPIError",
 ]
