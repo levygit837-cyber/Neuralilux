@@ -11,9 +11,9 @@ export default function Home() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      router.push(ROUTES.DASHBOARD)
+      router.replace(ROUTES.DASHBOARD)
     } else {
-      router.push(ROUTES.LOGIN)
+      router.replace(ROUTES.LOGIN)
     }
   }, [isAuthenticated, router])
 
@@ -21,6 +21,7 @@ export default function Home() {
     <div className="flex min-h-screen items-center justify-center bg-dark">
       <div className="text-center">
         <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+        <p className="mt-4 text-sm text-text-gray">Carregando...</p>
       </div>
     </div>
   )

@@ -1,11 +1,16 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
+// Protected routes that require authentication
+const PROTECTED_ROUTES = ['/dashboard', '/chat']
+
+// Public routes that should redirect authenticated users
+const AUTH_ROUTES = ['/login']
+
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
-  // Get auth token from cookie or localStorage (in real app)
-  // For now, we'll check if there's an auth-storage cookie
+  // Get auth token from cookie (persisted by Zustand)
   const authStorage = request.cookies.get('auth-storage')
 
   let isAuthenticated = false
@@ -18,13 +23,30 @@ export function middleware(request: NextRequest) {
     }
   }
 
+  // Root route - redirect based on auth state
+  if (pathname === '/') {
+    if (isAuthenticated) {
+      return NextResponse.redirect(new URL('/dashboard', request.url))
+    } else {
+      return NextResponse.redirect(new URL('/login', request.url))
+    }
+  }
+
   // Protect dashboard and chat routes
-  if ((pathname.startsWith('/dashboard') || pathname.startsWith('/chat')) && !isAuthenticated) {
-    return NextResponse.redirect(new URL('/login', request.url))
+  const isProtectedRoute = PROTECTED_ROUTES.some(route => 
+    pathname.startsWith(route)
+  )
+  
+  if (isProtectedRoute && !isAuthenticated) {
+    const loginUrl = new URL('/login', request.url)
+    loginUrl.searchParams.set('callbackUrl', pathname)
+    return NextResponse.redirect(loginUrl)
   }
 
   // Redirect to dashboard if already authenticated and trying to access login
-  if (pathname === '/login' && isAuthenticated) {
+  const isAuthRoute = AUTH_ROUTES.some(route => pathname.startsWith(route))
+  
+  if (isAuthRoute && isAuthenticated) {
     return NextResponse.redirect(new URL('/dashboard', request.url))
   }
 
@@ -32,5 +54,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/chat/:path*', '/login'],
+  matcher: ['/', '/dashboard/:path*', '/chat/:path*', '/login'],
 }
