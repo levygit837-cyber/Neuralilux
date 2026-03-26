@@ -1,13 +1,45 @@
-from sqlalchemy import Column, String, DateTime, Boolean, Text, Integer, ForeignKey, Numeric
+from sqlalchemy import Column, String, DateTime, Boolean, Text, Integer, ForeignKey, Numeric, Enum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
 import uuid
+import enum
 
 
 def generate_uuid():
     return str(uuid.uuid4())
+
+
+class InstanceStatus(str, enum.Enum):
+    DISCONNECTED = "disconnected"
+    CONNECTING = "connecting"
+    CONNECTED = "connected"
+    ERROR = "error"
+
+
+class MessageDirection(str, enum.Enum):
+    INCOMING = "incoming"
+    OUTGOING = "outgoing"
+
+
+class MessageStatus(str, enum.Enum):
+    PENDING = "pending"
+    SENT = "sent"
+    DELIVERED = "delivered"
+    READ = "read"
+    FAILED = "failed"
+
+
+class MessageType(str, enum.Enum):
+    TEXT = "text"
+    IMAGE = "image"
+    VIDEO = "video"
+    AUDIO = "audio"
+    DOCUMENT = "document"
+    LOCATION = "location"
+    CONTACT = "contact"
+    STICKER = "sticker"
 
 
 class BusinessType(Base):
@@ -120,6 +152,55 @@ class Instance(Base):
     owner = relationship("User", back_populates="instances")
     agent = relationship("Agent", back_populates="instances")
     messages = relationship("Message", back_populates="instance")
+    contacts = relationship("Contact", back_populates="instance")
+    conversations = relationship("Conversation", back_populates="instance")
+
+
+class Contact(Base):
+    __tablename__ = "contacts"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    instance_id = Column(String, ForeignKey("instances.id"), nullable=False)
+    phone_number = Column(String(20), nullable=False, index=True)
+    remote_jid = Column(String, nullable=False, index=True)  # WhatsApp JID format
+    name = Column(String(200))
+    push_name = Column(String(200))  # Name set by contact on WhatsApp
+    profile_pic_url = Column(String(500))
+    is_blocked = Column(Boolean, default=False)
+    is_business = Column(Boolean, default=False)
+    last_seen = Column(DateTime(timezone=True))
+    notes = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    instance = relationship("Instance", back_populates="contacts")
+    conversations = relationship("Conversation", back_populates="contact")
+
+
+class Conversation(Base):
+    __tablename__ = "conversations"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    instance_id = Column(String, ForeignKey("instances.id"), nullable=False)
+    contact_id = Column(String, ForeignKey("contacts.id"), nullable=False)
+    remote_jid = Column(String, nullable=False, index=True)
+    is_active = Column(Boolean, default=True)
+    is_archived = Column(Boolean, default=False)
+    unread_count = Column(Integer, default=0)
+    last_message_at = Column(DateTime(timezone=True))
+    last_message_preview = Column(Text)
+    assigned_agent_id = Column(String, ForeignKey("agents.id"), nullable=True)
+    tags = Column(JSONB)  # Array of tags for categorization
+    priority = Column(String(20), default="normal")  # low, normal, high, urgent
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    instance = relationship("Instance", back_populates="conversations")
+    contact = relationship("Contact", back_populates="conversations")
+    assigned_agent = relationship("Agent")
+    messages = relationship("Message", back_populates="conversation")
 
 
 class Agent(Base):
@@ -149,10 +230,15 @@ class Message(Base):
 
     id = Column(String, primary_key=True, default=generate_uuid)
     instance_id = Column(String, ForeignKey("instances.id"))
+    conversation_id = Column(String, ForeignKey("conversations.id"), nullable=True)
     remote_jid = Column(String, nullable=False)  # WhatsApp contact ID
     message_id = Column(String, unique=True, index=True)
+    message_type = Column(String, default="text")  # text, image, video, audio, document, location, contact, sticker
     content = Column(Text)
     media_url = Column(String)
+    caption = Column(Text)  # Caption for media messages
+    latitude = Column(Numeric(10, 8))  # For location messages
+    longitude = Column(Numeric(11, 8))  # For location messages
     direction = Column(String, nullable=False)  # incoming, outgoing
     status = Column(String, default="pending")  # pending, sent, delivered, read, failed
     is_from_me = Column(Boolean, default=False)
@@ -161,6 +247,7 @@ class Message(Base):
 
     # Relationships
     instance = relationship("Instance", back_populates="messages")
+    conversation = relationship("Conversation", back_populates="messages")
 
 
 class Document(Base):
