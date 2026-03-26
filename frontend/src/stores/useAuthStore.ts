@@ -1,6 +1,7 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { persist, createJSONStorage } from 'zustand/middleware'
 import type { User, AuthState } from '@/types/auth'
+import { cookieStorage } from '@/lib/cookieStorage'
 
 interface AuthStore extends AuthState {
   login: (user: User, token: string) => void
@@ -22,6 +23,7 @@ export const useAuthStore = create<AuthStore>()(
     }),
     {
       name: 'auth-storage',
+      storage: createJSONStorage(() => cookieStorage),
     }
   )
 )
