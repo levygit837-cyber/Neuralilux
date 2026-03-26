@@ -1,26 +1,27 @@
+'use client'
+
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { useAuthStore } from '@/stores/useAuthStore'
+import { ROUTES } from '@/lib/constants'
+
 export default function Home() {
+  const router = useRouter()
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      router.push(ROUTES.DASHBOARD)
+    } else {
+      router.push(ROUTES.LOGIN)
+    }
+  }, [isAuthenticated, router])
+
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-24">
+    <div className="flex min-h-screen items-center justify-center bg-dark">
       <div className="text-center">
-        <h1 className="text-4xl font-bold mb-4">Neuralilux</h1>
-        <p className="text-xl text-gray-600 mb-8">
-          Sistema de Automação WhatsApp com IA
-        </p>
-        <div className="flex gap-4 justify-center">
-          <a
-            href="/dashboard"
-            className="px-6 py-3 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition"
-          >
-            Dashboard
-          </a>
-          <a
-            href="/chat"
-            className="px-6 py-3 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition"
-          >
-            Chat
-          </a>
-        </div>
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
       </div>
-    </main>
+    </div>
   )
 }

@@ -8,18 +8,31 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        primary: {
-          50: '#f0f9ff',
-          100: '#e0f2fe',
-          200: '#bae6fd',
-          300: '#7dd3fc',
-          400: '#38bdf8',
-          500: '#0ea5e9',
-          600: '#0284c7',
-          700: '#0369a1',
-          800: '#075985',
-          900: '#0c4a6e',
-        },
+        // Background colors
+        'dark': '#0F0A1E',
+        'card': '#1A1333',
+        'hover': '#251B47',
+        // Primary colors
+        'primary': '#8B5CF6',
+        'primary-dark': '#7C3AED',
+        'primary-light': '#A78BFA',
+        // Secondary
+        'secondary': '#6D28D9',
+        // Accent
+        'accent': '#EC4899',
+        // Border
+        'border-color': '#2D2447',
+        // Text colors
+        'text-light': '#F9FAFB',
+        'text-gray': '#D1D5DB',
+        'text-muted': '#9CA3AF',
+        // Status colors
+        'success': '#10B981',
+        'error': '#EF4444',
+        'warning': '#F59E0B',
+      },
+      fontFamily: {
+        sans: ['Inter', 'sans-serif'],
       },
     },
   },
