@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 
 // Protected routes that require authentication
-const PROTECTED_ROUTES = ['/dashboard', '/chat']
+const PROTECTED_ROUTES = ['/dashboard', '/chat', '/instances', '/qr']
 
 // Public routes that should redirect authenticated users
 const AUTH_ROUTES = ['/login']
@@ -26,13 +26,13 @@ export function middleware(request: NextRequest) {
   // Root route - redirect based on auth state
   if (pathname === '/') {
     if (isAuthenticated) {
-      return NextResponse.redirect(new URL('/dashboard', request.url))
+      return NextResponse.redirect(new URL('/instances', request.url))
     } else {
       return NextResponse.redirect(new URL('/login', request.url))
     }
   }
 
-  // Protect dashboard and chat routes
+  // Protect dashboard, chat, instances, and qr routes
   const isProtectedRoute = PROTECTED_ROUTES.some(route => 
     pathname.startsWith(route)
   )
@@ -47,12 +47,12 @@ export function middleware(request: NextRequest) {
   const isAuthRoute = AUTH_ROUTES.some(route => pathname.startsWith(route))
   
   if (isAuthRoute && isAuthenticated) {
-    return NextResponse.redirect(new URL('/dashboard', request.url))
+    return NextResponse.redirect(new URL('/instances', request.url))
   }
 
   return NextResponse.next()
 }
 
 export const config = {
-  matcher: ['/', '/dashboard/:path*', '/chat/:path*', '/login'],
+  matcher: ['/', '/dashboard/:path*', '/chat/:path*', '/login', '/instances/:path*', '/qr/:path*'],
 }
