@@ -144,6 +144,9 @@ services:
       # Qdrant
       - QDRANT_URL=http://qdrant:6333
 
+      # RabbitMQ
+      - RABBITMQ_URL=amqp://neuralilux:rabbitmq_password@rabbitmq:5672/neuralilux
+
       # JWT
       - SECRET_KEY=change-me-in-production-use-strong-secret
       - ALGORITHM=HS256
@@ -171,6 +174,40 @@ services:
       - evolution-api
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
+  # Message Queue Worker
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: neuralilux-worker
+    restart: unless-stopped
+    environment:
+      # Database
+      - DATABASE_URL=postgresql://neuralilux:neuralilux_password@postgres:5432/neuralilux
+      # Redis
+      - REDIS_URL=redis://:redis_password@redis:6379/0
+      # Evolution API
+      - EVOLUTION_API_URL=http://evolution-api:8080
+      - EVOLUTION_API_KEY=change-me-in-production
+      # Qdrant
+      - QDRANT_URL=http://qdrant:6333
+      # RabbitMQ
+      - RABBITMQ_URL=amqp://neuralilux:rabbitmq_password@rabbitmq:5672/neuralilux
+      # Environment
+      - ENVIRONMENT=development
+      - DEBUG=true
+    volumes:
+      - ./backend:/app
+      - backend_uploads:/app/uploads
+    networks:
+      - neuralilux-network
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+      - evolution-api
+    command: python scripts/run_worker.py
+
   # Frontend (Next.js)
   frontend:
     build:
@@ -192,6 +229,28 @@ services:
     depends_on:
       - backend
     command: npm run dev
+
+  # RabbitMQ Message Queue
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: neuralilux-rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=neuralilux
+      - RABBITMQ_DEFAULT_PASS=rabbitmq_password
+      - RABBITMQ_DEFAULT_VHOST=neuralilux
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - neuralilux-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
 
   # Nginx Reverse Proxy (Production)
   # nginx:
@@ -221,3 +280,4 @@ volumes:
   evolution_instances:
   evolution_store:
   backend_uploads:
+  rabbitmq_data:
