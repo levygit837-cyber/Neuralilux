@@ -25,6 +25,7 @@ from .evolution_api import (
     EvolutionAPIService,
     EvolutionAPIError,
 )
+from .message_queue_service import message_queue_service
 
 __all__ = [
     "get_user_by_email",
@@ -46,4 +47,5 @@ __all__ = [
     "evolution_api",
     "EvolutionAPIService",
     "EvolutionAPIError",
+    "message_queue_service",
 ]

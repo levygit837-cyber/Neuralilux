@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Request, HTTPException
 import structlog
 
+from app.services.message_queue_service import message_queue_service
+
 router = APIRouter()
 logger = structlog.get_logger()
 
@@ -19,18 +21,15 @@ async def evolution_webhook(request: Request):
     try:
         payload = await request.json()
         event_type = payload.get("event")
-
+        
         logger.info(
             "Received Evolution API webhook",
             event_type=event_type,
             instance=payload.get("instance")
         )
 
-        # TODO: Process webhook based on event type
-        # - Route to appropriate service
-        # - Trigger AI agent if needed
-        # - Update database
-        # - Send WebSocket update to frontend
+        # Publish webhook event to RabbitMQ for async processing
+        message_queue_service.publish_webhook_event(payload)
 
         return {"status": "received", "event": event_type}
 

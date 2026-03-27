@@ -5,8 +5,8 @@ import structlog
 
 from app.core.config import settings
 from app.api.v1.router import api_router
+from app.services.message_queue_service import message_queue_service
 
-# Configure structured logging
 structlog.configure(
     processors=[
         structlog.processors.TimeStamper(fmt="iso"),
@@ -24,7 +24,6 @@ app = FastAPI(
     redoc_url="/redoc" if settings.ENVIRONMENT == "development" else None,
 )
 
-# CORS Middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -33,21 +32,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# GZip Middleware
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
-# Include API router
 app.include_router(api_router, prefix="/api/v1")
 
 
 @app.on_event("startup")
 async def startup_event():
     logger.info("Starting Neuralilux API", environment=settings.ENVIRONMENT)
+    message_queue_service.connect()
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     logger.info("Shutting down Neuralilux API")
+    message_queue_service.disconnect()
 
 
 @app.get("/health")
