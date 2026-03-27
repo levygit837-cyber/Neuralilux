@@ -7,7 +7,7 @@ from .whatsapp import (
     ContactCreate, ContactUpdate, ContactResponse,
     ConversationCreate, ConversationUpdate, ConversationResponse, ConversationSummary,
     MessageCreate, MessageUpdate, MessageResponse,
-    SendMessageRequest, SendMessageResponse,
+    SendMessageRequest, ConversationSendMessageRequest, SendMessageResponse,
     WebhookPayload, ConnectionUpdatePayload, QrCodeUpdatePayload,
     PaginationParams, MessageFilter, ConversationFilter, ContactFilter,
     PaginatedMessages, PaginatedConversations, PaginatedContacts, PaginatedInstances,
