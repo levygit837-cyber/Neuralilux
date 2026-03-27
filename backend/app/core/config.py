@@ -16,8 +16,8 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://:redis_password@localhost:6379/0"
 
     # Evolution API
-    EVOLUTION_API_URL: str = "http://localhost:8080"
-    EVOLUTION_API_KEY: str = "change-me-in-production"
+    EVOLUTION_API_URL: str = "http://localhost:8081"
+    EVOLUTION_API_KEY: str = "23878528834238489asmdkfnq"
 
     # Qdrant
     QDRANT_URL: str = "http://localhost:6333"
@@ -38,6 +38,15 @@ class Settings(BaseSettings):
     # Anthropic
     ANTHROPIC_API_KEY: str | None = None
     ANTHROPIC_MODEL: str = "claude-3-sonnet-20240229"
+
+    # LM Studio (local inference)
+    LM_STUDIO_URL: str = "http://localhost:1234"
+    LM_STUDIO_MODEL: str = "local-model"
+    LM_STUDIO_MAX_TOKENS: int = 2048
+    LM_STUDIO_TEMPERATURE: float = 0.7
+
+    # RabbitMQ
+    RABBITMQ_URL: str = "amqp://guest:guest@localhost:5672/"
 
     # CORS
     CORS_ORIGINS: List[str] = [
