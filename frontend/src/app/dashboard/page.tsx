@@ -1,5 +1,6 @@
 'use client'
 
+import { Sidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
 import { MetricCard } from '@/components/dashboard/MetricCard'
 import { ActivityItem } from '@/components/dashboard/ActivityItem'
@@ -90,50 +91,53 @@ const businessMetrics: BusinessMetric[] = [
 
 export default function DashboardPage() {
   return (
-    <div className="flex min-h-screen flex-col bg-dark">
-      <Header />
-      <main className="flex-1 p-8">
-        <div className="mx-auto max-w-7xl space-y-8">
-          {/* Metrics Section */}
-          <section>
-            <h2 className="mb-4 text-xl font-bold text-text-light">Visão Geral</h2>
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-              {metrics.map((metric, index) => (
-                <MetricCard key={index} metric={metric} />
-              ))}
-            </div>
-          </section>
-
-          {/* Business Metrics Section */}
-          <section>
-            <h2 className="mb-4 text-xl font-bold text-text-light">
-              Métricas de Atendimento
-            </h2>
-            <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-              {businessMetrics.map((businessMetric) => (
-                <BusinessMetricCard
-                  key={businessMetric.id}
-                  businessMetric={businessMetric}
-                />
-              ))}
-            </div>
-          </section>
-
-          {/* Recent Activity Section */}
-          <section>
-            <h2 className="mb-4 text-xl font-bold text-text-light">
-              Atividade Recente
-            </h2>
-            <div className="rounded-lg border border-border-color bg-card p-6">
-              <div className="divide-y divide-border">
-                {activities.map((activity) => (
-                  <ActivityItem key={activity.id} activity={activity} />
+    <div className="flex min-h-screen bg-dark">
+      <Sidebar />
+      <div className="flex flex-1 flex-col">
+        <Header title="Dashboard" />
+        <main className="flex-1 overflow-auto p-8">
+          <div className="mx-auto max-w-7xl space-y-8">
+            {/* Metrics Section */}
+            <section>
+              <h2 className="mb-4 text-xl font-bold text-text-light">Visão Geral</h2>
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+                {metrics.map((metric, index) => (
+                  <MetricCard key={index} metric={metric} />
                 ))}
               </div>
-            </div>
-          </section>
-        </div>
-      </main>
+            </section>
+
+            {/* Business Metrics Section */}
+            <section>
+              <h2 className="mb-4 text-xl font-bold text-text-light">
+                Métricas de Atendimento
+              </h2>
+              <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+                {businessMetrics.map((businessMetric) => (
+                  <BusinessMetricCard
+                    key={businessMetric.id}
+                    businessMetric={businessMetric}
+                  />
+                ))}
+              </div>
+            </section>
+
+            {/* Recent Activity Section */}
+            <section>
+              <h2 className="mb-4 text-xl font-bold text-text-light">
+                Atividade Recente
+              </h2>
+              <div className="rounded-lg border border-border-color bg-card p-6">
+                <div className="divide-y divide-border">
+                  {activities.map((activity) => (
+                    <ActivityItem key={activity.id} activity={activity} />
+                  ))}
+                </div>
+              </div>
+            </section>
+          </div>
+        </main>
+      </div>
     </div>
   )
 }

@@ -10,10 +10,10 @@ class Settings(BaseSettings):
     DEBUG: bool = True
 
     # Database
-    DATABASE_URL: str = "postgresql://neuralilux:neuralilux_password@localhost:5432/neuralilux"
+    DATABASE_URL: str = "postgresql+psycopg://neuralilux:neuralilux_password@localhost:5434/neuralilux"
 
     # Redis
-    REDIS_URL: str = "redis://:redis_password@localhost:6379/0"
+    REDIS_URL: str = "redis://:redis_password@localhost:6380/0"
 
     # Evolution API
     EVOLUTION_API_URL: str = "http://localhost:8081"
@@ -44,9 +44,6 @@ class Settings(BaseSettings):
     LM_STUDIO_MODEL: str = "local-model"
     LM_STUDIO_MAX_TOKENS: int = 2048
     LM_STUDIO_TEMPERATURE: float = 0.7
-
-    # RabbitMQ
-    RABBITMQ_URL: str = "amqp://guest:guest@localhost:5672/"
 
     # CORS
     CORS_ORIGINS: List[str] = [
