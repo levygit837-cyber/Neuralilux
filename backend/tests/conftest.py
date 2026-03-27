@@ -1,7 +1,17 @@
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import JSON
+
+# Monkey-patch JSONB to JSON for SQLite compatibility in tests
+# This allows models using JSONB to work with SQLite during testing
+import sqlalchemy.dialects.sqlite
+if not hasattr(sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler, 'visit_JSONB'):
+    sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler.visit_JSONB = (
+        sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler.visit_JSON
+    )
 
 from app.main import app
 from app.core.database import Base, get_db
@@ -41,7 +51,7 @@ def client(db):
 def auth_headers(client):
     """Get authentication headers"""
     # Create test user
-    response = client.post(
+    client.post(
         "/api/v1/auth/register",
         json={
             "email": "test@example.com",
@@ -61,3 +71,4 @@ def auth_headers(client):
 
     token = response.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
+
