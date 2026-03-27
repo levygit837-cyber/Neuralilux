@@ -236,6 +236,12 @@ class SendMessageRequest(BaseModel):
     longitude: Optional[float] = Field(None, description="Longitude for location messages")
 
 
+class ConversationSendMessageRequest(BaseModel):
+    """Request schema for sending a message in a conversation (simpler - conversation provides context)"""
+    content: str = Field(..., min_length=1, description="Text content for the message")
+    message_type: MessageTypeEnum = MessageTypeEnum.TEXT
+
+
 class SendMessageResponse(BaseModel):
     """Response schema after sending a message"""
     success: bool

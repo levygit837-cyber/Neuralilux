@@ -22,6 +22,7 @@ from app.schemas.whatsapp import (
     ContactFilter,
     PaginatedContacts,
     SendMessageRequest,
+    ConversationSendMessageRequest,
     SendMessageResponse,
     MessageResponse,
     PaginatedMessages,
@@ -191,7 +192,7 @@ async def get_conversation_messages(
 @router.post("/conversations/{conversation_id}/messages", response_model=SendMessageResponse)
 async def send_conversation_message(
     conversation_id: str,
-    request: SendMessageRequest,
+    request: ConversationSendMessageRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -221,10 +222,10 @@ async def send_conversation_message(
         )
 
     # Only text messages are supported via this endpoint
-    if request.message_type != "text" or not request.content:
+    if request.message_type != "text":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only text messages are supported. Provide 'content' field.",
+            detail="Only text messages are supported.",
         )
 
     try:
