@@ -7,6 +7,7 @@ export const ROUTES = {
   DASHBOARD: '/dashboard',
   CHAT: '/chat',
   QR: '/qr',
+  INSTANCES: '/instances',
 } as const
 
 export const POLLING_INTERVAL = 3000 // 3 seconds for polling fallback

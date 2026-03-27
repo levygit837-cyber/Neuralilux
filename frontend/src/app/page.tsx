@@ -11,7 +11,7 @@ export default function Home() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      router.replace(ROUTES.DASHBOARD)
+      router.replace(ROUTES.INSTANCES)
     } else {
       router.replace(ROUTES.LOGIN)
     }
