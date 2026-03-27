@@ -1,55 +1,285 @@
-from fastapi import APIRouter, Depends, HTTPException
+"""
+WhatsApp Instances Endpoints.
+
+Provides endpoints for managing WhatsApp instances via Evolution API:
+- GET  /                     - List all instances (fetchInstances) - NO AUTH REQUIRED
+- GET  /{instance_id}/status - Get instance connection state - NO AUTH REQUIRED
+- POST /{instance_id}/connect - Connect instance (get QR code)
+- DELETE /{instance_id}/logout - Logout/disconnect instance
+- DELETE /{instance_id}       - Delete instance
+- POST /{instance_id}        - Create new instance (auth required)
+"""
+
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List
+import structlog
 
 from app.core.database import get_db
+from app.api.v1.endpoints.auth import get_current_user
+from app.models.models import User
+from app.services.evolution_api import evolution_api, EvolutionAPIError
+
+logger = structlog.get_logger()
 
 router = APIRouter()
 
 
 @router.get("/")
 async def list_instances(db: Session = Depends(get_db)):
-    """List all WhatsApp instances"""
-    return {"message": "List instances endpoint - to be implemented"}
+    """
+    List all WhatsApp instances from Evolution API.
+
+    This endpoint does NOT require authentication to allow
+    the frontend to fetch instances freely.
+
+    Returns a list of instances with their current status from Evolution API.
+    """
+    try:
+        evolution_instances = await evolution_api.fetch_instances()
+
+        instances_list = []
+        for inst in evolution_instances:
+            if isinstance(inst, dict):
+                instance_data = {
+                    "instance_id": inst.get("name") or inst.get("instanceName") or inst.get("instance", {}).get("instanceName", ""),
+                    "name": inst.get("name") or inst.get("instanceName") or inst.get("instance", {}).get("instanceName", ""),
+                    "status": inst.get("status") or inst.get("connectionStatus") or inst.get("instance", {}).get("state", "unknown"),
+                    "owner": inst.get("owner") or inst.get("ownerJid", ""),
+                    "profile_name": inst.get("profileName") or inst.get("profile", {}).get("name", ""),
+                    "profile_pic_url": inst.get("profilePicUrl") or inst.get("profile", {}).get("pictureUrl", ""),
+                    "token": inst.get("token", ""),
+                    "server_url": inst.get("serverUrl", ""),
+                }
+                instances_list.append(instance_data)
+
+        return {
+            "instances": instances_list,
+            "total": len(instances_list),
+        }
+
+    except EvolutionAPIError as e:
+        logger.error("Failed to fetch instances from Evolution API", error=e.message)
+        raise HTTPException(
+            status_code=e.status_code if e.status_code != 500 else status.HTTP_502_BAD_GATEWAY,
+            detail=f"Evolution API error: {e.message}",
+        )
+    except Exception as e:
+        logger.error("Unexpected error fetching instances", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch instances",
+        )
 
 
-@router.post("/")
-async def create_instance(db: Session = Depends(get_db)):
-    """Create a new WhatsApp instance"""
-    return {"message": "Create instance endpoint - to be implemented"}
+@router.get("/{instance_id}/status")
+async def get_instance_status(instance_id: str, db: Session = Depends(get_db)):
+    """
+    Get the connection status of a WhatsApp instance.
 
+    This endpoint does NOT require authentication.
 
-@router.get("/{instance_id}")
-async def get_instance(instance_id: str, db: Session = Depends(get_db)):
-    """Get instance details"""
-    return {"message": f"Get instance {instance_id} - to be implemented"}
+    - **instance_id**: The Evolution API instance name.
+    - Returns the current connection state (open, close, connecting, etc.).
+    """
+    try:
+        result = await evolution_api.get_instance_status(instance_id)
 
+        evolution_state = (
+            result.get("instance", {}).get("state")
+            or result.get("state")
+            or result.get("connectionStatus")
+            or "unknown"
+        )
 
-@router.put("/{instance_id}")
-async def update_instance(instance_id: str, db: Session = Depends(get_db)):
-    """Update instance configuration"""
-    return {"message": f"Update instance {instance_id} - to be implemented"}
+        state_mapping = {
+            "open": "connected",
+            "close": "disconnected",
+            "closed": "disconnected",
+            "connecting": "connecting",
+            "disconnected": "disconnected",
+            "connected": "connected",
+        }
+        mapped_status = state_mapping.get(evolution_state, evolution_state)
 
+        return {
+            "instance_id": instance_id,
+            "status": mapped_status,
+            "evolution_state": evolution_state,
+            "raw": result,
+        }
 
-@router.delete("/{instance_id}")
-async def delete_instance(instance_id: str, db: Session = Depends(get_db)):
-    """Delete an instance"""
-    return {"message": f"Delete instance {instance_id} - to be implemented"}
-
-
-@router.get("/{instance_id}/qrcode")
-async def get_qrcode(instance_id: str, db: Session = Depends(get_db)):
-    """Get QR code for instance connection"""
-    return {"message": f"Get QR code for {instance_id} - to be implemented"}
+    except EvolutionAPIError as e:
+        logger.error("Failed to get instance status", instance_id=instance_id, error=e.message)
+        raise HTTPException(
+            status_code=e.status_code if e.status_code != 500 else status.HTTP_502_BAD_GATEWAY,
+            detail=f"Evolution API error: {e.message}",
+        )
+    except Exception as e:
+        logger.error("Unexpected error getting instance status", instance_id=instance_id, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get status for instance {instance_id}",
+        )
 
 
 @router.post("/{instance_id}/connect")
 async def connect_instance(instance_id: str, db: Session = Depends(get_db)):
-    """Connect instance to WhatsApp"""
-    return {"message": f"Connect instance {instance_id} - to be implemented"}
+    """
+    Connect a WhatsApp instance by fetching the QR code.
+
+    - **instance_id**: The Evolution API instance name.
+    - Returns QR code (base64) for scanning with WhatsApp mobile app.
+    """
+    try:
+        result = await evolution_api.get_instance_qrcode(instance_id)
+
+        qr_code = (
+            result.get("qrcode", {}).get("base64")
+            or result.get("base64")
+            or result.get("code")
+            or result.get("qrcode", {}).get("code")
+        )
+
+        if not qr_code:
+            status_result = await evolution_api.get_instance_status(instance_id)
+            state = status_result.get("instance", {}).get("state") or status_result.get("state", "unknown")
+            return {
+                "instance_id": instance_id,
+                "qr_code": None,
+                "status": state,
+                "message": f"Instance is already {state}. No QR code available.",
+            }
+
+        return {
+            "instance_id": instance_id,
+            "qr_code": qr_code,
+            "status": "connecting",
+            "message": "Scan the QR code with WhatsApp to connect",
+        }
+
+    except EvolutionAPIError as e:
+        logger.error("Failed to connect instance", instance_id=instance_id, error=e.message)
+        raise HTTPException(
+            status_code=e.status_code if e.status_code != 500 else status.HTTP_502_BAD_GATEWAY,
+            detail=f"Evolution API error: {e.message}",
+        )
+    except Exception as e:
+        logger.error("Unexpected error connecting instance", instance_id=instance_id, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to connect instance {instance_id}",
+        )
 
 
-@router.post("/{instance_id}/disconnect")
-async def disconnect_instance(instance_id: str, db: Session = Depends(get_db)):
-    """Disconnect instance from WhatsApp"""
-    return {"message": f"Disconnect instance {instance_id} - to be implemented"}
+@router.delete("/{instance_id}/logout")
+async def logout_instance(instance_id: str, db: Session = Depends(get_db)):
+    """
+    Logout/disconnect a WhatsApp instance.
+
+    - **instance_id**: The Evolution API instance name.
+    - Logs out the WhatsApp session.
+    """
+    try:
+        result = await evolution_api.disconnect_instance(instance_id)
+
+        return {
+            "instance_id": instance_id,
+            "status": "disconnected",
+            "message": "WhatsApp instance logged out successfully",
+            "raw": result,
+        }
+
+    except EvolutionAPIError as e:
+        logger.error("Failed to logout instance", instance_id=instance_id, error=e.message)
+        raise HTTPException(
+            status_code=e.status_code if e.status_code != 500 else status.HTTP_502_BAD_GATEWAY,
+            detail=f"Evolution API error: {e.message}",
+        )
+    except Exception as e:
+        logger.error("Unexpected error logging out instance", instance_id=instance_id, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to logout instance {instance_id}",
+        )
+
+
+@router.delete("/{instance_id}")
+async def delete_instance_endpoint(instance_id: str, db: Session = Depends(get_db)):
+    """
+    Delete a WhatsApp instance from Evolution API.
+
+    - **instance_id**: The Evolution API instance name.
+    - Permanently deletes the instance.
+    """
+    try:
+        result = await evolution_api.delete_instance(instance_id)
+
+        return {
+            "instance_id": instance_id,
+            "status": "deleted",
+            "message": "WhatsApp instance deleted successfully",
+            "raw": result,
+        }
+
+    except EvolutionAPIError as e:
+        logger.error("Failed to delete instance", instance_id=instance_id, error=e.message)
+        raise HTTPException(
+            status_code=e.status_code if e.status_code != 500 else status.HTTP_502_BAD_GATEWAY,
+            detail=f"Evolution API error: {e.message}",
+        )
+    except Exception as e:
+        logger.error("Unexpected error deleting instance", instance_id=instance_id, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete instance {instance_id}",
+        )
+
+
+@router.post("/{instance_id}")
+async def create_or_connect_instance(
+    instance_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Create a new WhatsApp instance in Evolution API and connect it.
+
+    Requires authentication.
+
+    - **instance_id**: Name for the new Evolution API instance.
+    - Creates the instance and returns QR code for connection.
+    """
+    try:
+        create_result = await evolution_api.create_instance(instance_id)
+
+        qr_code = None
+        try:
+            connect_result = await evolution_api.get_instance_qrcode(instance_id)
+            qr_code = (
+                connect_result.get("qrcode", {}).get("base64")
+                or connect_result.get("base64")
+                or connect_result.get("code")
+            )
+        except EvolutionAPIError:
+            pass
+
+        return {
+            "instance_id": instance_id,
+            "status": "created",
+            "qr_code": qr_code,
+            "message": "Instance created. Scan QR code to connect." if qr_code else "Instance created. Use /connect to get QR code.",
+            "raw": create_result,
+        }
+
+    except EvolutionAPIError as e:
+        logger.error("Failed to create instance", instance_id=instance_id, error=e.message)
+        raise HTTPException(
+            status_code=e.status_code if e.status_code != 500 else status.HTTP_502_BAD_GATEWAY,
+            detail=f"Evolution API error: {e.message}",
+        )
+    except Exception as e:
+        logger.error("Unexpected error creating instance", instance_id=instance_id, error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create instance {instance_id}",
+        )

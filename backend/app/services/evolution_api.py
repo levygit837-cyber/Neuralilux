@@ -68,6 +68,24 @@ class EvolutionAPIService:
                 f"Failed to connect to Evolution API: {str(e)}"
             )
 
+    async def fetch_instances(self) -> list:
+        """
+        Fetch all WhatsApp instances from Evolution API.
+        
+        Evolution API v2 endpoint: GET /instance/fetchInstances
+        
+        Returns list of instance objects with their details.
+        """
+        logger.info("Fetching all instances from Evolution API")
+        result = await self._request(
+            "GET",
+            "/instance/fetchInstances",
+        )
+        # Evolution API returns a list directly or wrapped in an object
+        if isinstance(result, list):
+            return result
+        return result.get("instances", result.get("data", [result] if result else []))
+
     async def get_instance_qrcode(self, instance_name: str) -> Dict[str, Any]:
         """
         Get the QR code for connecting a WhatsApp instance.
