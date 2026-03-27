@@ -1,36 +1,38 @@
-version: '3.8'
-
 services:
   # Evolution API - WhatsApp Integration
   evolution-api:
-    image: atendai/evolution-api:v2.1.1
+    image: atendai/evolution-api:2.3.7
     container_name: neuralilux-evolution
     restart: unless-stopped
     ports:
       - "8081:8080"
     environment:
       # Server
-      - SERVER_URL=http://localhost:8080
+      - SERVER_TYPE=http
+      - SERVER_URL=http://localhost:8081
       - SERVER_PORT=8080
 
       # Database
       - DATABASE_ENABLED=true
       - DATABASE_PROVIDER=postgresql
-      - DATABASE_CONNECTION_URI=postgresql://evolution:evolution@postgres:5432/evolution
+      - DATABASE_CONNECTION_URI=postgresql://evolution:Ev0lution_S3cur3_P@ssw0rd!@postgres:5432/evolution
       - DATABASE_SAVE_DATA_INSTANCE=true
       - DATABASE_SAVE_DATA_NEW_MESSAGE=true
       - DATABASE_SAVE_MESSAGE_UPDATE=true
       - DATABASE_SAVE_DATA_CONTACTS=true
       - DATABASE_SAVE_DATA_CHATS=true
+      - DATABASE_SAVE_DATA_LABELS=true
 
-      # Redis
-      - REDIS_ENABLED=true
-      - REDIS_URI=redis://redis:6379
-      - REDIS_PREFIX_KEY=evolution
+      # Redis (Cache)
+      - CACHE_REDIS_ENABLED=true
+      - CACHE_REDIS_URI=redis://:redis_password@redis:6379
+      - CACHE_REDIS_PREFIX_KEY=evolution
+      - CACHE_REDIS_SAVE_INSTANCES=true
+      - CACHE_LOCAL_ENABLED=false
 
       # Authentication
-      - AUTHENTICATION_API_KEY=23878528834238489asmdkfnq
-      - AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES=true
+      - AUTHENTICATION_API_KEY=3v0lut10n_4P1_K3y_S3cur3_2026!
+      - AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES=false
 
       # Webhook
       - WEBHOOK_GLOBAL_ENABLED=true
@@ -38,8 +40,9 @@ services:
       - WEBHOOK_GLOBAL_WEBHOOK_BY_EVENTS=true
 
       # Logs
-      - LOG_LEVEL=info
-      - LOG_COLOR=true
+      - LOG_LEVEL=ERROR,WARN,INFO
+      - LOG_COLOR=false
+      - LOG_BAILEYS=error
 
       # QR Code
       - QRCODE_LIMIT=30
@@ -47,6 +50,12 @@ services:
 
       # Instance
       - DEL_INSTANCE=false
+
+      # Telemetry
+      - TELEMETRY=false
+
+      # Language
+      - LANGUAGE=pt
 
     volumes:
       - evolution_instances:/evolution/instances
@@ -103,24 +112,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # Qdrant Vector Database (for RAG)
-  qdrant:
-    image: qdrant/qdrant:latest
-    container_name: neuralilux-qdrant
-    restart: unless-stopped
-    ports:
-      - "6333:6333"
-      - "6334:6334"
-    volumes:
-      - qdrant_data:/qdrant/storage
-    networks:
-      - neuralilux-network
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
   # Backend API (FastAPI)
   backend:
     build:
@@ -139,10 +130,7 @@ services:
 
       # Evolution API
       - EVOLUTION_API_URL=http://evolution-api:8080
-      - EVOLUTION_API_KEY=change-me-in-production
-
-      # Qdrant
-      - QDRANT_URL=http://qdrant:6333
+      - EVOLUTION_API_KEY=3v0lut10n_4P1_K3y_S3cur3_2026!
 
       # RabbitMQ
       - RABBITMQ_URL=amqp://neuralilux:rabbitmq_password@rabbitmq:5672/neuralilux
@@ -170,11 +158,8 @@ services:
     depends_on:
       - postgres
       - redis
-      - qdrant
       - evolution-api
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-
-  # Message Queue Worker
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload  # Message Queue Worker
   worker:
     build:
       context: ./backend
@@ -189,8 +174,6 @@ services:
       # Evolution API
       - EVOLUTION_API_URL=http://evolution-api:8080
       - EVOLUTION_API_KEY=change-me-in-production
-      # Qdrant
-      - QDRANT_URL=http://qdrant:6333
       # RabbitMQ
       - RABBITMQ_URL=amqp://neuralilux:rabbitmq_password@rabbitmq:5672/neuralilux
       # Environment
@@ -252,23 +235,6 @@ services:
       timeout: 10s
       retries: 5
 
-  # Nginx Reverse Proxy (Production)
-  # nginx:
-  #   image: nginx:alpine
-  #   container_name: neuralilux-nginx
-  #   restart: unless-stopped
-  #   ports:
-  #     - "80:80"
-  #     - "443:443"
-  #   volumes:
-  #     - ./config/nginx.conf:/etc/nginx/nginx.conf
-  #     - ./config/ssl:/etc/nginx/ssl
-  #   networks:
-  #     - neuralilux-network
-  #   depends_on:
-  #     - backend
-  #     - frontend
-
 networks:
   neuralilux-network:
     driver: bridge
@@ -276,7 +242,6 @@ networks:
 volumes:
   postgres_data:
   redis_data:
-  qdrant_data:
   evolution_instances:
   evolution_store:
   backend_uploads:
