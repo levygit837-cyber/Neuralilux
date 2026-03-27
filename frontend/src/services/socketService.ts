@@ -1,7 +1,11 @@
 import { io, Socket } from 'socket.io-client'
-import { WS_URL } from '@/lib/constants'
+import { WS_URL, API_BASE_URL } from '@/lib/constants'
 import { useChatStore } from '@/stores/useChatStore'
 import type { Message } from '@/types/chat'
+
+// Feature flag to enable/disable socket.io connection
+// Set to true when backend has socket.io support
+const SOCKET_IO_ENABLED = false
 
 class SocketService {
   private socket: Socket | null = null
@@ -10,8 +14,72 @@ class SocketService {
   private reconnectDelay = 1000
   private pollingInterval: NodeJS.Timeout | null = null
   private isConnected = false
+  private isServerReachable = false
+  private connectivityCheckInterval: NodeJS.Timeout | null = null
 
-  connect(token?: string) {
+  /**
+   * Check if the backend server is reachable via HTTP
+   * Returns true if server responds, false otherwise
+   */
+  private async checkServerConnectivity(): Promise<boolean> {
+    try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 3000)
+      
+      const response = await fetch(`${API_BASE_URL}/health`, {
+        method: 'GET',
+        signal: controller.signal,
+      })
+      
+      clearTimeout(timeoutId)
+      return response.ok
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Initialize connectivity monitoring
+   * Periodically checks if server is reachable
+   */
+  startConnectivityMonitor(intervalMs: number = 10000) {
+    if (this.connectivityCheckInterval) return
+
+    // Initial check
+    this.checkServerConnectivity().then(reachable => {
+      this.isServerReachable = reachable
+    })
+
+    // Periodic checks
+    this.connectivityCheckInterval = setInterval(async () => {
+      this.isServerReachable = await this.checkServerConnectivity()
+    }, intervalMs)
+  }
+
+  stopConnectivityMonitor() {
+    if (this.connectivityCheckInterval) {
+      clearInterval(this.connectivityCheckInterval)
+      this.connectivityCheckInterval = null
+    }
+  }
+
+  async connect(token?: string) {
+    // Skip socket.io connection if feature is disabled
+    if (!SOCKET_IO_ENABLED) {
+      console.log('[Socket] Socket.io connection disabled - using HTTP polling mode')
+      this.startConnectivityMonitor()
+      this.startPolling()
+      return
+    }
+
+    // Check server connectivity before attempting socket connection
+    const isReachable = await this.checkServerConnectivity()
+    if (!isReachable) {
+      console.log('[Socket] Server not reachable - falling back to polling mode')
+      this.startPolling()
+      return
+    }
+
     if (this.socket?.connected) return
 
     this.socket = io(WS_URL, {
@@ -128,8 +196,13 @@ class SocketService {
     return this.isConnected
   }
 
+  getServerReachableStatus(): boolean {
+    return this.isServerReachable
+  }
+
   disconnect() {
     this.stopPolling()
+    this.stopConnectivityMonitor()
     if (this.socket) {
       this.socket.disconnect()
       this.socket = null
