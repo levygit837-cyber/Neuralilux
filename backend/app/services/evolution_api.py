@@ -116,7 +116,7 @@ class EvolutionAPIService:
         payload: Dict[str, Any] = {
             "instanceName": instance_name,
             "token": self.api_key,
-            "qrcode": True,
+            "integration": "WHATSAPP-BAILEYS",
         }
         if webhook_url:
             payload["webhook"] = webhook_url
@@ -148,12 +148,16 @@ class EvolutionAPIService:
         """
         Fetch all chats (conversations) for a WhatsApp instance.
         
+        Evolution API v2.3.7+ requires POST /chat/findChats/{instance}
+        with an empty JSON body.
+        
         Returns dict with array of chats from Evolution API.
         """
         logger.info("Fetching chats from Evolution API", instance=instance_name)
         result = await self._request(
-            "GET",
+            "POST",
             f"/chat/findChats/{instance_name}",
+            data={},
         )
         return result
 
@@ -192,6 +196,32 @@ class EvolutionAPIService:
             "POST",
             f"/chat/findMessages/{instance_name}",
             data=payload,
+        )
+        return result
+
+    async def fetch_contacts(
+        self,
+        instance_name: str,
+    ) -> Dict[str, Any]:
+        """
+        Fetch all contacts for a WhatsApp instance.
+
+        Evolution API v2.3.7+ uses POST /chat/findContacts/{instance}
+        with an empty JSON body.
+
+        Args:
+            instance_name: The Evolution API instance name.
+
+        Returns dict with array of contacts.
+        """
+        logger.info(
+            "Fetching contacts from Evolution API",
+            instance=instance_name,
+        )
+        result = await self._request(
+            "POST",
+            f"/chat/findContacts/{instance_name}",
+            data={},
         )
         return result
 

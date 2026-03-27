@@ -17,7 +17,7 @@ class Settings(BaseSettings):
 
     # Evolution API
     EVOLUTION_API_URL: str = "http://localhost:8081"
-    EVOLUTION_API_KEY: str = "23878528834238489asmdkfnq"
+    EVOLUTION_API_KEY: str = "3v0lut10n_4P1_K3y_S3cur3_2026!"
 
     # Qdrant
     QDRANT_URL: str = "http://localhost:6333"
