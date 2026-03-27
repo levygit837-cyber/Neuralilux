@@ -144,5 +144,93 @@ class EvolutionAPIService:
         return result
 
 
+    async def fetch_chats(self, instance_name: str) -> Dict[str, Any]:
+        """
+        Fetch all chats (conversations) for a WhatsApp instance.
+        
+        Returns dict with array of chats from Evolution API.
+        """
+        logger.info("Fetching chats from Evolution API", instance=instance_name)
+        result = await self._request(
+            "GET",
+            f"/chat/findChats/{instance_name}",
+        )
+        return result
+
+    async def fetch_messages(
+        self,
+        instance_name: str,
+        remote_jid: str,
+        page: int = 1,
+        offset: int = 20,
+    ) -> Dict[str, Any]:
+        """
+        Fetch message history for a specific chat.
+        
+        Args:
+            instance_name: The Evolution API instance name.
+            remote_jid: WhatsApp contact JID (e.g., 5511999999999@s.whatsapp.net).
+            page: Page number for pagination.
+            offset: Number of messages per page.
+        
+        Returns dict with array of messages.
+        """
+        logger.info(
+            "Fetching messages from Evolution API",
+            instance=instance_name,
+            remote_jid=remote_jid,
+        )
+        payload = {
+            "where": {
+                "key": {
+                    "remoteJid": remote_jid,
+                }
+            },
+            "limit": offset,
+        }
+        result = await self._request(
+            "POST",
+            f"/chat/findMessages/{instance_name}",
+            data=payload,
+        )
+        return result
+
+    async def send_text_message(
+        self,
+        instance_name: str,
+        remote_jid: str,
+        text: str,
+    ) -> Dict[str, Any]:
+        """
+        Send a text message via WhatsApp.
+        
+        Args:
+            instance_name: The Evolution API instance name.
+            remote_jid: WhatsApp contact JID (e.g., 5511999999999@s.whatsapp.net).
+            text: The text message content.
+        
+        Returns dict with message details including key.id (message_id).
+        """
+        logger.info(
+            "Sending text message via Evolution API",
+            instance=instance_name,
+            remote_jid=remote_jid,
+        )
+        payload = {
+            "number": remote_jid.split("@")[0] if "@" in remote_jid else remote_jid,
+            "text": text,
+            "options": {
+                "delay": 1200,
+                "presence": "composing",
+            },
+        }
+        result = await self._request(
+            "POST",
+            f"/message/sendText/{instance_name}",
+            data=payload,
+        )
+        return result
+
+
 # Singleton instance
 evolution_api = EvolutionAPIService()
