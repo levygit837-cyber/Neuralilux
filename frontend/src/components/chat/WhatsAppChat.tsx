@@ -1,21 +1,24 @@
 'use client'
 
 import { useEffect, useCallback, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { useChatStore } from '@/stores/useChatStore'
 import { chatService } from '@/services/chatService'
 import { socketService } from '@/services/socketService'
 import { useAuthStore } from '@/stores/useAuthStore'
+import { useInstanceStore } from '@/stores/useInstanceStore'
 import { ChatSidebar } from './ChatSidebar'
 import { ChatHeader } from './ChatHeader'
 import { MessageBubble } from './MessageBubble'
 import { ChatInput } from './ChatInput'
 import { EmptyChat } from './EmptyChat'
 import { TypingIndicator } from './TypingIndicator'
-import { POLLING_INTERVAL, TYPING_TIMEOUT } from '@/lib/constants'
+import { POLLING_INTERVAL, TYPING_TIMEOUT, ROUTES } from '@/lib/constants'
 import { generateTempId, formatTimestamp } from '@/lib/utils'
 import type { Message } from '@/types/chat'
 
 export function WhatsAppChat() {
+  const router = useRouter()
   const {
     conversations,
     messages,
@@ -39,6 +42,7 @@ export function WhatsAppChat() {
   } = useChatStore()
 
   const { token } = useAuthStore()
+  const { selectedInstance } = useInstanceStore()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const pollingRef = useRef<NodeJS.Timeout | null>(null)
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -47,6 +51,13 @@ export function WhatsAppChat() {
   const activeConversation = conversations.find((c) => c.id === activeConversationId)
   const activeMessages = activeConversationId ? messages[activeConversationId] || [] : []
   const isTyping = activeConversationId ? typingIndicators[activeConversationId] || false : false
+
+  // Redirect to home if no instance selected
+  useEffect(() => {
+    if (!selectedInstance) {
+      router.push(ROUTES.HOME)
+    }
+  }, [selectedInstance, router])
 
   // Scroll to bottom when new messages arrive
   const scrollToBottom = useCallback(() => {
@@ -71,13 +82,17 @@ export function WhatsAppChat() {
     }
   }, [token])
 
-  // Load conversations on mount
+  // Load conversations on mount (filtered by instance)
   useEffect(() => {
+    if (!selectedInstance) return
+
     const loadConversations = async () => {
       setLoadingConversations(true)
       try {
-        const data = await chatService.getConversations()
-        setConversations(data)
+        const response = await chatService.getConversations({
+          instance_id: selectedInstance.instanceId,
+        })
+        setConversations(response.items)
       } catch (error) {
         console.error('Failed to load conversations:', error)
         setError('Failed to load conversations')
@@ -92,8 +107,10 @@ export function WhatsAppChat() {
     pollingRef.current = setInterval(async () => {
       if (!isConnected) {
         try {
-          const data = await chatService.getConversations()
-          setConversations(data)
+          const response = await chatService.getConversations({
+            instance_id: selectedInstance.instanceId,
+          })
+          setConversations(response.items)
         } catch (error) {
           console.error('Polling error:', error)
         }
@@ -105,7 +122,7 @@ export function WhatsAppChat() {
         clearInterval(pollingRef.current)
       }
     }
-  }, [setConversations, setLoadingConversations, setError, isConnected])
+  }, [selectedInstance, setConversations, setLoadingConversations, setError, isConnected])
 
   // Load messages when conversation is selected
   useEffect(() => {
@@ -114,8 +131,8 @@ export function WhatsAppChat() {
     const loadMessages = async () => {
       setLoadingMessages(true)
       try {
-        const data = await chatService.getMessages(activeConversationId)
-        setMessages(activeConversationId, data)
+        const response = await chatService.getMessages(activeConversationId)
+        setMessages(activeConversationId, response.items)
         resetUnreadCount(activeConversationId)
         socketService.joinConversation(activeConversationId)
       } catch (error) {
@@ -141,8 +158,8 @@ export function WhatsAppChat() {
 
     const messagePolling = setInterval(async () => {
       try {
-        const data = await chatService.getMessages(activeConversationId)
-        setMessages(activeConversationId, data)
+        const response = await chatService.getMessages(activeConversationId)
+        setMessages(activeConversationId, response.items)
       } catch (error) {
         console.error('Message polling error:', error)
       }
@@ -181,9 +198,17 @@ export function WhatsAppChat() {
       }
 
       // Always send via HTTP as backup/confirmation
-      const sentMessage = await chatService.sendMessage(activeConversationId, content)
-      
+      const response = await chatService.sendMessage(activeConversationId, content)
+
       // Update temp message with real message data
+      const sentMessage: Message = {
+        id: response.message_id || tempId,
+        conversationId: activeConversationId,
+        content,
+        timestamp: new Date(),
+        isOutgoing: true,
+        status: 'sent',
+      }
       updateMessage(tempId, sentMessage)
       updateConversationLastMessage(
         activeConversationId,
