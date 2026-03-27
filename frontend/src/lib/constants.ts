@@ -1,0 +1,1 @@
+/home/levybonito/Projetos/Neuralilux/frontend/src/lib/constants.ts
