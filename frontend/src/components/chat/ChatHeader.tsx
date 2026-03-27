@@ -5,9 +5,10 @@ interface ChatHeaderProps {
   name: string
   avatar?: string
   status?: string
+  isOnline?: boolean
 }
 
-export function ChatHeader({ name, avatar, status }: ChatHeaderProps) {
+export function ChatHeader({ name, avatar, status, isOnline }: ChatHeaderProps) {
   return (
     <div className="flex items-center justify-between border-b border-border-color bg-card px-6 py-4">
       <div className="flex items-center gap-4">
@@ -18,7 +19,18 @@ export function ChatHeader({ name, avatar, status }: ChatHeaderProps) {
         />
         <div>
           <h2 className="text-base font-semibold text-text-light">{name}</h2>
-          {status && <p className="text-xs text-text-muted">{status}</p>}
+          {status && (
+            <div className="flex items-center gap-2">
+              {isOnline !== undefined && (
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    isOnline ? 'bg-green-500' : 'bg-gray-500'
+                  }`}
+                />
+              )}
+              <p className="text-xs text-text-muted">{status}</p>
+            </div>
+          )}
         </div>
       </div>
       <div className="flex items-center gap-3">

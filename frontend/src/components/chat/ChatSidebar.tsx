@@ -6,12 +6,14 @@ interface ChatSidebarProps {
   conversations: Conversation[]
   activeConversationId: string | null
   onSelectConversation: (id: string) => void
+  isLoading?: boolean
 }
 
 export function ChatSidebar({
   conversations,
   activeConversationId,
   onSelectConversation,
+  isLoading,
 }: ChatSidebarProps) {
   return (
     <div className="flex h-full w-[380px] flex-col border-r border-border-color bg-card">
@@ -20,14 +22,24 @@ export function ChatSidebar({
         <SearchInput placeholder="Buscar..." />
       </div>
       <div className="flex-1 overflow-y-auto px-2">
-        {conversations.map((conversation) => (
-          <ChatListItem
-            key={conversation.id}
-            conversation={conversation}
-            isActive={conversation.id === activeConversationId}
-            onClick={() => onSelectConversation(conversation.id)}
-          />
-        ))}
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          </div>
+        ) : conversations.length === 0 ? (
+          <div className="flex items-center justify-center py-8 text-sm text-text-muted">
+            Nenhuma conversa encontrada
+          </div>
+        ) : (
+          conversations.map((conversation) => (
+            <ChatListItem
+              key={conversation.id}
+              conversation={conversation}
+              isActive={conversation.id === activeConversationId}
+              onClick={() => onSelectConversation(conversation.id)}
+            />
+          ))
+        )}
       </div>
     </div>
   )

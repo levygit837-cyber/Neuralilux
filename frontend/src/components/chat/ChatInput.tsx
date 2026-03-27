@@ -4,10 +4,11 @@ import { Button } from '@/components/ui/Button'
 
 interface ChatInputProps {
   onSendMessage: (message: string) => void
+  onTyping?: () => void
   disabled?: boolean
 }
 
-export function ChatInput({ onSendMessage, disabled }: ChatInputProps) {
+export function ChatInput({ onSendMessage, onTyping, disabled }: ChatInputProps) {
   const [message, setMessage] = useState('')
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -16,6 +17,11 @@ export function ChatInput({ onSendMessage, disabled }: ChatInputProps) {
       onSendMessage(message.trim())
       setMessage('')
     }
+  }
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setMessage(e.target.value)
+    onTyping?.()
   }
 
   return (
@@ -29,7 +35,7 @@ export function ChatInput({ onSendMessage, disabled }: ChatInputProps) {
       <input
         type="text"
         value={message}
-        onChange={(e) => setMessage(e.target.value)}
+        onChange={handleChange}
         placeholder="Digite uma mensagem..."
         disabled={disabled}
         className="flex-1 rounded-md border-none bg-dark px-4 py-3 text-sm text-text-light placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50"
