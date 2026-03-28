@@ -1,0 +1,57 @@
+commands:
+  install_backend: cd backend && source venv/bin/activate && pip install -r requirements.txt
+  install_frontend: cd frontend && npm install
+  test: cd backend && source venv/bin/activate && python -m pytest tests/ -v
+  test_backend: cd backend && source venv/bin/activate && python -m pytest tests/ -v --tb=short
+  typecheck_frontend: cd frontend && npx tsc --noEmit
+  lint_frontend: cd frontend && npx eslint src/ --ext .ts,.tsx
+
+services:
+  lm_studio:
+    start: "# LM Studio is started manually by the user — do not start programmatically"
+    stop: "# Do not stop LM Studio"
+    healthcheck: curl -sf http://localhost:1234/v1/models
+    port: 1234
+    depends_on: []
+
+  redis:
+    start: docker compose up -d redis
+    stop: docker compose stop redis
+    healthcheck: docker exec neuralilux-redis redis-cli -a redis_password ping
+    port: 6380
+    depends_on: []
+
+  postgres:
+    start: docker compose up -d postgres
+    stop: docker compose stop postgres
+    healthcheck: docker exec neuralilux-postgres pg_isready -U neuralilux
+    port: 5434
+    depends_on: []
+
+  rabbitmq:
+    start: docker compose up -d rabbitmq
+    stop: docker compose stop rabbitmq
+    healthcheck: docker exec neuralilux-rabbitmq rabbitmq-diagnostics -q ping
+    port: 5672
+    depends_on: []
+
+  evolution_api:
+    start: docker compose up -d evolution-api
+    stop: docker compose stop evolution-api
+    healthcheck: curl -sf http://localhost:8081/
+    port: 8081
+    depends_on: [postgres, redis]
+
+  backend:
+    start: cd /home/levybonito/Projetos/Neuralilux && ./start-backend.sh
+    stop: lsof -ti :8000 | xargs kill -9 2>/dev/null || true
+    healthcheck: curl -sf http://localhost:8000/docs
+    port: 8000
+    depends_on: [redis, postgres, lm_studio]
+
+  frontend:
+    start: cd /home/levybonito/Projetos/Neuralilux/frontend && npm run dev
+    stop: lsof -ti :3000 | xargs kill -9 2>/dev/null || true
+    healthcheck: curl -sf http://localhost:3000
+    port: 3000
+    depends_on: []
