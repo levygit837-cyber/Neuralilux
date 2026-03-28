@@ -16,10 +16,10 @@ import { socketService } from '@/services/socketService'
 import { useAuthStore } from '@/stores/useAuthStore'
 
 const AGENT_SESSION_STORAGE_KEY = 'neuralilux-agent-session-id'
-const MIN_THINKING_INDICATOR_MS = 350
-const MIN_THINKING_STREAMING_MS = 300
-const THINKING_DRAIN_BATCH_SIZE = 2
-const THINKING_DRAIN_INTERVAL_MS = 16
+const MIN_THINKING_INDICATOR_MS = 0
+const MIN_THINKING_STREAMING_MS = 0
+const THINKING_DRAIN_BATCH_SIZE = 20
+const THINKING_DRAIN_INTERVAL_MS = 8
 const THINKING_END_GRACE_MS = 800
 const AUTO_SCROLL_EPSILON_PX = 1
 const AUTO_SCROLL_MIN_STEP_PX = 6
@@ -1452,9 +1452,8 @@ export function AgentChat() {
         </div>
         <div ref={sessionsMenuRef} className="relative flex items-center gap-2">
           <button
-            className={`rounded-lg p-2 transition-colors hover:bg-hover ${
-              isSessionMenuOpen ? 'bg-hover' : ''
-            }`}
+            className={`rounded-lg p-2 transition-colors hover:bg-hover ${isSessionMenuOpen ? 'bg-hover' : ''
+              }`}
             type="button"
             aria-label="Sessões recentes"
             onClick={() => setIsSessionMenuOpen((current) => !current)}
@@ -1494,11 +1493,10 @@ export function AgentChat() {
                         key={session.id}
                         type="button"
                         onClick={() => void handleSelectSession(session.id)}
-                        className={`flex w-full flex-col rounded-xl border px-4 py-3 text-left transition-colors ${
-                          isActive
+                        className={`flex w-full flex-col rounded-xl border px-4 py-3 text-left transition-colors ${isActive
                             ? 'border-primary bg-primary/10'
                             : 'border-border-color bg-dark hover:border-primary/40 hover:bg-hover'
-                        }`}
+                          }`}
                       >
                         <div className="flex items-center justify-between gap-3">
                           <p className="line-clamp-1 text-sm font-semibold text-text-light">
