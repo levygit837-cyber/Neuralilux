@@ -1,95 +1,70 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
 import { MetricCard } from '@/components/dashboard/MetricCard'
-import { ActivityItem } from '@/components/dashboard/ActivityItem'
-import { BusinessMetricCard } from '@/components/dashboard/BusinessMetricCard'
-import type { Metric, Activity, BusinessMetric } from '@/types/dashboard'
-
-// Mock data
-const metrics: Metric[] = [
-  {
-    label: 'Conversas Ativas',
-    value: '1,247',
-    change: '+18%',
-    trend: 'up',
-  },
-  {
-    label: 'Tempo de Resposta',
-    value: '2.3s',
-    change: '-24%',
-    trend: 'up',
-  },
-  {
-    label: 'Taxa de Conversão',
-    value: '68%',
-    change: '+5%',
-    trend: 'up',
-  },
-  {
-    label: 'Satisfação (NPS)',
-    value: '8.7',
-    change: '+0.3',
-    trend: 'up',
-  },
-]
-
-const activities: Activity[] = [
-  {
-    id: '1',
-    title: 'Nova conversa iniciada',
-    description: 'Maria Silva - Clínica Saúde Total',
-    timestamp: '2 min',
-    type: 'message',
-  },
-  {
-    id: '2',
-    title: 'Agendamento confirmado',
-    description: 'João Pedro - Consulta às 14h',
-    timestamp: '5 min',
-    type: 'appointment',
-  },
-  {
-    id: '3',
-    title: 'Venda concluída',
-    description: 'Loja Fashion - R$ 450,00',
-    timestamp: '15 min',
-    type: 'sale',
-  },
-]
-
-const businessMetrics: BusinessMetric[] = [
-  {
-    id: '1',
-    name: 'Clínica Saúde Total',
-    metrics: [
-      { label: 'Consultas Hoje', value: '12' },
-      { label: 'Taxa de Confirmação', value: '94%' },
-      { label: 'Tempo Médio', value: '3.2min' },
-    ],
-  },
-  {
-    id: '2',
-    name: 'Loja Fashion Store',
-    metrics: [
-      { label: 'Vendas Hoje', value: 'R$ 3.547' },
-      { label: 'Conversões', value: '23' },
-      { label: 'Ticket Médio', value: 'R$ 154' },
-    ],
-  },
-  {
-    id: '3',
-    name: 'Varejo Express',
-    metrics: [
-      { label: 'Atendimentos', value: '45' },
-      { label: 'Satisfação', value: '4.8/5' },
-      { label: 'Tempo Resposta', value: '1.8min' },
-    ],
-  },
-]
+import { dashboardService, DashboardStats, DashboardMetrics } from '@/services/dashboardService'
+import type { Metric } from '@/types/dashboard'
 
 export default function DashboardPage() {
+  const [stats, setStats] = useState<DashboardStats | null>(null)
+  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    const loadDashboardData = async () => {
+      try {
+        const [statsData, metricsData] = await Promise.all([
+          dashboardService.getStats(),
+          dashboardService.getMetrics(),
+        ])
+        setStats(statsData)
+        setMetrics(metricsData)
+      } catch (error) {
+        console.error('Failed to load dashboard data:', error)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    loadDashboardData()
+  }, [])
+
+  const formatNumber = (num: number): string => {
+    if (num >= 1000) {
+      return `${(num / 1000).toFixed(1)}k`
+    }
+    return num.toString()
+  }
+
+  const dashboardMetrics: Metric[] = [
+    {
+      label: 'Total de Conversas',
+      value: formatNumber(stats?.total_conversations ?? 0),
+      change: `+${metrics?.messages_today ?? 0} hoje`,
+      trend: 'up' as const,
+    },
+    {
+      label: 'Total de Mensagens',
+      value: formatNumber(stats?.total_messages ?? 0),
+      change: `${metrics?.messages_this_week ?? 0} esta semana`,
+      trend: 'up' as const,
+    },
+    {
+      label: 'Taxa de Sucesso',
+      value: `${metrics?.response_rate ?? 0}%`,
+      change: 'respostas enviadas',
+      trend: 'up' as const,
+    },
+    {
+      label: 'Satisfação dos Clientes',
+      value: formatNumber(stats?.total_contacts ?? 0),
+      change: 'contatos ativos',
+      trend: 'up' as const,
+    },
+  ]
+
   return (
     <div className="flex min-h-screen bg-dark">
       <Sidebar />
@@ -100,38 +75,55 @@ export default function DashboardPage() {
             {/* Metrics Section */}
             <section>
               <h2 className="mb-4 text-xl font-bold text-text-light">Visão Geral</h2>
-              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-                {metrics.map((metric, index) => (
-                  <MetricCard key={index} metric={metric} />
-                ))}
-              </div>
+              {isLoading ? (
+                <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+                  {[1, 2, 3, 4].map((i) => (
+                    <div
+                      key={i}
+                      className="h-32 animate-pulse rounded-lg bg-card"
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+                  {dashboardMetrics.map((metric, index) => (
+                    <MetricCard key={index} metric={metric} />
+                  ))}
+                </div>
+              )}
             </section>
 
-            {/* Business Metrics Section */}
+            {/* Info Section */}
             <section>
               <h2 className="mb-4 text-xl font-bold text-text-light">
-                Métricas de Atendimento
-              </h2>
-              <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-                {businessMetrics.map((businessMetric) => (
-                  <BusinessMetricCard
-                    key={businessMetric.id}
-                    businessMetric={businessMetric}
-                  />
-                ))}
-              </div>
-            </section>
-
-            {/* Recent Activity Section */}
-            <section>
-              <h2 className="mb-4 text-xl font-bold text-text-light">
-                Atividade Recente
+                Informações
               </h2>
               <div className="rounded-lg border border-border-color bg-card p-6">
-                <div className="divide-y divide-border">
-                  {activities.map((activity) => (
-                    <ActivityItem key={activity.id} activity={activity} />
-                  ))}
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between border-b border-border-color pb-4">
+                    <span className="text-text-gray">Mensagens Hoje</span>
+                    <span className="font-semibold text-text-light">
+                      {isLoading ? '...' : metrics?.messages_today ?? 0}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between border-b border-border-color pb-4">
+                    <span className="text-text-gray">Mensagens Esta Semana</span>
+                    <span className="font-semibold text-text-light">
+                      {isLoading ? '...' : metrics?.messages_this_week ?? 0}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between border-b border-border-color pb-4">
+                    <span className="text-text-gray">Taxa de Sucesso</span>
+                    <span className="font-semibold text-text-light">
+                      {isLoading ? '...' : `${metrics?.response_rate ?? 0}%`}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-text-gray">Satisfação dos Clientes</span>
+                    <span className="font-semibold text-text-light">
+                      {isLoading ? '...' : stats?.total_contacts ?? 0}
+                    </span>
+                  </div>
                 </div>
               </div>
             </section>

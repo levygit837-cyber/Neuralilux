@@ -1,14 +1,14 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import QRCode from 'react-qr-code'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
 import { Button } from '@/components/ui/Button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card'
-import { useInstanceStore } from '@/stores/useInstanceStore'
-import { instanceService } from '@/services/instanceService'
+import { useInstanceStore, SelectedInstance } from '@/stores/useInstanceStore'
+import { instanceService, EvolutionInstance } from '@/services/instanceService'
 import { ROUTES } from '@/lib/constants'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 
@@ -37,25 +37,83 @@ const STATUS_CONFIG: Record<
 
 export default function QrPage() {
   const router = useRouter()
-  const { selectedInstance, clearInstance } = useInstanceStore()
+  const { selectedInstance, setSelectedInstance, clearInstance } = useInstanceStore()
 
   const [status, setStatus] = useState<InstanceStatus>('disconnected')
   const [qrCode, setQrCode] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null)
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const qrRefreshIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const [resolvedInstance, setResolvedInstance] = useState<SelectedInstance | null>(
+    selectedInstance
+  )
+  const [isResolvingInstance, setIsResolvingInstance] = useState(true)
 
-  const instanceName = selectedInstance?.instanceName
+  const instanceName = resolvedInstance?.instanceName
+
+  const mapToSelectedInstance = useCallback((instance: EvolutionInstance): SelectedInstance => ({
+    instanceName: instance.instance.instanceName,
+    instanceId: instance.instance.instanceId,
+    status: instance.instance.state || instance.socket?.state || 'close',
+  }), [])
+
+  const resolveInstance = useCallback(async () => {
+    setIsResolvingInstance(true)
+
+    try {
+      const instances = await instanceService.fetchInstances()
+      const availableInstances = instances.map(mapToSelectedInstance)
+
+      if (availableInstances.length === 0) {
+        setResolvedInstance(null)
+        return
+      }
+
+      const normalizedSelectedName = selectedInstance?.instanceName?.toLowerCase()
+      const matchingInstance =
+        availableInstances.find(
+          (instance) =>
+            instance.instanceId === selectedInstance?.instanceId ||
+            instance.instanceName.toLowerCase() === normalizedSelectedName
+        ) ||
+        availableInstances.find((instance) => instance.status === 'open') ||
+        availableInstances[0]
+
+      setResolvedInstance(matchingInstance)
+
+      if (
+        !selectedInstance ||
+        matchingInstance.instanceId !== selectedInstance.instanceId ||
+        matchingInstance.instanceName !== selectedInstance.instanceName ||
+        matchingInstance.status !== selectedInstance.status
+      ) {
+        setSelectedInstance(matchingInstance)
+      }
+    } catch (resolveError) {
+      console.error('Failed to resolve active instance for QR:', resolveError)
+      setResolvedInstance(selectedInstance ?? null)
+    } finally {
+      setIsResolvingInstance(false)
+    }
+  }, [mapToSelectedInstance, selectedInstance, setSelectedInstance])
 
   const stopPolling = useCallback(() => {
-    if (pollingInterval) {
-      clearInterval(pollingInterval)
-      setPollingInterval(null)
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current)
+      pollingIntervalRef.current = null
     }
-  }, [pollingInterval])
+  }, [])
+
+  const stopQrRefresh = useCallback(() => {
+    if (qrRefreshIntervalRef.current) {
+      clearInterval(qrRefreshIntervalRef.current)
+      qrRefreshIntervalRef.current = null
+    }
+  }, [])
 
   const checkStatus = useCallback(async () => {
-    if (!instanceName) return
+    if (!instanceName) return null
     try {
       const response = await instanceService.getConnectionState(instanceName)
       const state = response.instance.state
@@ -63,66 +121,117 @@ export default function QrPage() {
         setStatus('connected')
         setQrCode(null)
         stopPolling()
+        stopQrRefresh()
       } else if (state === 'connecting') {
         setStatus('connecting')
       } else {
         setStatus('disconnected')
       }
+      return state
     } catch {
-      // Silent fail for polling
+      return null
     }
-  }, [instanceName, stopPolling])
+  }, [instanceName, stopPolling, stopQrRefresh])
 
   const startPolling = useCallback(() => {
     stopPolling()
-    const interval = setInterval(checkStatus, 3000)
-    setPollingInterval(interval)
+    pollingIntervalRef.current = setInterval(() => {
+      void checkStatus()
+    }, 3000)
   }, [checkStatus, stopPolling])
 
-  useEffect(() => {
-    if (instanceName) {
-      checkStatus()
-    }
-    return () => stopPolling()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [instanceName])
-
-  useEffect(() => {
-    if (status === 'connected') {
-      stopPolling()
-    }
-  }, [status, stopPolling])
-
-  const handleConnect = async () => {
+  const requestQrCode = useCallback(async () => {
     if (!instanceName) {
       setError('Nenhuma instância selecionada')
       return
     }
+
+    const response = await instanceService.connectInstance(instanceName)
+    setStatus('connecting')
+
+    if (response.base64) {
+      setQrCode(response.base64)
+    }
+  }, [instanceName])
+
+  const startQrRefresh = useCallback(() => {
+    stopQrRefresh()
+    qrRefreshIntervalRef.current = setInterval(async () => {
+      try {
+        const state = await checkStatus()
+        if (state === 'open') {
+          return
+        }
+
+        await requestQrCode()
+      } catch {
+        // QR might not be ready yet
+      }
+    }, 3000)
+  }, [checkStatus, requestQrCode, stopQrRefresh])
+
+  useEffect(() => {
+    void resolveInstance()
+  }, [resolveInstance])
+
+  useEffect(() => {
+    if (!instanceName) {
+      return undefined
+    }
+
+    let isMounted = true
+
+    const initializeQrFlow = async () => {
+      const currentState = await checkStatus()
+
+      if (!isMounted || currentState === 'open') {
+        return
+      }
+
+      try {
+        await requestQrCode()
+        if (!isMounted) {
+          return
+        }
+
+        startPolling()
+        startQrRefresh()
+      } catch {
+        if (isMounted) {
+          setError('Erro ao conectar. Verifique se a Evolution API está rodando.')
+        }
+      }
+    }
+
+    void initializeQrFlow()
+
+    return () => {
+      isMounted = false
+      stopPolling()
+      stopQrRefresh()
+    }
+  }, [instanceName, checkStatus, requestQrCode, startPolling, startQrRefresh, stopPolling, stopQrRefresh])
+
+  useEffect(() => {
+    if (!isResolvingInstance && !resolvedInstance) {
+      router.push(ROUTES.HOME)
+    }
+  }, [isResolvingInstance, resolvedInstance, router])
+
+  useEffect(() => {
+    if (status === 'connected') {
+      stopPolling()
+      stopQrRefresh()
+    }
+  }, [status, stopPolling, stopQrRefresh])
+
+  const handleConnect = async () => {
     setIsLoading(true)
     setError(null)
     try {
-      const response = await instanceService.connectInstance(instanceName)
-      setStatus('connecting')
-
-      if (response.base64) {
-        setQrCode(response.base64)
-      }
-
+      await requestQrCode()
       startPolling()
-
-      // Refresh QR code periodically
-      const qrInterval = setInterval(async () => {
-        try {
-          const qrResponse = await instanceService.connectInstance(instanceName)
-          if (qrResponse.base64) {
-            setQrCode(qrResponse.base64)
-          }
-        } catch {
-          // QR might not be ready yet
-        }
-      }, 3000)
-
-      setTimeout(() => clearInterval(qrInterval), 120000)
+      startQrRefresh()
     } catch {
       setError('Erro ao conectar. Verifique se a Evolution API está rodando.')
     } finally {
@@ -139,6 +248,7 @@ export default function QrPage() {
       setStatus('disconnected')
       setQrCode(null)
       stopPolling()
+      stopQrRefresh()
     } catch {
       setError('Erro ao desconectar.')
     } finally {
@@ -154,7 +264,15 @@ export default function QrPage() {
   const statusConfig = STATUS_CONFIG[status]
 
   // No instance selected
-  if (!selectedInstance) {
+  if (isResolvingInstance && !resolvedInstance) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-dark text-text-gray">
+        Carregando instância...
+      </div>
+    )
+  }
+
+  if (!resolvedInstance) {
     return (
       <div className="flex min-h-screen bg-dark">
         <Sidebar />
@@ -180,13 +298,13 @@ export default function QrPage() {
     <div className="flex min-h-screen bg-dark">
       <Sidebar />
       <div className="flex flex-1 flex-col">
-        <Header title={`QR Code - ${selectedInstance.instanceName}`} />
+        <Header title={`QR Code - ${resolvedInstance.instanceName}`} />
         <main className="flex flex-1 items-center justify-center p-8">
           <Card className="w-full max-w-md">
             <CardHeader className="items-center text-center">
               <CardTitle>Conexão WhatsApp</CardTitle>
               <CardDescription>
-                Instância: <strong>{selectedInstance.instanceName}</strong>
+                Instância: <strong>{resolvedInstance.instanceName}</strong>
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">

@@ -5,9 +5,12 @@ export const ROUTES = {
   HOME: '/',
   LOGIN: '/login',
   DASHBOARD: '/dashboard',
+  AGENT: '/agent',
+  STOCK: '/estoque',
   CHAT: '/chat',
   QR: '/qr',
   INSTANCES: '/instances',
+  SETTINGS: '/settings',
 } as const
 
 export const POLLING_INTERVAL = 3000 // 3 seconds for polling fallback

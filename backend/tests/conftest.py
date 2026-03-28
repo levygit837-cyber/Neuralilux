@@ -1,4 +1,6 @@
 import pytest
+import pytest_asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
@@ -71,4 +73,38 @@ def auth_headers(client):
 
     token = response.json()["access_token"]
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+def mock_realtime_event_bus():
+    """Mock realtime event bus for testing"""
+    mock_bus = MagicMock()
+    mock_bus.publish = AsyncMock()
+    return mock_bus
+
+
+@pytest.fixture
+def mock_inference_service():
+    """Mock inference service for testing"""
+    mock_service = MagicMock()
+    mock_service.astream_chat_completion_with_thinking = AsyncMock()
+    mock_service.chat_completion = AsyncMock()
+    return mock_service
+
+
+@pytest.fixture
+def mock_super_realtime_event_bus():
+    """Mock super agent realtime event bus for testing"""
+    mock_bus = MagicMock()
+    mock_bus.publish = AsyncMock()
+    return mock_bus
+
+
+@pytest.fixture
+def mock_super_inference_service():
+    """Mock super agent inference service for testing"""
+    mock_service = MagicMock()
+    mock_service.astream_chat_completion_with_thinking = AsyncMock()
+    mock_service.chat_completion = AsyncMock()
+    return mock_service
 

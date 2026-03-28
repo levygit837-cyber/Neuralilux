@@ -36,8 +36,11 @@ services:
 
       # Webhook
       - WEBHOOK_GLOBAL_ENABLED=true
-      - WEBHOOK_GLOBAL_URL=http://backend:8000/api/v1/webhooks/evolution
+      - WEBHOOK_GLOBAL_URL=http://host.docker.internal:8000/api/v1/webhooks/evolution
       - WEBHOOK_GLOBAL_WEBHOOK_BY_EVENTS=true
+      - WEBSOCKET_ENABLED=true
+      - WEBSOCKET_GLOBAL_EVENTS=true
+      - WEBSOCKET_ALLOWED_HOSTS=*
 
       # Logs
       - LOG_LEVEL=ERROR,WARN,INFO
@@ -62,11 +65,13 @@ services:
       - evolution_store:/evolution/store
     networks:
       - neuralilux-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - postgres
       - redis
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8080/"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -112,54 +117,65 @@ services:
       timeout: 5s
       retries: 5
 
-  # Backend API (FastAPI)
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: neuralilux-backend
-    restart: unless-stopped
-    ports:
-      - "8000:8000"
-    environment:
-      # Database
-      - DATABASE_URL=postgresql://neuralilux:neuralilux_password@postgres:5432/neuralilux
 
-      # Redis
-      - REDIS_URL=redis://:redis_password@redis:6379/0
+  # Backend API (FastAPI) - REMOVED: Run locally on host
+  # backend:
+  #   build:
+  #     context: ./backend
+  #     dockerfile: Dockerfile
+  #   container_name: neuralilux-backend
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8000:8000"
+  #   environment:
+  #     # Database
+  #     - DATABASE_URL=postgresql://neuralilux:neuralilux_password@postgres:5432/neuralilux
 
-      # Evolution API
-      - EVOLUTION_API_URL=http://evolution-api:8080
-      - EVOLUTION_API_KEY=3v0lut10n_4P1_K3y_S3cur3_2026!
+  #     # Redis
+  #     - REDIS_URL=redis://:redis_password@redis:6379/0
 
-      # RabbitMQ
-      - RABBITMQ_URL=amqp://neuralilux:rabbitmq_password@rabbitmq:5672/neuralilux
+  #     # Evolution API
+  #     - EVOLUTION_API_URL=http://evolution-api:8080
+  #     - EVOLUTION_API_KEY=3v0lut10n_4P1_K3y_S3cur3_2026!
+  #     - EVOLUTION_WEBSOCKET_ENABLED=true
 
-      # JWT
-      - SECRET_KEY=change-me-in-production-use-strong-secret
-      - ALGORITHM=HS256
-      - ACCESS_TOKEN_EXPIRE_MINUTES=30
+  #     # RabbitMQ
+  #     - RABBITMQ_URL=amqp://neuralilux:rabbitmq_password@rabbitmq:5672/neuralilux
 
-      # OpenAI
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
+  #     # JWT
+  #     - SECRET_KEY=change-me-in-production-use-strong-secret
+  #     - ALGORITHM=HS256
+  #     - ACCESS_TOKEN_EXPIRE_MINUTES=30
 
-      # Anthropic
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+  #     # OpenAI
+  #     - OPENAI_API_KEY=${OPENAI_API_KEY}
 
-      # Environment
-      - ENVIRONMENT=development
-      - DEBUG=true
+  #     # Anthropic
+  #     - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
 
-    volumes:
-      - ./backend:/app
-      - backend_uploads:/app/uploads
-    networks:
-      - neuralilux-network
-    depends_on:
-      - postgres
-      - redis
-      - evolution-api
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload  # Message Queue Worker
+  #     # LM Studio (host machine)
+  #     - LM_STUDIO_URL=${LM_STUDIO_URL:-http://172.17.0.1:1234}
+  #     - LM_STUDIO_MODEL=${LM_STUDIO_MODEL:-nvidia/nemotron-3-nano-4b}
+  #     - LM_STUDIO_DISABLE_THINKING=${LM_STUDIO_DISABLE_THINKING:-true}
+  #     - AGENT_RESPONSE_MAX_TOKENS=${AGENT_RESPONSE_MAX_TOKENS:-250}
+
+  #     # Environment
+  #     - ENVIRONMENT=development
+  #     - DEBUG=true
+
+  #   volumes:
+  #     - ./backend:/app
+  #     - ./output:/app/output:ro
+  #     - backend_uploads:/app/uploads
+  #   networks:
+  #     - neuralilux-network
+  #   extra_hosts:
+  #     - "host.docker.internal:host-gateway"
+  #   depends_on:
+  #     - postgres
+  #     - redis
+  #     - evolution-api
+  #   command: uvicorn app.main:socket_app --host 0.0.0.0 --port 8000 --reload
   worker:
     build:
       context: ./backend
@@ -173,23 +189,41 @@ services:
       - REDIS_URL=redis://:redis_password@redis:6379/0
       # Evolution API
       - EVOLUTION_API_URL=http://evolution-api:8080
-      - EVOLUTION_API_KEY=change-me-in-production
+      - EVOLUTION_API_KEY=3v0lut10n_4P1_K3y_S3cur3_2026!
       # RabbitMQ
       - RABBITMQ_URL=amqp://neuralilux:rabbitmq_password@rabbitmq:5672/neuralilux
+      # LM Studio (host machine)
+      - LM_STUDIO_URL=${LM_STUDIO_URL:-http://host.docker.internal:1235}
+      - LM_STUDIO_MODEL=${LM_STUDIO_MODEL:-qwen3.5-4b:claude-4.5-opus-distilled-v2}
+      - LM_STUDIO_DISABLE_THINKING=${LM_STUDIO_DISABLE_THINKING:-true}
+      - AGENT_RESPONSE_MAX_TOKENS=${AGENT_RESPONSE_MAX_TOKENS:-250}
       # Environment
       - ENVIRONMENT=development
       - DEBUG=true
     volumes:
       - ./backend:/app
+      - ./output:/app/output:ro
       - backend_uploads:/app/uploads
     networks:
       - neuralilux-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - postgres
       - redis
       - rabbitmq
       - evolution-api
+      - lmstudio-proxy
     command: python scripts/run_worker.py
+
+  lmstudio-proxy:
+    image: alpine/socat
+    container_name: neuralilux-lmstudio-proxy
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - TCP-LISTEN:1235,bind=0.0.0.0,reuseaddr,fork
+      - TCP:127.0.0.1:1234
 
   # Frontend (Next.js)
   frontend:
@@ -209,8 +243,6 @@ services:
       - /app/.next
     networks:
       - neuralilux-network
-    depends_on:
-      - backend
     command: npm run dev
 
   # RabbitMQ Message Queue
@@ -246,3 +278,4 @@ volumes:
   evolution_store:
   backend_uploads:
   rabbitmq_data:
+  lmstudio_data:

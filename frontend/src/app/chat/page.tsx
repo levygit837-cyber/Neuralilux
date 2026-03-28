@@ -6,11 +6,11 @@ import { WhatsAppChat } from '@/components/chat/WhatsAppChat'
 
 export default function ChatPage() {
   return (
-    <div className="flex min-h-screen bg-dark">
+    <div className="flex h-screen overflow-hidden bg-dark">
       <Sidebar />
-      <div className="flex flex-1 flex-col">
+      <div className="flex min-h-0 flex-1 flex-col">
         <Header title="Chat" />
-        <div className="flex-1 overflow-hidden">
+        <div className="min-h-0 flex-1 overflow-hidden">
           <WhatsAppChat />
         </div>
       </div>

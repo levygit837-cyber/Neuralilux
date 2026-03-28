@@ -4,7 +4,7 @@ import structlog
 
 from app.core.database import get_db
 from app.api.v1.endpoints.auth import get_current_user
-from app.services.inference_service import inference_service
+from app.services.inference_service import get_inference_service
 from app.schemas.conversations import (
     InferenceRequest, InferenceResponse,
     InferenceChatRequest, InferenceChatResponse
@@ -58,6 +58,7 @@ async def message_inference(
     try:
         logger.info("Processing inference request", message_count=len(data.messages))
         
+        inference_service = get_inference_service()
         result = await inference_service.chat_completion(
             messages=data.messages,
             system_prompt=data.system_prompt,
@@ -93,6 +94,7 @@ async def inference_chat(
         InferenceChatResponse with the generated response
     """
     try:
+        inference_service = get_inference_service()
         response = await inference_service.generate_response(
             user_message=data.message,
             conversation_history=data.conversation_history,
@@ -121,6 +123,7 @@ async def inference_health_check():
         Health status of the LM Studio connection
     """
     try:
+        inference_service = get_inference_service()
         is_healthy = await inference_service.health_check()
         return {
             "status": "healthy" if is_healthy else "unhealthy",

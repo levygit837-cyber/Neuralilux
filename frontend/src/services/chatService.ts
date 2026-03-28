@@ -1,86 +1,369 @@
 import axios from 'axios'
-import { API_BASE_URL } from '@/lib/constants'
-import { getCookie } from '@/lib/cookieStorage'
-import type { Message, Conversation } from '@/types/chat'
+import { formatTimestamp } from '@/lib/utils'
+import type { Conversation, Message, MessageStatus } from '@/types/chat'
 
-// Create axios instance with auth interceptor
-const api = axios.create({
-  baseURL: API_BASE_URL,
+const EVOLUTION_API_URL =
+  process.env.NEXT_PUBLIC_EVOLUTION_API_URL || 'http://localhost:8081'
+const EVOLUTION_API_KEY =
+  process.env.NEXT_PUBLIC_EVOLUTION_API_KEY || '3v0lut10n_4P1_K3y_S3cur3_2026!'
+
+const evolutionApi = axios.create({
+  baseURL: EVOLUTION_API_URL,
+  headers: {
+    apikey: EVOLUTION_API_KEY,
+    'Content-Type': 'application/json',
+  },
 })
 
-// Add auth token to requests (token is stored in cookies via Zustand persist)
-api.interceptors.request.use((config) => {
-  try {
-    // Try to get token from Zustand persisted cookie storage
-    const authStorage = getCookie('auth-storage')
-    if (authStorage) {
-      const parsed = JSON.parse(authStorage)
-      const token = parsed?.state?.token
-      if (token) {
-        config.headers.Authorization = `Bearer ${token}`
+interface EvolutionContact {
+  remoteJid?: string
+  pushName?: string
+  profilePicUrl?: string | null
+}
+
+interface EvolutionChat {
+  remoteJid?: string
+  pushName?: string
+  profilePicUrl?: string | null
+  updatedAt?: string
+  unreadCount?: number
+  lastMessage?: EvolutionMessageRecord
+}
+
+interface EvolutionMessageRecord {
+  id?: string
+  key?: {
+    id?: string
+    fromMe?: boolean
+    remoteJid?: string
+  }
+  pushName?: string
+  message?: Record<string, unknown>
+  messageTimestamp?: number | string
+  status?: string
+}
+
+interface EvolutionMessagesResponse {
+  messages?: {
+    total?: number
+    records?: EvolutionMessageRecord[]
+  }
+}
+
+export interface ConversationsResponse {
+  items: Conversation[]
+  total: number
+  skip: number
+  limit: number
+}
+
+export interface MessagesResponse {
+  items: Message[]
+  total: number
+  skip: number
+  limit: number
+}
+
+const MEDIA_FALLBACK_BY_TYPE: Record<string, string> = {
+  imageMessage: '[Imagem]',
+  videoMessage: '[Video]',
+  audioMessage: '[Audio]',
+  documentMessage: '[Documento]',
+  stickerMessage: '[Sticker]',
+  contactMessage: '[Contato]',
+  locationMessage: '[Localizacao]',
+  liveLocationMessage: '[Localizacao ao vivo]',
+}
+
+function isDirectContact(remoteJid?: string): remoteJid is string {
+  if (!remoteJid) {
+    return false
+  }
+
+  return (
+    !remoteJid.endsWith('@g.us') &&
+    !remoteJid.endsWith('@broadcast') &&
+    remoteJid !== 'status@broadcast'
+  )
+}
+
+function extractPhone(remoteJid?: string): string {
+  if (!remoteJid) {
+    return 'Contato'
+  }
+
+  return remoteJid.split('@')[0] || remoteJid
+}
+
+function extractDisplayName(
+  remoteJid?: string,
+  primaryName?: string | null,
+  fallbackName?: string | null
+): string {
+  return primaryName?.trim() || fallbackName?.trim() || extractPhone(remoteJid)
+}
+
+function extractMessageText(message?: Record<string, unknown>): string {
+  if (!message) {
+    return ''
+  }
+
+  const getNestedText = (value: unknown): string => {
+    if (!value || typeof value !== 'object') {
+      return ''
+    }
+
+    const record = value as Record<string, unknown>
+
+    if (typeof record.conversation === 'string' && record.conversation.trim()) {
+      return record.conversation
+    }
+
+    if (
+      typeof record.text === 'string' &&
+      record.text.trim() &&
+      !('templateMessage' in record)
+    ) {
+      return record.text
+    }
+
+    if (typeof record.caption === 'string' && record.caption.trim()) {
+      return record.caption
+    }
+
+    if (
+      typeof record.selectedDisplayText === 'string' &&
+      record.selectedDisplayText.trim()
+    ) {
+      return record.selectedDisplayText
+    }
+
+    if (typeof record.title === 'string' && record.title.trim()) {
+      return record.title
+    }
+
+    if (typeof record.name === 'string' && record.name.trim()) {
+      return record.name
+    }
+
+    if ('message' in record) {
+      const nested = getNestedText(record.message)
+      if (nested) {
+        return nested
       }
     }
-  } catch (error) {
-    console.warn('Failed to get auth token:', error)
+
+    for (const [key, nestedValue] of Object.entries(record)) {
+      const nested = getNestedText(nestedValue)
+      if (nested) {
+        return nested
+      }
+
+      if (MEDIA_FALLBACK_BY_TYPE[key]) {
+        return MEDIA_FALLBACK_BY_TYPE[key]
+      }
+    }
+
+    return ''
   }
-  return config
-})
+
+  return getNestedText(message)
+}
+
+function normalizeMessageStatus(status?: string): MessageStatus {
+  switch (status) {
+    case 'READ':
+    case 'read':
+      return 'read'
+    case 'DELIVERY_ACK':
+    case 'delivered':
+      return 'delivered'
+    case 'SERVER_ACK':
+    case 'sent':
+      return 'sent'
+    case 'PENDING':
+    case 'pending':
+      return 'pending'
+    default:
+      return 'sent'
+  }
+}
+
+function normalizeTimestamp(value?: number | string): Date {
+  if (typeof value === 'number') {
+    return new Date(value * 1000)
+  }
+
+  if (typeof value === 'string') {
+    const asNumber = Number(value)
+    if (!Number.isNaN(asNumber) && value.trim() !== '') {
+      return new Date(asNumber * 1000)
+    }
+
+    return new Date(value)
+  }
+
+  return new Date()
+}
+
+function mapConversation(
+  remoteJid: string,
+  contact?: EvolutionContact,
+  chat?: EvolutionChat
+): Conversation {
+  const updatedAt = chat?.updatedAt ? new Date(chat.updatedAt) : null
+
+  return {
+    id: remoteJid,
+    name: extractDisplayName(remoteJid, contact?.pushName, chat?.pushName),
+    avatar: contact?.profilePicUrl || chat?.profilePicUrl || undefined,
+    lastMessage: extractMessageText(chat?.lastMessage?.message) || '',
+    timestamp: updatedAt ? formatTimestamp(updatedAt) : '',
+    unreadCount: chat?.unreadCount || 0,
+    isOnline: false,
+  }
+}
+
+function mapMessage(remoteJid: string, record: EvolutionMessageRecord): Message {
+  const content = extractMessageText(record.message) || '[Mensagem sem texto]'
+  const isOutgoing = Boolean(record.key?.fromMe)
+
+  return {
+    id: record.key?.id || record.id || `${remoteJid}-${record.messageTimestamp || Date.now()}`,
+    conversationId: remoteJid,
+    content,
+    timestamp: normalizeTimestamp(record.messageTimestamp),
+    isOutgoing,
+    status: normalizeMessageStatus(record.status),
+    sender: isOutgoing
+      ? undefined
+      : {
+          name: extractDisplayName(remoteJid, record.pushName),
+        },
+  }
+}
+
+function buildSortedConversations(
+  contacts: EvolutionContact[],
+  chats: EvolutionChat[]
+): Conversation[] {
+  const contactsByJid = new Map<string, EvolutionContact>()
+  const chatsByJid = new Map<string, EvolutionChat>()
+
+  contacts.filter((contact) => isDirectContact(contact.remoteJid)).forEach((contact) => {
+    contactsByJid.set(contact.remoteJid!, contact)
+  })
+
+  chats.filter((chat) => isDirectContact(chat.remoteJid)).forEach((chat) => {
+    chatsByJid.set(chat.remoteJid!, chat)
+  })
+
+  const remoteJids = new Set<string>([
+    ...contactsByJid.keys(),
+    ...chatsByJid.keys(),
+  ])
+
+  return Array.from(remoteJids)
+    .map((remoteJid) =>
+      mapConversation(remoteJid, contactsByJid.get(remoteJid), chatsByJid.get(remoteJid))
+    )
+    .sort((first, second) => {
+      const firstUpdatedAt = chatsByJid.get(first.id)?.updatedAt
+      const secondUpdatedAt = chatsByJid.get(second.id)?.updatedAt
+
+      if (firstUpdatedAt && secondUpdatedAt) {
+        return new Date(secondUpdatedAt).getTime() - new Date(firstUpdatedAt).getTime()
+      }
+
+      if (secondUpdatedAt) {
+        return 1
+      }
+
+      if (firstUpdatedAt) {
+        return -1
+      }
+
+      return first.name.localeCompare(second.name, 'pt-BR')
+    })
+}
 
 export const chatService = {
-  async getConversations(): Promise<Conversation[]> {
-    const response = await api.get('/api/v1/conversations')
-    // Backend returns paginated response: { items: [...], total, skip, limit }
-    const paginatedData = response.data
-    const backendConversations = paginatedData.items || paginatedData
-    
-    // Transform backend conversation format to frontend format
-    return backendConversations.map((conv: any) => ({
-      id: conv.id,
-      name: conv.contact?.name || conv.contact_name || conv.remote_jid?.split('@')[0] || 'Unknown',
-      avatar: conv.contact?.profile_pic_url || conv.contact_avatar,
-      lastMessage: conv.last_message_preview || '',
-      timestamp: conv.last_message_at ? new Date(conv.last_message_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '',
-      unreadCount: conv.unread_count || 0,
-      isOnline: false, // Backend doesn't provide this info directly
-    }))
-  },
+  async getConversations(instanceName: string): Promise<ConversationsResponse> {
+    const [contactsResponse, chatsResponse] = await Promise.all([
+      evolutionApi.post<EvolutionContact[]>(`/chat/findContacts/${instanceName}`, {}),
+      evolutionApi.post<EvolutionChat[]>(`/chat/findChats/${instanceName}`, {}),
+    ])
 
-  async getMessages(conversationId: string): Promise<Message[]> {
-    const response = await api.get(`/api/v1/conversations/${conversationId}/messages`)
-    // Backend returns paginated response: { items: [...], total, skip, limit }
-    const paginatedData = response.data
-    const messages = paginatedData.items || paginatedData
-    
-    // Transform backend message format to frontend format
-    return messages.map((msg: any) => ({
-      id: msg.id || msg.message_id,
-      conversationId: conversationId,
-      content: msg.content || msg.caption || '',
-      timestamp: new Date(msg.timestamp || msg.created_at),
-      isOutgoing: msg.is_from_me || msg.direction === 'outgoing',
-      status: msg.status || 'sent',
-      sender: msg.sender,
-    }))
-  },
+    const contacts = Array.isArray(contactsResponse.data) ? contactsResponse.data : []
+    const chats = Array.isArray(chatsResponse.data) ? chatsResponse.data : []
+    const items = buildSortedConversations(contacts, chats)
 
-  async sendMessage(conversationId: string, content: string): Promise<Message> {
-    const response = await api.post(`/api/v1/conversations/${conversationId}/messages`, {
-      content,
-      message_type: 'text',
-    })
-    // Backend returns SendMessageResponse, transform to Message format
-    const data = response.data
     return {
-      id: data.message_id || data.id,
-      conversationId: conversationId,
-      content: content,
-      timestamp: new Date(),
-      isOutgoing: true,
-      status: data.status || 'sent',
+      items,
+      total: items.length,
+      skip: 0,
+      limit: items.length,
     }
   },
 
-  async markAsRead(conversationId: string, messageId: string): Promise<void> {
-    await api.post(`/api/v1/conversations/${conversationId}/messages/${messageId}/read`)
+  async getMessages(
+    instanceName: string,
+    remoteJid: string,
+    params?: { limit?: number }
+  ): Promise<MessagesResponse> {
+    const response = await evolutionApi.post<EvolutionMessagesResponse>(
+      `/chat/findMessages/${instanceName}`,
+      {
+        where: {
+          key: {
+            remoteJid,
+          },
+        },
+        limit: params?.limit ?? 50,
+      }
+    )
+
+    const records = response.data.messages?.records || []
+    const items = records
+      .map((record) => mapMessage(remoteJid, record))
+      .sort((first, second) => first.timestamp.getTime() - second.timestamp.getTime())
+
+    return {
+      items,
+      total: response.data.messages?.total ?? items.length,
+      skip: 0,
+      limit: params?.limit ?? 50,
+    }
+  },
+
+  async sendMessage(
+    instanceName: string,
+    remoteJid: string,
+    content: string
+  ): Promise<{
+    success: boolean
+    message_id: string
+    status: string
+    message: string
+  }> {
+    const response = await evolutionApi.post(`/message/sendText/${instanceName}`, {
+      number: extractPhone(remoteJid),
+      text: content,
+      options: {
+        delay: 1200,
+        presence: 'composing',
+      },
+    })
+
+    return {
+      success: true,
+      message_id: response.data?.key?.id || response.data?.id || '',
+      status: response.data?.status || 'sent',
+      message: 'Mensagem enviada',
+    }
+  },
+
+  async markAsRead(): Promise<void> {
+    // Evolution API chat endpoints used here do not expose a compatible read endpoint in this frontend flow.
   },
 }
