@@ -697,6 +697,37 @@ class TestInferenceService:
         assert captured_payload["messages"][0]["content"] == "Be helpful"
 
     @pytest.mark.asyncio
+    async def test_chat_completion_requests_disable_thinking_flag(self):
+        """Test that LM Studio requests attempt to disable thinking when configured."""
+        from app.services.inference_service import InferenceService
+
+        service = InferenceService()
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "model": "local-model",
+            "choices": [{
+                "message": {"content": "Resposta curta"},
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+        }
+
+        captured_payload = {}
+
+        async def mock_post(*args, **kwargs):
+            captured_payload.update(kwargs.get("json", {}))
+            return mock_response
+
+        with patch("httpx.AsyncClient.post", side_effect=mock_post):
+            await service.chat_completion(
+                messages=[{"role": "user", "content": "Oi"}]
+            )
+
+        assert captured_payload["enableThinking"] is False
+
+    @pytest.mark.asyncio
     async def test_generate_response(self):
         """Test generate_response method."""
         from app.services.inference_service import InferenceService

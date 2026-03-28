@@ -146,11 +146,14 @@ class InferenceService:
         Stream chat completion from LM Studio with thinking detection.
         
         Uses SSE streaming to receive tokens in real-time and parses
-        \<think\>...\</think\> blocks. Yields typed tuples:
+        <think>...</think> blocks. Yields typed tuples:
         - ('thinking', token): Content inside think blocks
         - ('response', token): Content outside think blocks
         
-        For models that never emit \<think\> tags, all tokens yield as thinking.
+        Also supports reasoning-specific deltas such as `delta.reasoning`
+        and `delta.reasoning_content` from OpenAI-compatible providers.
+        If no reasoning markers are present, streamed `content` is treated
+        as final response content.
         Handles tag splitting across chunk boundaries gracefully.
         
         Args:
@@ -185,15 +188,61 @@ class InferenceService:
         
         # State machine for think tag detection
         in_think_block = False
-        think_open_buffer = ""  # Buffer for partial <think> tag
-        think_close_buffer = ""  # Buffer for partial </think> tag
-        
+        content_buffer = ""
+
         THINK_OPEN = "<think>"
         THINK_CLOSE = "</think>"
-        saw_think_tag = False
-        
-        # Track tokens for fallback mode (model without <think> tags)
-        all_tokens = []
+
+        def _yield_segment(kind: str, text: str):
+            if text:
+                yield (kind, text)
+
+        def _drain_content_buffer(final: bool = False):
+            nonlocal content_buffer, in_think_block
+
+            while content_buffer:
+                if in_think_block:
+                    close_index = content_buffer.find(THINK_CLOSE)
+                    if close_index != -1:
+                        think_text = content_buffer[:close_index]
+                        yield from _yield_segment("thinking", think_text)
+                        content_buffer = content_buffer[close_index + len(THINK_CLOSE):]
+                        in_think_block = False
+                        continue
+
+                    if final:
+                        yield from _yield_segment("thinking", content_buffer)
+                        content_buffer = ""
+                        break
+
+                    safe_len = max(0, len(content_buffer) - (len(THINK_CLOSE) - 1))
+                    if safe_len == 0:
+                        break
+
+                    yield from _yield_segment("thinking", content_buffer[:safe_len])
+                    content_buffer = content_buffer[safe_len:]
+                    continue
+
+                open_index = content_buffer.find(THINK_OPEN)
+                if open_index != -1:
+                    prefix = content_buffer[:open_index]
+                    if prefix:
+                        yield from _yield_segment("response", prefix)
+                    content_buffer = content_buffer[open_index + len(THINK_OPEN):]
+                    in_think_block = True
+                    continue
+
+                if final:
+                    yield from _yield_segment("response", content_buffer)
+                    content_buffer = ""
+                    break
+
+                safe_len = max(0, len(content_buffer) - (len(THINK_OPEN) - 1))
+                if safe_len == 0:
+                    break
+
+                yield from _yield_segment("response", content_buffer[:safe_len])
+                content_buffer = content_buffer[safe_len:]
         
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -244,6 +293,8 @@ class InferenceService:
                             
                             # Check for [DONE] sentinel
                             if line == "data: [DONE]":
+                                for item in _drain_content_buffer(final=True):
+                                    yield item
                                 logger.info("Stream completed with [DONE]")
                                 return
                             
@@ -268,104 +319,18 @@ class InferenceService:
                                     continue
                                 
                                 delta = choices[0].get("delta", {})
+                                reasoning = delta.get("reasoning") or delta.get("reasoning_content") or ""
                                 content = delta.get("content", "")
+
+                                if reasoning:
+                                    yield ("thinking", reasoning)
                                 
                                 if not content:
                                     continue
                                 
-                                # Process content through state machine
-                                i = 0
-                                while i < len(content):
-                                    char = content[i]
-                                    
-                                    if in_think_block:
-                                        # Check for closing tag
-                                        if char == "<":
-                                            # Check if this starts </think>
-                                            remaining = content[i:]
-                                            if remaining.startswith(THINK_CLOSE):
-                                                # Complete close tag found
-                                                in_think_block = False
-                                                i += len(THINK_CLOSE)
-                                                think_close_buffer = ""
-                                                continue
-                                            else:
-                                                # Start buffering potential close tag
-                                                think_close_buffer = char
-                                                i += 1
-                                                continue
-                                        else:
-                                            # Check if we were buffering a potential close tag
-                                            if think_close_buffer:
-                                                # The buffered content was actually content, not a tag
-                                                # Check if current char continues the expected pattern
-                                                expected_next = THINK_CLOSE[len(think_close_buffer)]
-                                                if char == expected_next:
-                                                    think_close_buffer += char
-                                                    if think_close_buffer == THINK_CLOSE:
-                                                        # Complete close tag found
-                                                        in_think_block = False
-                                                        i += 1
-                                                        think_close_buffer = ""
-                                                        continue
-                                                    i += 1
-                                                    continue
-                                                else:
-                                                    # Not a tag - flush buffer as content
-                                                    for buffered_char in think_close_buffer:
-                                                        yield ("thinking", buffered_char)
-                                                    think_close_buffer = ""
-                                                    yield ("thinking", char)
-                                                    i += 1
-                                            else:
-                                                # Normal content in think block
-                                                yield ("thinking", char)
-                                                i += 1
-                                    else:
-                                        # Outside think block - check for opening tag
-                                        if char == "<":
-                                            remaining = content[i:]
-                                            if remaining.startswith(THINK_OPEN):
-                                                # Complete open tag found
-                                                in_think_block = True
-                                                saw_think_tag = True
-                                                i += len(THINK_OPEN)
-                                                think_open_buffer = ""
-                                                continue
-                                            else:
-                                                # Start buffering potential open tag
-                                                think_open_buffer = char
-                                                i += 1
-                                                continue
-                                        else:
-                                            # Check if we were buffering a potential open tag
-                                            if think_open_buffer:
-                                                expected_next = THINK_OPEN[len(think_open_buffer)]
-                                                if char == expected_next:
-                                                    think_open_buffer += char
-                                                    if think_open_buffer == THINK_OPEN:
-                                                        # Complete open tag found
-                                                        in_think_block = True
-                                                        saw_think_tag = True
-                                                        i += 1
-                                                        think_open_buffer = ""
-                                                        continue
-                                                    i += 1
-                                                    continue
-                                                else:
-                                                    # Not a tag - flush buffer as response
-                                                    for buffered_char in think_open_buffer:
-                                                        yield ("response", buffered_char)
-                                                        all_tokens.append(buffered_char)
-                                                    think_open_buffer = ""
-                                                    yield ("response", char)
-                                                    all_tokens.append(char)
-                                                    i += 1
-                                            else:
-                                                # Normal content outside think block
-                                                yield ("response", char)
-                                                all_tokens.append(char)
-                                                i += 1
+                                content_buffer += content
+                                for item in _drain_content_buffer():
+                                    yield item
                     
                     # Process any remaining buffered SSE data
                     if sse_buffer.strip():
@@ -379,27 +344,14 @@ class InferenceService:
                                 if choices:
                                     content = choices[0].get("delta", {}).get("content", "")
                                     if content:
-                                        # Flush any remaining buffered tag
-                                        if in_think_block and think_close_buffer:
-                                            for c in think_close_buffer:
-                                                yield ("thinking", c)
-                                        elif think_open_buffer:
-                                            for c in think_open_buffer:
-                                                yield ("response", c)
-                                        elif in_think_block:
-                                            for c in content:
-                                                yield ("thinking", c)
-                                        else:
-                                            for c in content:
-                                                yield ("response", c)
+                                        content_buffer += content
+                                        for item in _drain_content_buffer(final=True):
+                                            yield item
                             except (json.JSONDecodeError, IndexError):
                                 pass
-                    
-                    # End of stream - if never saw  <think>, yield all accumulated as thinking
-                    if not in_think_block and think_open_buffer:
-                        # Never completed an open tag, this is all response content
-                        for c in think_open_buffer:
-                            yield ("response", c)
+
+                    for item in _drain_content_buffer(final=True):
+                        yield item
                             
         except httpx.TimeoutException as e:
             logger.error("Streaming timeout", error=str(e))
@@ -478,14 +430,42 @@ class InferenceService:
                     
                     data = response.json()
                     
-                    # Extract response content
+                    # Extract response content from multiple possible fields
                     content = ""
+                    reasoning_content = ""
                     if data.get("choices") and len(data["choices"]) > 0:
                         message = data["choices"][0].get("message", {})
+                        
+                        # Try standard content field first
                         content = (message.get("content", "") or "").strip()
+                        
+                        # If content is empty, try reasoning fields (used by Nemotron, DeepSeek, etc.)
+                        if not content:
+                            reasoning_content = (
+                                message.get("reasoning", "") or 
+                                message.get("reasoning_content", "") or 
+                                ""
+                            ).strip()
+                            if reasoning_content:
+                                content = reasoning_content
+                                logger.info(
+                                    "Extracted content from reasoning field",
+                                    content_length=len(content),
+                                )
+                        
+                        # Also check for thinking field
+                        if not content:
+                            thinking = (message.get("thinking", "") or "").strip()
+                            if thinking:
+                                content = thinking
+                                logger.info(
+                                    "Extracted content from thinking field",
+                                    content_length=len(content),
+                                )
                     
                     return {
                         "content": content,
+                        "reasoning_content": reasoning_content,
                         "model": data.get("model", self.model),
                         "usage": data.get("usage", {}),
                         "finish_reason": data.get("choices", [{}])[0].get("finish_reason"),
@@ -570,5 +550,82 @@ class InferenceService:
             return False
 
 
-# Singleton instance
-inference_service = InferenceService()
+def get_inference_service(agent_type: str = "default"):
+    """
+    Get the appropriate inference service based on agent type and configuration.
+    
+    Args:
+        agent_type: Type of agent requesting the service
+            - "super_agent": Uses SUPER_AGENT_INFERENCE_PROVIDER settings
+            - "whatsapp_agent": Uses WHATSAPP_AGENT_INFERENCE_PROVIDER settings
+            - "default": Uses global AGENT_INFERENCE_PROVIDER setting (fallback)
+    
+    Returns:
+        InferenceService or GeminiInferenceService based on agent configuration
+    """
+    from app.core.config import settings
+    
+    # Determine provider based on agent type
+    if agent_type == "super_agent":
+        provider = settings.SUPER_AGENT_INFERENCE_PROVIDER.lower()
+        logger.info("Getting inference service for Super Agent", provider=provider)
+    elif agent_type == "whatsapp_agent":
+        provider = settings.WHATSAPP_AGENT_INFERENCE_PROVIDER.lower()
+        logger.info("Getting inference service for WhatsApp Agent", provider=provider)
+    else:
+        provider = settings.AGENT_INFERENCE_PROVIDER.lower()
+        logger.info("Getting inference service (default)", provider=provider)
+    
+    # Return appropriate service based on provider
+    if provider == "gemini":
+        from app.services.gemini_inference_service import gemini_inference_service
+        if gemini_inference_service is None:
+            logger.warning(
+                "Gemini provider selected but GEMINI_API_KEY not configured, falling back to LM Studio",
+                agent_type=agent_type,
+            )
+            # Fallback to LM Studio with agent-specific model if available
+            if agent_type == "super_agent":
+                return InferenceService(
+                    model=settings.SUPER_AGENT_LM_STUDIO_MODEL,
+                    max_tokens=settings.SUPER_AGENT_LM_STUDIO_MAX_TOKENS,
+                    temperature=settings.SUPER_AGENT_LM_STUDIO_TEMPERATURE,
+                )
+            return InferenceService()
+        
+        # Use agent-specific Gemini model if configured
+        if agent_type == "whatsapp_agent":
+            logger.info(
+                "Using Gemini inference service for WhatsApp Agent",
+                model=settings.WHATSAPP_AGENT_GEMINI_MODEL,
+            )
+            # Return a configured Gemini service with WhatsApp-specific settings
+            from app.services.gemini_inference_service import GeminiInferenceService
+            return GeminiInferenceService(
+                api_key=settings.GEMINI_API_KEY,
+                model=settings.WHATSAPP_AGENT_GEMINI_MODEL,
+                max_tokens=settings.WHATSAPP_AGENT_GEMINI_MAX_TOKENS,
+                temperature=settings.WHATSAPP_AGENT_GEMINI_TEMPERATURE,
+            )
+        
+        logger.info("Using Gemini inference service", model=settings.GEMINI_MODEL)
+        return gemini_inference_service
+    else:
+        # LM Studio provider
+        if agent_type == "super_agent":
+            logger.info(
+                "Using LM Studio inference service for Super Agent",
+                model=settings.SUPER_AGENT_LM_STUDIO_MODEL,
+            )
+            return InferenceService(
+                model=settings.SUPER_AGENT_LM_STUDIO_MODEL,
+                max_tokens=settings.SUPER_AGENT_LM_STUDIO_MAX_TOKENS,
+                temperature=settings.SUPER_AGENT_LM_STUDIO_TEMPERATURE,
+            )
+        
+        logger.info("Using LM Studio inference service", model=settings.LM_STUDIO_MODEL)
+        return InferenceService()
+
+
+# Singleton instance - dynamically selected based on configuration
+inference_service = get_inference_service()

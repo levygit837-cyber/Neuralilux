@@ -1,8 +1,5 @@
-"""
-Super Agent Graph Nodes - Individual nodes for the LangGraph.
-"""
+"""Super Agent LangGraph nodes."""
 from typing import Dict, Any
-import json
 import structlog
 
 from app.core.langchain_compat import patch_forward_ref_evaluate_for_python312
@@ -11,8 +8,13 @@ patch_forward_ref_evaluate_for_python312()
 
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from app.super_agents.state import SuperAgentState
-from app.super_agents.prompts import SUPER_AGENT_SYSTEM_PROMPT, INTENT_CLASSIFICATION_PROMPT
-from app.services.inference_service import inference_service
+from app.super_agents.prompts import (
+    SUPER_AGENT_SYSTEM_PROMPT,
+    INTENT_CLASSIFICATION_PROMPT,
+    TOOL_RESPONSE_SYSTEM_PROMPT,
+)
+from app.super_agents.tool_runtime import execute_tools_for_state
+from app.services.inference_service import get_inference_service
 from app.services.realtime_event_bus import realtime_event_bus
 
 logger = structlog.get_logger()
@@ -22,9 +24,9 @@ async def _emit_super_thinking_event(
     instance_name: str,
     conversation_id: str,
     event: str,
-    data: Dict[str, Any] = None,
+    data: Dict[str, Any] | None = None,
 ) -> None:
-    """Emit a thinking event to the frontend via the realtime event bus."""
+    """Emit a streaming event to the frontend via the realtime event bus."""
     try:
         await realtime_event_bus.publish({
             "instance_name": instance_name,
@@ -113,6 +115,7 @@ async def classify_intent_node(state: SuperAgentState) -> Dict[str, Any]:
         # Use LLM to classify intent
         prompt = INTENT_CLASSIFICATION_PROMPT.format(message=message)
 
+        inference_service = get_inference_service("super_agent")
         result = await inference_service.chat_completion(
             messages=[{"role": "user", "content": prompt}],
             max_tokens=50,
@@ -121,27 +124,16 @@ async def classify_intent_node(state: SuperAgentState) -> Dict[str, Any]:
 
         intent = result.get("content", "general").strip().lower()
 
-        # Validate intent
-        valid_intents = [
-            "database_query", "whatsapp_action", "document_creation",
-            "analysis", "knowledge_store", "general"
-        ]
-
+        valid_intents = {
+            "database_query",
+            "whatsapp_action",
+            "document_creation",
+            "analysis",
+            "knowledge_store",
+            "general",
+        }
         if intent not in valid_intents:
-            # Fallback: simple keyword matching
-            message_lower = message.lower()
-            if any(kw in message_lower for kw in ["produto", "contato", "cliente", "listar", "quantos", "buscar"]):
-                intent = "database_query"
-            elif any(kw in message_lower for kw in ["whatsapp", "mensagem", "enviar", "ler conversa"]):
-                intent = "whatsapp_action"
-            elif any(kw in message_lower for kw in ["documento", "pdf", "relatório", "criar"]):
-                intent = "document_creation"
-            elif any(kw in message_lower for kw in ["análise", "analisar", "briefing", "insight", "estatística"]):
-                intent = "analysis"
-            elif any(kw in message_lower for kw in ["anotar", "lembrar", "salvar", "guardar"]):
-                intent = "knowledge_store"
-            else:
-                intent = "general"
+            intent = "general"
 
         logger.info(
             "Intent classified",
@@ -169,44 +161,21 @@ async def execute_action_node(state: SuperAgentState) -> Dict[str, Any]:
     """
     try:
         intent = state.get("intent", "general")
-        message = state["current_message"]
-
-        thinking = f"Executando ação para intenção: {intent}\n"
-        result_data = {}
-
-        if intent == "database_query":
-            # Use database query tool
-            from app.super_agents.tools.database_tool import database_query_tool
-            # The LLM will call the tool via the system prompt
-            thinking += "Ação: Consulta ao banco de dados será processada pelo LLM."
-
-        elif intent == "whatsapp_action":
-            # Use WhatsApp tools
-            thinking += "Ação: Ação WhatsApp será processada pelo LLM."
-
-        elif intent == "document_creation":
-            # Use document creation tool
-            thinking += "Ação: Criação de documento será processada pelo LLM."
-
-        elif intent == "analysis":
-            # Analysis will be done by LLM with data from database
-            thinking += "Ação: Análise será gerada pelo LLM com dados do banco."
-
-        elif intent == "knowledge_store":
-            # Use knowledge store tool
-            thinking += "Ação: Armazenamento de conhecimento será processado pelo LLM."
-
-        else:
-            thinking += "Ação: Resposta geral do LLM."
+        result_data = await execute_tools_for_state(state)
+        previous_thinking = (state.get("thinking_content") or "").strip()
+        current_thinking = (result_data.get("thinking_content") or "").strip()
+        combined_thinking = "\n".join(part for part in [previous_thinking, current_thinking] if part)
 
         logger.info(
             "Action executed",
             session_id=state["session_id"],
             intent=intent,
+            tool_call_count=len(result_data.get("tool_calls") or []),
+            skip_model_response=result_data.get("skip_model_response", False),
         )
 
         return {
-            "thinking_content": thinking,
+            "thinking_content": combined_thinking,
             **result_data,
         }
 
@@ -225,9 +194,38 @@ async def generate_response_node(state: SuperAgentState) -> Dict[str, Any]:
     conversation_id = state.get("session_id", "unknown")
     instance_name = state.get("company_id", "default")
 
+    if state.get("skip_model_response") and state.get("response"):
+        direct_thinking = (state.get("thinking_content") or "").strip()
+        summary = direct_thinking[:120] if direct_thinking else "Resposta gerada com ferramentas"
+        await _emit_super_thinking_event(
+            instance_name=instance_name,
+            conversation_id=conversation_id,
+            event="thinking_start",
+        )
+        await _emit_super_thinking_event(
+            instance_name=instance_name,
+            conversation_id=conversation_id,
+            event="thinking_end",
+            data={"summary": summary},
+        )
+        return {
+            "response": state.get("response"),
+            "messages": [AIMessage(content=state.get("response") or "")],
+            "thinking_content": direct_thinking or summary,
+            "tool_calls": state.get("tool_calls") or [],
+            "request_id": state.get("request_id"),
+        }
+
     try:
         # Build messages for LLM
         messages = list(state.get("messages", []))
+        if state.get("tool_calls"):
+            tool_context = "\n".join(
+                f"- {call.get('name')}: {call.get('output')}"
+                for call in (state.get("tool_calls") or [])
+            )
+            messages.append(SystemMessage(content=TOOL_RESPONSE_SYSTEM_PROMPT))
+            messages.append(SystemMessage(content=f"Contexto de ferramentas já executadas:\n{tool_context}"))
         messages.append(HumanMessage(content=state["current_message"]))
 
         # Convert to dict format for inference service
@@ -247,10 +245,13 @@ async def generate_response_node(state: SuperAgentState) -> Dict[str, Any]:
             event="thinking_start",
         )
 
-        # Use streaming inference with thinking detection
+        # Use streaming inference with thinking/response detection
         thinking_buffer = []
         response_buffer = []
+        thinking_end_emitted = False
+        response_started = False
 
+        inference_service = get_inference_service("super_agent")
         async for token_type, token in inference_service.astream_chat_completion_with_thinking(
             messages=msg_dicts,
             max_tokens=2000,
@@ -266,25 +267,62 @@ async def generate_response_node(state: SuperAgentState) -> Dict[str, Any]:
                     data={"token": token},
                 )
             elif token_type == "response":
+                if not thinking_end_emitted:
+                    interim_thinking = "".join(thinking_buffer).strip()
+                    interim_summary = interim_thinking[:120] if interim_thinking else "Resposta gerada com sucesso"
+                    await _emit_super_thinking_event(
+                        instance_name=instance_name,
+                        conversation_id=conversation_id,
+                        event="thinking_end",
+                        data={"summary": interim_summary},
+                    )
+                    thinking_end_emitted = True
+
+                if not response_started:
+                    await _emit_super_thinking_event(
+                        instance_name=instance_name,
+                        conversation_id=conversation_id,
+                        event="response_start",
+                    )
+                    response_started = True
+
                 response_buffer.append(token)
+                await _emit_super_thinking_event(
+                    instance_name=instance_name,
+                    conversation_id=conversation_id,
+                    event="response_token",
+                    data={"token": token},
+                )
+
+        # Create summary from thinking content (first 120 chars)
+        thinking_content = "".join(thinking_buffer).strip()
+        summary = thinking_content[:120] if thinking_content else "Resposta gerada com sucesso"
+        persisted_thinking = thinking_content or (state.get("thinking_content") or "").strip() or summary
 
         # Join response tokens into final response
         response = "".join(response_buffer).strip()
 
+        if not response and thinking_content:
+            response = thinking_content
+
         if not response:
             response = "Desculpe, não consegui processar sua solicitação."
 
-        # Create summary from thinking content (first 120 chars)
-        thinking_content = "".join(thinking_buffer)
-        summary = thinking_content[:120] if thinking_content else "Resposta gerada com sucesso"
+        if not thinking_end_emitted:
+            await _emit_super_thinking_event(
+                instance_name=instance_name,
+                conversation_id=conversation_id,
+                event="thinking_end",
+                data={"summary": summary},
+            )
 
-        # Emit thinking_end event with summary
-        await _emit_super_thinking_event(
-            instance_name=instance_name,
-            conversation_id=conversation_id,
-            event="thinking_end",
-            data={"summary": summary},
-        )
+        if response_started:
+            await _emit_super_thinking_event(
+                instance_name=instance_name,
+                conversation_id=conversation_id,
+                event="response_end",
+                data={"content": response},
+            )
 
         logger.info(
             "Response generated",
@@ -296,7 +334,9 @@ async def generate_response_node(state: SuperAgentState) -> Dict[str, Any]:
         return {
             "response": response,
             "messages": [AIMessage(content=response)],
-            "thinking_content": state.get("thinking_content", "") + f"\n{summary}",
+            "thinking_content": persisted_thinking,
+            "tool_calls": state.get("tool_calls") or [],
+            "request_id": state.get("request_id"),
         }
 
     except Exception as e:
@@ -351,6 +391,7 @@ async def handle_checkpoint_node(state: SuperAgentState) -> Dict[str, Any]:
                     conversation_history=conversation_text
                 )
 
+                inference_service = get_inference_service("super_agent")
                 result = await inference_service.chat_completion(
                     messages=[{"role": "user", "content": summary_prompt}],
                     max_tokens=500,
@@ -379,7 +420,7 @@ async def handle_checkpoint_node(state: SuperAgentState) -> Dict[str, Any]:
                 return {
                     "needs_checkpoint": True,
                     "checkpoint_summary": summary,
-                    "thinking_content": state.get("thinking_content", "") + f"\nCheckpoint criado: {checkpoint_id}",
+                    "thinking_content": (state.get("thinking_content") or "") + f"\nCheckpoint criado: {checkpoint_id}",
                 }
             else:
                 return {

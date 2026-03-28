@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.database import SessionLocal, engine, Base
 from app.models.models import BusinessType, ProductType, Company, User
 from app.core.security import get_password_hash
+from app.services.menu_catalog_service import sync_macedos_menu_from_json
 
 
 def create_business_types(db: Session):
@@ -147,15 +148,20 @@ def create_test_company(db: Session):
     return company
 
 
-def create_test_user(db: Session, company_id: str):
-    """Create test user"""
-    # Check if test user already exists
+def create_or_update_test_user(db: Session, company_id: str):
+    """Ensure the default test user points to the target company with the expected password."""
     existing = db.query(User).filter(User.email == "usuario@teste.com").first()
     if existing:
-        print("Test user already exists")
+        existing.full_name = "Usuário Teste"
+        existing.company_id = company_id
+        existing.hashed_password = get_password_hash("teste123")
+        existing.is_active = True
+        existing.is_superuser = False
+        db.commit()
+        db.refresh(existing)
+        print("Test user updated")
         return existing
 
-    # Create test user
     user = User(
         email="usuario@teste.com",
         hashed_password=get_password_hash("teste123"),
@@ -205,15 +211,18 @@ def main():
         if company:
             print(f"Created company: {company.name} (ID: {company.id})")
 
-        # Create test user
-        print("\nCreating test user...")
-        if company:
-            user = create_test_user(db, company.id)
-            if user:
-                print(f"Created user: {user.email}")
-                print(f"  Name: {user.full_name}")
-                print(f"  Password: teste123")
-                print(f"  Company: {company.name}")
+        print("\nImporting Macedos menu...")
+        catalog = sync_macedos_menu_from_json(db)
+        print(f"Imported catalog: {catalog.name}")
+
+        print("\nEnsuring test user is bound to Macedos...")
+        user = create_or_update_test_user(db, catalog.company_id)
+        if user:
+            target_company = db.query(Company).filter(Company.id == catalog.company_id).first()
+            print(f"User ready: {user.email}")
+            print(f"  Name: {user.full_name}")
+            print(f"  Password: teste123")
+            print(f"  Company: {target_company.name if target_company else catalog.company_id}")
 
         print("\n✅ Database seed completed successfully!")
 

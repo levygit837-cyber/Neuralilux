@@ -1,5 +1,7 @@
 export type MessageStatus = 'pending' | 'sending' | 'sent' | 'delivered' | 'read'
 
+export type ThinkingState = 'idle' | 'indicator' | 'streaming' | 'collapsed'
+
 export interface Message {
   id: string
   conversationId: string
@@ -26,4 +28,12 @@ export interface Conversation {
 export interface TypingIndicator {
   conversationId: string
   isTyping: boolean
+}
+
+export interface ThinkingEvent {
+  conversationId: string
+  state: ThinkingState
+  tokens?: string[]
+  summary?: string
+  startedAt?: Date
 }

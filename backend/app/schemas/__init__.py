@@ -1,61 +1,7 @@
-from .user import UserCreate, UserResponse, UserLogin, Token
-from .company import CompanyCreate, CompanyUpdate, CompanyResponse
-from .product import ProductCreate, ProductUpdate, ProductResponse
-from .whatsapp import (
-    WhatsAppInstanceCreate, WhatsAppInstanceUpdate, WhatsAppInstanceResponse,
-    InstanceConnectResponse, InstanceDisconnectResponse,
-    ContactCreate, ContactUpdate, ContactResponse,
-    ConversationCreate, ConversationUpdate, ConversationResponse, ConversationSummary,
-    MessageCreate, MessageUpdate, MessageResponse,
-    SendMessageRequest, ConversationSendMessageRequest, SendMessageResponse,
-    WebhookPayload, ConnectionUpdatePayload, QrCodeUpdatePayload,
-    PaginationParams, MessageFilter, ConversationFilter, ContactFilter,
-    PaginatedMessages, PaginatedConversations, PaginatedContacts, PaginatedInstances,
-    InstanceStatusEnum, MessageDirectionEnum, MessageStatusEnum, MessageTypeEnum, PriorityEnum,
-)
+"""Schema package.
 
-__all__ = [
-    "UserCreate",
-    "UserResponse",
-    "UserLogin",
-    "Token",
-    "CompanyCreate",
-    "CompanyUpdate",
-    "CompanyResponse",
-    "ProductCreate",
-    "ProductUpdate",
-    "ProductResponse",
-    "WhatsAppInstanceCreate",
-    "WhatsAppInstanceUpdate",
-    "WhatsAppInstanceResponse",
-    "InstanceConnectResponse",
-    "InstanceDisconnectResponse",
-    "ContactCreate",
-    "ContactUpdate",
-    "ContactResponse",
-    "ConversationCreate",
-    "ConversationUpdate",
-    "ConversationResponse",
-    "ConversationSummary",
-    "MessageCreate",
-    "MessageUpdate",
-    "MessageResponse",
-    "SendMessageRequest",
-    "SendMessageResponse",
-    "WebhookPayload",
-    "ConnectionUpdatePayload",
-    "QrCodeUpdatePayload",
-    "PaginationParams",
-    "MessageFilter",
-    "ConversationFilter",
-    "ContactFilter",
-    "PaginatedMessages",
-    "PaginatedConversations",
-    "PaginatedContacts",
-    "PaginatedInstances",
-    "InstanceStatusEnum",
-    "MessageDirectionEnum",
-    "MessageStatusEnum",
-    "MessageTypeEnum",
-    "PriorityEnum",
-]
+Keep package imports lightweight; import concrete schema modules directly where
+needed to avoid loading optional validation dependencies eagerly.
+"""
+
+__all__: list[str] = []

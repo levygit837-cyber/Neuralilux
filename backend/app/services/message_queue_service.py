@@ -1,6 +1,7 @@
 """
 Message Queue Service - RabbitMQ integration for async message processing
 """
+import base64
 import json
 import pika
 import asyncio
@@ -65,12 +66,25 @@ class MessageQueueService:
                 logger.info("Disconnected from RabbitMQ")
         except Exception as e:
             logger.error("Error disconnecting from RabbitMQ", error=str(e))
+
+    def _make_json_safe(self, value: Any) -> Any:
+        """Recursively convert queue payloads into JSON-safe values."""
+        if isinstance(value, bytes):
+            return base64.b64encode(value).decode("utf-8")
+        if isinstance(value, dict):
+            return {key: self._make_json_safe(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [self._make_json_safe(item) for item in value]
+        if isinstance(value, tuple):
+            return [self._make_json_safe(item) for item in value]
+        return value
     
     def publish(self, queue: str, message: Dict[str, Any], priority: int = 0, headers: Optional[Dict] = None) -> bool:
         """Publish a message to a queue"""
         try:
             if not self.channel or self.channel.is_closed:
                 self.connect()
+            safe_message = self._make_json_safe(message)
             properties = pika.BasicProperties(
                 delivery_mode=2,
                 content_type='application/json',
@@ -78,7 +92,10 @@ class MessageQueueService:
                 headers=headers or {}
             )
             self.channel.basic_publish(
-                exchange='', routing_key=queue, body=json.dumps(message), properties=properties
+                exchange='',
+                routing_key=queue,
+                body=json.dumps(safe_message, default=str),
+                properties=properties,
             )
             logger.info("Message published", queue=queue)
             return True

@@ -95,18 +95,18 @@ class TestStreamConfiguration:
 # =====================================================================
 
 class TestThinkTagDetection:
-    """Test detection of  blocks."""
+    """Test detection of <think> blocks."""
 
     @pytest.mark.asyncio
     async def test_normal_think_block(self):
-        """Test normal  block detection - VAL-BE-003."""
+        """Test normal <think> block detection - VAL-BE-003."""
         service = InferenceService()
         
-        # Simulate chunks: reasoningresponse
+        # Simulate chunks: <think>reasoning</think>response
         chunks = [
-            b'data: {"choices":[{"delta":{"content":""}}]}\n\n',
+            b'data: {"choices":[{"delta":{"content":"<think>"}}]}\n\n',
             b'data: {"choices":[{"delta":{"content":"Let me think"}}]}\n\n',
-            b'data: {"choices":[{"delta":{"content":""}}]}\n\n',
+            b'data: {"choices":[{"delta":{"content":"</think>"}}]}\n\n',
             b'data: {"choices":[{"delta":{"content":"Final answer"}}]}\n\n',
             b'data: [DONE]\n\n',
         ]
@@ -127,22 +127,22 @@ class TestThinkTagDetection:
                 service.astream_chat_completion_with_thinking([{"role": "user", "content": "test"}])
             )
         
-        # Content inside  should be thinking tokens
+        # Content inside <think> should be thinking tokens
         thinking_tokens = [r for r in results if r[0] == "thinking"]
         response_tokens = [r for r in results if r[0] == "response"]
         
         assert len(thinking_tokens) > 0, f"Should have thinking tokens, got: {results}"
-        assert len(response_tokens) > 0, f"Should have response tokens after , got: {results}"
+        assert len(response_tokens) > 0, f"Should have response tokens after </think>, got: {results}"
 
     @pytest.mark.asyncio
     async def test_response_after_think(self):
-        """Test that content after  is collected as response - VAL-BE-004/VAL-BE-005."""
+        """Test that content after </think> is collected as response - VAL-BE-004/VAL-BE-005."""
         service = InferenceService()
         
         chunks = [
-            b'data: {"choices":[{"delta":{"content":""}}]}\n\n',
+            b'data: {"choices":[{"delta":{"content":"<think>"}}]}\n\n',
             b'data: {"choices":[{"delta":{"content":"A"}}]}\n\n',
-            b'data: {"choices":[{"delta":{"content":""}}]}\n\n',
+            b'data: {"choices":[{"delta":{"content":"</think>"}}]}\n\n',
             b'data: {"choices":[{"delta":{"content":"B"}}]}\n\n',
             b'data: [DONE]\n\n',
         ]
@@ -166,18 +166,19 @@ class TestThinkTagDetection:
         thinking_contents = "".join(r[1] for r in results if r[0] == "thinking")
         response_contents = "".join(r[1] for r in results if r[0] == "response")
         
-        assert "B" in response_contents, f"Content after  should be in response: {response_contents}"
-        assert "B" not in thinking_contents, f"Content after  should not be in thinking: {thinking_contents}"
+        assert "B" in response_contents, f"Content after </think> should be in response: {response_contents}"
+        assert "B" not in thinking_contents, f"Content after </think> should not be in thinking: {thinking_contents}"
 
     @pytest.mark.asyncio
     async def test_split_open_tag(self):
-        """Test  tag split across chunks - VAL-BE-007."""
+        """Test <think> tag split across chunks - VAL-BE-007."""
         service = InferenceService()
         
         # Tag split: "<thi" in chunk1, "nk>" in chunk2
         chunks = [
             b'data: {"choices":[{"delta":{"content":"<thi"}}]}\n\n',
             b'data: {"choices":[{"delta":{"content":"nk>reasoning"}}]}\n\n',
+            b'data: {"choices":[{"delta":{"content":"</think>"}}]}\n\n',
             b'data: {"choices":[{"delta":{"content":"answer"}}]}\n\n',
             b'data: [DONE]\n\n',
         ]
@@ -203,16 +204,17 @@ class TestThinkTagDetection:
         # The complete tag should be recognized, not leaked into response
         assert "<thi" not in response_contents, f"Partial open tag should not leak to response: {response_contents}"
         assert "nk>" not in response_contents, f"Rest of tag should not leak to response: {response_contents}"
-        assert "answer" in response_contents, f"Content after  should be in response: {response_contents}"
+        assert "answer" in response_contents, f"Content after </think> should be in response: {response_contents}"
         assert "reasoning" in thinking_contents, f"Thinking content should be present: {thinking_contents}"
 
     @pytest.mark.asyncio
     async def test_split_close_tag(self):
-        """Test  tag split across chunks - VAL-BE-007."""
+        """Test </think> tag split across chunks - VAL-BE-007."""
         service = InferenceService()
         
         # Tag split: "</thi" in chunk1, "nk>" in chunk2
         chunks = [
+            b'data: {"choices":[{"delta":{"content":"<think>"}}]}\n\n',
             b'data: {"choices":[{"delta":{"content":"done"}}]}\n\n',
             b'data: {"choices":[{"delta":{"content":"</thi"}}]}\n\n',
             b'data: {"choices":[{"delta":{"content":"nk>response"}}]}\n\n',
@@ -240,20 +242,20 @@ class TestThinkTagDetection:
         # Close tag parts should not appear in either stream
         assert "</thi" not in response_contents, f"Partial close tag should not leak to response: {response_contents}"
         assert "nk>" not in response_contents, f"Rest of close tag should not leak to response: {response_contents}"
-        assert "response" in response_contents, f"Content after  should be in response: {response_contents}"
+        assert "response" in response_contents, f"Content after </think> should be in response: {response_contents}"
         assert "done" in thinking_contents, f"Thinking content should be present: {thinking_contents}"
 
 
 # =====================================================================
-# TESTS: NO THINK FALLBACK
+# TESTS: NO THINK / REASONING CLASSIFICATION
 # =====================================================================
 
-class TestNoThinkFallback:
-    """Test fallback when model doesn't emit  tags - VAL-BE-006."""
+class TestThinkingClassification:
+    """Test behavior when the model streams plain content or explicit reasoning deltas."""
 
     @pytest.mark.asyncio
-    async def test_no_think_block_all_thinking(self):
-        """Test that all tokens are thinking when no  tag present."""
+    async def test_no_think_block_defaults_to_response(self):
+        """Plain streamed content without reasoning markers must remain response content."""
         service = InferenceService()
         
         chunks = [
@@ -278,11 +280,77 @@ class TestNoThinkFallback:
                 service.astream_chat_completion_with_thinking([{"role": "user", "content": "test"}])
             )
         
-        # All tokens should be thinking type when no  tags
-        assert all(r[0] == "thinking" for r in results), f"All tokens should be thinking when no : {results}"
-        
-        full_content = "".join(r[1] for r in results)
+        assert all(r[0] == "response" for r in results), f"Plain content should stay in response: {results}"
+
+        full_content = "".join(r[1] for r in results if r[0] == "response")
         assert "Hello world!" in full_content, f"Full content should be accumulated: {full_content}"
+
+    @pytest.mark.asyncio
+    async def test_reasoning_delta_streamed_as_thinking(self):
+        """Reasoning-specific deltas must be emitted as thinking in real time."""
+        service = InferenceService()
+
+        chunks = [
+            b'data: {"choices":[{"delta":{"reasoning":"Need to inspect"}}]}\n\n',
+            b'data: {"choices":[{"delta":{"reasoning":" the latest state"}}]}\n\n',
+            b'data: {"choices":[{"delta":{"content":"Final answer"}}]}\n\n',
+            b'data: [DONE]\n\n',
+        ]
+
+        mock_response = MagicMock()
+        mock_response.aiter_text = MagicMock(return_value=MockAsyncIterator(chunks))
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+        mock_response.status_code = 200
+
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.stream = lambda *args, **kwargs: mock_response
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            results = await async_collect(
+                service.astream_chat_completion_with_thinking([{"role": "user", "content": "test"}])
+            )
+
+        thinking_content = "".join(r[1] for r in results if r[0] == "thinking")
+        response_content = "".join(r[1] for r in results if r[0] == "response")
+
+        assert thinking_content == "Need to inspect the latest state"
+        assert response_content == "Final answer"
+
+    @pytest.mark.asyncio
+    async def test_reasoning_content_delta_streamed_as_thinking(self):
+        """Backward-compatible reasoning_content deltas must also be emitted as thinking."""
+        service = InferenceService()
+
+        chunks = [
+            b'data: {"choices":[{"delta":{"reasoning_content":"Plan"}}]}\n\n',
+            b'data: {"choices":[{"delta":{"content":"Done"}}]}\n\n',
+            b'data: [DONE]\n\n',
+        ]
+
+        mock_response = MagicMock()
+        mock_response.aiter_text = MagicMock(return_value=MockAsyncIterator(chunks))
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+        mock_response.status_code = 200
+
+        mock_client = MagicMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.stream = lambda *args, **kwargs: mock_response
+
+        with patch("httpx.AsyncClient", return_value=mock_client):
+            results = await async_collect(
+                service.astream_chat_completion_with_thinking([{"role": "user", "content": "test"}])
+            )
+
+        thinking_content = "".join(r[1] for r in results if r[0] == "thinking")
+        response_content = "".join(r[1] for r in results if r[0] == "response")
+
+        assert thinking_content == "Plan"
+        assert response_content == "Done"
 
 
 # =====================================================================

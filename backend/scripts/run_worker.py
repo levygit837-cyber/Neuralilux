@@ -8,8 +8,8 @@ import asyncio
 import structlog
 from pathlib import Path
 
-# Add project root to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+# Add backend project root to path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.workers.whatsapp_consumer import whatsapp_consumer
 from app.services.message_queue_service import message_queue_service

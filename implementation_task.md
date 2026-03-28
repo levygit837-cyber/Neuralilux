@@ -1,0 +1,23 @@
+# Suggested new_task Payload
+
+The current environment does not expose a `new_task` tool, so this file contains a ready-to-use handoff payload that mirrors the requested task-creation format and references the plan document directly.
+
+Use the following payload in any environment that provides the `new_task` tool:
+
+```json
+{
+  "name": "new_task",
+  "arguments": {
+    "context": "1. Objective\nImplement unified backend/frontend tool telemetry and tool-usage visibility for the Super Agent and WhatsApp agent. The current system already executes tools on the backend, but the model does not use native provider-level tool calling and the frontend has no dedicated visual notification for tool lifecycle events.\n\n2. Current Findings\n- Super Agent tool execution is orchestrated in backend/app/super_agents/tool_runtime.py, not by native LLM tool calls.\n- Super Agent persists tool usage as role=tool messages and tool_calls metadata, but the immediate /api/v1/agents/chat response does not expose tool_calls.\n- AgentChat history currently ignores role=tool records even though backend/app/api/v1/endpoints/agents.py returns tool_name/tool_input/tool_output.\n- WhatsApp agent executes deterministic tool logic in backend/app/agents/graph/nodes.py and emits only thinking/response streaming events.\n- backend/app/services/socket_service.py handles incoming_message, message_status, connection_status, qr_code, and thinking, but not tool_event.\n- frontend/src/services/socketService.ts listens for thinking_event only; there is no tool_event listener or tool callback path.\n- frontend/src/components/chat/ThinkingManager.tsx and frontend/src/components/agent/AgentChat.tsx provide visual feedback for thinking only, not for tool usage.\n\n3. Source of Truth\nRefer to @implementation_plan.md for a complete breakdown of the task requirements and steps. You should periodically read this file again. Implement only what is described there unless you find a necessary compatibility fix during execution. Do not perform a second broad codebase investigation unless a blocker appears.\n\n4. Plan Document Navigation Commands\n- Read Overview section: sed -n '/\\[Overview\\]/,/\\[Types\\]/p' implementation_plan.md | cat\n- Read Types section: sed -n '/\\[Types\\]/,/\\[Files\\]/p' implementation_plan.md | cat\n- Read Files section: sed -n '/\\[Files\\]/,/\\[Functions\\]/p' implementation_plan.md | cat\n- Read Functions section: sed -n '/\\[Functions\\]/,/\\[Classes\\]/p' implementation_plan.md | cat\n- Read Classes section: sed -n '/\\[Classes\\]/,/\\[Dependencies\\]/p' implementation_plan.md | cat\n- Read Dependencies section: sed -n '/\\[Dependencies\\]/,/\\[Testing\\]/p' implementation_plan.md | cat\n- Read Testing section: sed -n '/\\[Testing\\]/,/\\[Implementation Order\\]/p' implementation_plan.md | cat\n- Read Implementation Order section: sed -n '/\\[Implementation Order\\]/,$p' implementation_plan.md | cat\n\n5. Delivery Rules\n- Execute in ACT MODE. If your environment starts in PLAN MODE, switch to ACT MODE before implementing.\n- Preserve existing thinking_event behavior while adding tool_event behavior.\n- Keep socket payloads JSON-safe and preview-oriented by default.\n- Expose immediate tool_calls in the Super Agent HTTP response and render persisted role=tool history in the frontend.\n- Add or update backend tests and run the relevant verification commands before completion.\n\ntask_progress Items:\n- [ ] Step 1: Add backend tool telemetry contract, config, and shared emitter service\n- [ ] Step 2: Instrument Super Agent and WhatsApp agent tool execution paths with tool lifecycle events\n- [ ] Step 3: Expose tool metadata through socket routing and Super Agent HTTP/API payloads\n- [ ] Step 4: Add frontend tool telemetry types, socket listeners, and state management\n- [ ] Step 5: Render live and historical tool execution UI in AgentChat and WhatsAppChat\n- [ ] Step 6: Add/adjust backend tests, run validation, and verify end-to-end behavior"
+  }
+}
+```
+
+If the `new_task` tool supports a separate `task_progress` parameter, use this exact checklist:
+
+- [ ] Step 1: Add backend tool telemetry contract, config, and shared emitter service
+- [ ] Step 2: Instrument Super Agent and WhatsApp agent tool execution paths with tool lifecycle events
+- [ ] Step 3: Expose tool metadata through socket routing and Super Agent HTTP/API payloads
+- [ ] Step 4: Add frontend tool telemetry types, socket listeners, and state management
+- [ ] Step 5: Render live and historical tool execution UI in AgentChat and WhatsAppChat
+- [ ] Step 6: Add/adjust backend tests, run validation, and verify end-to-end behavior

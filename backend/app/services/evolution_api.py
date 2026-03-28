@@ -135,10 +135,29 @@ class EvolutionAPIService:
             "instanceName": instance_name,
             "token": self.api_key,
             "integration": "WHATSAPP-BAILEYS",
+            "qrcode": True,
+            "rejectCall": False,
+            "groupsIgnore": False,
+            "alwaysOnline": False,
+            "readMessages": False,
+            "readStatus": False,
+            "syncFullHistory": True,
+            "websocket": {
+                "enabled": True,
+                "events": [
+                    "MESSAGES_UPSERT",
+                    "MESSAGES_UPDATE",
+                    "CONNECTION_UPDATE",
+                    "QRCODE_UPDATED",
+                ],
+            },
         }
         if webhook_url:
-            payload["webhook"] = webhook_url
-            payload["webhook_by_events"] = True
+            payload["webhook"] = {
+                "url": webhook_url,
+                "byEvents": True,
+                "base64": True,
+            }
 
         logger.info("Creating instance in Evolution API", instance=instance_name)
         result = await self._request(

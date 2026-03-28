@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Boolean, Text, Integer, ForeignKey, Numeric, Enum
+from sqlalchemy import Column, String, DateTime, Boolean, Text, Integer, ForeignKey, Numeric, Enum, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -98,6 +98,7 @@ class Company(Base):
     business_type = relationship("BusinessType", back_populates="companies")
     users = relationship("User", back_populates="company")
     products = relationship("Product", back_populates="company")
+    menu_catalogs = relationship("MenuCatalog", back_populates="company")
 
 
 class ProductType(Base):
@@ -145,6 +146,7 @@ class Instance(Base):
     is_active = Column(Boolean, default=True)
     owner_id = Column(String, ForeignKey("users.id"))
     agent_id = Column(String, ForeignKey("agents.id"), nullable=True)
+    agent_enabled = Column(Boolean, default=True)  # Toggle para habilitar/desabilitar agente
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -154,6 +156,7 @@ class Instance(Base):
     messages = relationship("Message", back_populates="instance")
     contacts = relationship("Contact", back_populates="instance")
     conversations = relationship("Conversation", back_populates="instance")
+    orders = relationship("CustomerOrder", back_populates="instance")
 
 
 class Contact(Base):
@@ -176,6 +179,7 @@ class Contact(Base):
     # Relationships
     instance = relationship("Instance", back_populates="contacts")
     conversations = relationship("Conversation", back_populates="contact")
+    orders = relationship("CustomerOrder", back_populates="contact")
 
 
 class Conversation(Base):
@@ -201,6 +205,7 @@ class Conversation(Base):
     contact = relationship("Contact", back_populates="conversations")
     assigned_agent = relationship("Agent")
     messages = relationship("Message", back_populates="conversation")
+    orders = relationship("CustomerOrder", back_populates="conversation")
 
 
 class Agent(Base):
@@ -250,6 +255,56 @@ class Message(Base):
     conversation = relationship("Conversation", back_populates="messages")
 
 
+class CustomerOrder(Base):
+    __tablename__ = "customer_orders"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    order_number = Column(String(50), unique=True, nullable=False, index=True)
+    conversation_id = Column(String, ForeignKey("conversations.id"), nullable=False, index=True)
+    instance_id = Column(String, ForeignKey("instances.id"), nullable=False, index=True)
+    contact_id = Column(String, ForeignKey("contacts.id"), nullable=False, index=True)
+    remote_jid = Column(String, nullable=False, index=True)
+    status = Column(String(30), nullable=False, default="open")  # open, collecting_data, ready_for_confirmation, closed, cancelled
+    customer_name = Column(String(200))
+    customer_address = Column(Text)
+    customer_phone = Column(String(30))
+    payment_method = Column(String(100))
+    total_amount = Column(Numeric(10, 2), nullable=False, default=0)
+    opened_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    closed_at = Column(DateTime(timezone=True))
+    export_path = Column(String(500))
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    conversation = relationship("Conversation", back_populates="orders")
+    instance = relationship("Instance", back_populates="orders")
+    contact = relationship("Contact", back_populates="orders")
+    items = relationship(
+        "CustomerOrderItem",
+        back_populates="order",
+        cascade="all, delete-orphan",
+        order_by="CustomerOrderItem.sort_order.asc()",
+    )
+
+
+class CustomerOrderItem(Base):
+    __tablename__ = "customer_order_items"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    order_id = Column(String, ForeignKey("customer_orders.id"), nullable=False, index=True)
+    menu_item_id = Column(String, ForeignKey("menu_items.id"), nullable=True, index=True)
+    item_name = Column(String(200), nullable=False)
+    quantity = Column(Integer, nullable=False, default=1)
+    unit_price = Column(Numeric(10, 2), nullable=False, default=0)
+    subtotal_price = Column(Numeric(10, 2), nullable=False, default=0)
+    notes = Column(Text)
+    sort_order = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    order = relationship("CustomerOrder", back_populates="items")
+
+
 class Document(Base):
     __tablename__ = "documents"
 
@@ -287,3 +342,177 @@ class Product(Base):
     # Relationships
     company = relationship("Company", back_populates="products")
     product_type = relationship("ProductType", back_populates="products")
+
+
+class MenuCatalog(Base):
+    __tablename__ = "menu_catalogs"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    company_id = Column(String, ForeignKey("companies.id"), nullable=False, index=True)
+    name = Column(String(200), nullable=False)
+    source_type = Column(String(50), default="json")
+    source_file = Column(String(500))
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "name", name="uq_menu_catalog_company_name"),
+    )
+
+    company = relationship("Company", back_populates="menu_catalogs")
+    categories = relationship("MenuCategory", back_populates="catalog", cascade="all, delete-orphan")
+    items = relationship("MenuItem", back_populates="catalog", cascade="all, delete-orphan")
+
+
+class MenuCategory(Base):
+    __tablename__ = "menu_categories"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    catalog_id = Column(String, ForeignKey("menu_catalogs.id"), nullable=False, index=True)
+    external_id = Column(String(100), index=True)
+    name = Column(String(200), nullable=False)
+    description = Column(Text)
+    sort_order = Column(Integer, default=0)
+    raw_payload = Column(JSONB)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("catalog_id", "external_id", name="uq_menu_category_catalog_external"),
+    )
+
+    catalog = relationship("MenuCatalog", back_populates="categories")
+    items = relationship("MenuItem", back_populates="category", cascade="all, delete-orphan")
+
+
+class MenuItem(Base):
+    __tablename__ = "menu_items"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    catalog_id = Column(String, ForeignKey("menu_catalogs.id"), nullable=False, index=True)
+    category_id = Column(String, ForeignKey("menu_categories.id"), nullable=False, index=True)
+    external_id = Column(String(100), index=True)
+    name = Column(String(200), nullable=False)
+    description = Column(Text)
+    price = Column(Numeric(10, 2))
+    image_url = Column(String(500))
+    is_available = Column(Boolean, default=True)
+    sort_order = Column(Integer, default=0)
+    custom_attributes = Column(JSONB, default=list, nullable=False)
+    raw_payload = Column(JSONB)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("catalog_id", "external_id", name="uq_menu_item_catalog_external"),
+    )
+
+    catalog = relationship("MenuCatalog", back_populates="items")
+    category = relationship("MenuCategory", back_populates="items")
+
+
+# ============== Super Agent Models ==============
+
+
+class SuperAgentSession(Base):
+    """Session management for the Super Agent (Business Assistant)."""
+    __tablename__ = "super_agent_sessions"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    company_id = Column(String, ForeignKey("companies.id"), nullable=False, index=True)
+    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
+    title = Column(String(200))
+    is_active = Column(Boolean, default=True)
+    interaction_count = Column(Integer, default=0)
+    last_checkpoint_at = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    company = relationship("Company")
+    user = relationship("User")
+    messages = relationship("SuperAgentMessage", back_populates="session", order_by="SuperAgentMessage.created_at")
+    checkpoints = relationship("SuperAgentCheckpoint", back_populates="session")
+
+
+class SuperAgentMessage(Base):
+    """Messages within a Super Agent session."""
+    __tablename__ = "super_agent_messages"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    session_id = Column(String, ForeignKey("super_agent_sessions.id"), nullable=False, index=True)
+    role = Column(String(20), nullable=False)  # "user", "assistant", "system", "tool"
+    content = Column(Text)
+    tool_name = Column(String(100))
+    tool_input = Column(JSONB)
+    tool_output = Column(Text)
+    thinking_content = Column(Text)
+    extra_data = Column(JSONB)  # Renamed from 'metadata' (reserved in SQLAlchemy)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    session = relationship("SuperAgentSession", back_populates="messages")
+
+
+class SuperAgentCheckpoint(Base):
+    """Checkpoints every 5 interactions for session recovery."""
+    __tablename__ = "super_agent_checkpoints"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    session_id = Column(String, ForeignKey("super_agent_sessions.id"), nullable=False, index=True)
+    interaction_number = Column(Integer, nullable=False)
+    summary = Column(Text)
+    context_snapshot = Column(JSONB)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    session = relationship("SuperAgentSession", back_populates="checkpoints")
+
+    __table_args__ = (
+        UniqueConstraint("session_id", "interaction_number", name="uq_checkpoint_session_number"),
+    )
+
+
+class SuperAgentKnowledge(Base):
+    """Cross-session knowledge base for the Super Agent."""
+    __tablename__ = "super_agent_knowledge"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    company_id = Column(String, ForeignKey("companies.id"), nullable=False, index=True)
+    category = Column(String(100), nullable=False, index=True)
+    key = Column(String(200), nullable=False)
+    value = Column(Text, nullable=False)
+    source_session_id = Column(String, ForeignKey("super_agent_sessions.id"), nullable=True)
+    confidence = Column(Integer, default=100)
+    access_count = Column(Integer, default=0)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    company = relationship("Company")
+    source_session = relationship("SuperAgentSession")
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "category", "key", name="uq_knowledge_company_category_key"),
+    )
+
+
+class SuperAgentDocument(Base):
+    """Documents created by the Super Agent."""
+    __tablename__ = "super_agent_documents"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    session_id = Column(String, ForeignKey("super_agent_sessions.id"), nullable=False, index=True)
+    company_id = Column(String, ForeignKey("companies.id"), nullable=False, index=True)
+    filename = Column(String(255), nullable=False)
+    file_type = Column(String(20), nullable=False)  # "pdf", "txt", "json", "markdown"
+    content = Column(Text)
+    content_base64 = Column(Text)
+    file_size = Column(Integer)
+    description = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    session = relationship("SuperAgentSession")
+    company = relationship("Company")
