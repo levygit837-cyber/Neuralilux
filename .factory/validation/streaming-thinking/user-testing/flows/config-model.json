@@ -1,0 +1,166 @@
+{
+  "groupId": "config-model",
+  "testedAt": "2026-03-28T12:00:00Z",
+  "isolation": {
+    "lmStudioUrl": "http://localhost:1234",
+    "backendUrl": "http://localhost:8000",
+    "configFiles": ["backend/.env", "backend/.env.example", "backend/app/core/config.py"]
+  },
+  "toolsUsed": ["curl"],
+  "assertions": [
+    {
+      "id": "VAL-CFG-001",
+      "title": "LM Studio is accessible at localhost:1234",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "curl -s http://localhost:1234/v1/models",
+          "expected": "HTTP 200 and non-empty data field with models list",
+          "observed": "HTTP 200 returned with 7 models in data array"
+        }
+      ],
+      "evidence": {
+        "httpCode": 200,
+        "modelsCount": 7,
+        "models": [
+          "qwen3.5-4b-claude-4.6-opus-reasoning-distilled-v2",
+          "nvidia/nemotron-3-nano-4b",
+          "qwen3.5-2b-claude-4.6-opus-reasoning-distilled",
+          "text-embedding-qwen3-embedding-0.6b",
+          "qwen/qwen3.5-9b",
+          "qwen3.5-4b",
+          "text-embedding-nomic-embed-text-v1.5"
+        ],
+        "endpoint": "GET /v1/models"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CFG-002",
+      "title": "Health check endpoint tests LM Studio connectivity",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Search for health endpoint in backend API",
+          "expected": "Find dedicated inference health check endpoint",
+          "observed": "Found /api/v1/messages/inference/health in messages.py"
+        },
+        {
+          "action": "curl http://localhost:8000/api/v1/messages/inference/health",
+          "expected": "Status healthy with LM Studio connection details",
+          "observed": "Returns healthy status with url and model info"
+        }
+      ],
+      "evidence": {
+        "endpoint": "GET /api/v1/messages/inference/health",
+        "httpCode": 200,
+        "response": {
+          "status": "healthy",
+          "url": "http://localhost:1234",
+          "model": "local-model",
+          "max_tokens": 1024,
+          "temperature": 0.7
+        },
+        "implementationFile": "backend/app/api/v1/endpoints/messages.py:115-136"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-CFG-003",
+      "title": "qwen3.5-4b model is available and responds to streaming",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Check model is in list from /v1/models",
+          "expected": "qwen3.5-4b present in data array",
+          "observed": "qwen3.5-4b is present in the models list"
+        },
+        {
+          "action": "Test POST /v1/chat/completions with stream=true",
+          "expected": "Streaming SSE response with tokens",
+          "observed": "HTTP 400 error - 'Failed to load model qwen3.5-4b'"
+        }
+      ],
+      "evidence": {
+        "modelAvailable": true,
+        "modelId": "qwen3.5-4b",
+        "streamingTest": {
+          "httpCode": 400,
+          "error": {
+            "message": "Failed to load model \"qwen3.5-4b\". Error: Failed to load model.",
+            "type": "invalid_request_error",
+            "param": "model"
+          },
+          "note": "Model is listed but not currently loaded in LM Studio memory"
+        }
+      },
+      "issues": {
+        "blocker": "Model qwen3.5-4b is listed but not loaded in LM Studio. Manual model loading required before streaming tests can pass."
+      }
+    },
+    {
+      "id": "VAL-CFG-004",
+      "title": "Thinking is enabled in configuration",
+      "status": "fail",
+      "steps": [
+        {
+          "action": "Read backend/.env for LM_STUDIO_DISABLE_THINKING setting",
+          "expected": "Setting set to false or not present",
+          "observed": "Setting is NOT present in backend/.env file"
+        },
+        {
+          "action": "Check backend/app/core/config.py default value",
+          "expected": "LM_STUDIO_DISABLE_THINKING should default to false",
+          "observed": "Defaults to True (thinking disabled by default)"
+        },
+        {
+          "action": "Verify backend/.env.example reference value",
+          "expected": "Shows recommended configuration",
+          "observed": "LM_STUDIO_DISABLE_THINKING=false in .env.example"
+        }
+      ],
+      "evidence": {
+        "envFile": {
+          "path": "backend/.env",
+          "LM_STUDIO_DISABLE_THINKING": "NOT SET"
+        },
+        "configPy": {
+          "path": "backend/app/core/config.py:34",
+          "defaultValue": "LM_STUDIO_DISABLE_THINKING: bool = True"
+        },
+        "envExample": {
+          "path": "backend/.env.example",
+          "referenceValue": "LM_STUDIO_DISABLE_THINKING=false"
+        },
+        "actualBehavior": "Since .env doesn't set the value, config.py defaults to True, meaning thinking is DISABLED"
+      },
+      "issues": {
+        "failure": "backend/.env is missing LM_STUDIO_DISABLE_THINKING=false. Current effective configuration has thinking disabled (config.py defaults to True).",
+        "recommendation": "Add LM_STUDIO_DISABLE_THINKING=false to backend/.env to enable thinking functionality"
+      }
+    }
+  ],
+  "frictions": [
+    {
+      "id": "FRI-001",
+      "description": "Model qwen3.5-4b is listed in LM Studio but not loaded in memory, causing streaming test to fail with 'Failed to load model' error",
+      "impact": "Blocks VAL-CFG-003 streaming response verification",
+      "resolution": "Manually load the model in LM Studio UI before testing"
+    },
+    {
+      "id": "FRI-002",
+      "description": "Configuration inconsistency: .env.example recommends LM_STUDIO_DISABLE_THINKING=false, but backend/.env doesn't set it, and config.py defaults to True",
+      "impact": "Thinking is effectively disabled despite being a required feature",
+      "resolution": "Add explicit LM_STUDIO_DISABLE_THINKING=false to backend/.env"
+    }
+  ],
+  "blockers": [
+    {
+      "id": "BLK-001",
+      "description": "Model not loaded in LM Studio - streaming test cannot complete",
+      "blocking": "VAL-CFG-003",
+      "workaround": "Load qwen3.5-4b model manually in LM Studio and re-run test"
+    }
+  ],
+  "summary": "Tested 4 assertions: 2 passed (VAL-CFG-001, VAL-CFG-002), 1 blocked (VAL-CFG-003), 1 failed (VAL-CFG-004). LM Studio is accessible and health check works correctly. However, the qwen3.5-4b model is listed but not loaded in memory, blocking streaming verification. Most critically, thinking is effectively disabled due to missing LM_STUDIO_DISABLE_THINKING=false in backend/.env - the config.py defaults to True when the env var is absent."
+}
