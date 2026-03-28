@@ -1,11 +1,15 @@
 import { io, Socket } from 'socket.io-client'
 import { WS_URL, API_BASE_URL } from '@/lib/constants'
+import { formatTimestamp } from '@/lib/utils'
 import { useChatStore } from '@/stores/useChatStore'
 import type { Message } from '@/types/chat'
+import type { Conversation } from '@/types/chat'
 
 // Feature flag to enable/disable socket.io connection
 // Set to true when backend has socket.io support
-const SOCKET_IO_ENABLED = false
+const SOCKET_IO_ENABLED = true
+const SOCKET_PATH = '/realtime/socket.io'
+const NORMALIZED_WS_URL = WS_URL.replace(/^ws/i, 'http')
 
 class SocketService {
   private socket: Socket | null = null
@@ -16,6 +20,9 @@ class SocketService {
   private isConnected = false
   private isServerReachable = false
   private connectivityCheckInterval: NodeJS.Timeout | null = null
+  private subscribedInstance: string | null = null
+  // Map to store auto-clear timers per conversationId
+  private clearTimers: Map<string, ReturnType<typeof setTimeout>> = new Map()
 
   /**
    * Check if the backend server is reachable via HTTP
@@ -66,9 +73,14 @@ class SocketService {
   async connect(token?: string) {
     // Skip socket.io connection if feature is disabled
     if (!SOCKET_IO_ENABLED) {
-      console.log('[Socket] Socket.io connection disabled - using HTTP polling mode')
-      this.startConnectivityMonitor()
-      this.startPolling()
+      console.log('[Socket] Socket.io connection disabled')
+      this.isConnected = false
+      return
+    }
+
+    if (!token) {
+      console.log('[Socket] Missing auth token, skipping realtime connection')
+      this.isConnected = false
       return
     }
 
@@ -82,8 +94,9 @@ class SocketService {
 
     if (this.socket?.connected) return
 
-    this.socket = io(WS_URL, {
+    this.socket = io(NORMALIZED_WS_URL, {
       auth: { token },
+      path: SOCKET_PATH,
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: this.maxReconnectAttempts,
@@ -101,6 +114,10 @@ class SocketService {
       this.isConnected = true
       this.reconnectAttempts = 0
       this.stopPolling()
+
+      if (this.subscribedInstance) {
+        this.socket?.emit('subscribe_instance', { instanceName: this.subscribedInstance })
+      }
     })
 
     this.socket.on('disconnect', (reason) => {
@@ -119,9 +136,9 @@ class SocketService {
     })
 
     // Listen for new messages
-    this.socket.on('new_message', (message: Message) => {
+    this.socket.on('new_message', (message: Message & { timestamp: string | Date }) => {
       const { addMessage } = useChatStore.getState()
-      addMessage(message)
+      addMessage(this.normalizeMessage(message))
     })
 
     // Listen for message status updates
@@ -137,12 +154,49 @@ class SocketService {
     })
 
     // Listen for conversation updates
-    this.socket.on('conversation_updated', (conversation: any) => {
-      const { conversations, setConversations } = useChatStore.getState()
-      const updatedConversations = conversations.map((c) =>
-        c.id === conversation.id ? { ...c, ...conversation } : c
-      )
-      setConversations(updatedConversations)
+    this.socket.on('conversation_updated', (conversation: Conversation) => {
+      const { upsertConversation } = useChatStore.getState()
+      upsertConversation(this.normalizeConversation(conversation))
+    })
+
+    this.socket.on('connection_status_update', (payload: { status: string; evolutionState: string }) => {
+      console.log('[Socket] WhatsApp connection status updated:', payload)
+    })
+
+    // Listen for thinking events from the agent
+    this.socket.on('thinking_event', (payload: { conversationId: string; event: string; data?: Record<string, unknown> }) => {
+      const { setThinkingState, appendThinkingToken, collapseThinking, clearThinking } = useChatStore.getState()
+      const { conversationId, event, data } = payload
+
+      console.log('[Socket] Thinking event:', event, conversationId)
+
+      switch (event) {
+        case 'thinking_start':
+          setThinkingState(conversationId, 'indicator')
+          break
+        case 'thinking_token':
+          if (data?.token && typeof data.token === 'string') {
+            appendThinkingToken(conversationId, data.token)
+          }
+          break
+        case 'thinking_end':
+          collapseThinking(conversationId, data?.summary as string | undefined)
+          // Auto-clear after 5 seconds (store timer ref so it can be cancelled)
+          {
+            const timer = setTimeout(() => {
+              clearThinking(conversationId)
+            }, 5000)
+            // Store timer in the store for cancellation
+            const { thinkingClearTimers } = useChatStore.getState()
+            useChatStore.setState({
+              thinkingClearTimers: {
+                ...thinkingClearTimers,
+                [conversationId]: timer,
+              },
+            })
+          }
+          break
+      }
     })
   }
 
@@ -167,7 +221,12 @@ class SocketService {
 
   sendMessage(conversationId: string, content: string, tempId: string) {
     if (this.socket?.connected) {
-      this.socket.emit('send_message', { conversationId, content, tempId })
+      this.socket.emit('send_message', {
+        instanceName: this.subscribedInstance,
+        conversationId,
+        content,
+        tempId,
+      })
     } else {
       // Fallback: message will be sent via HTTP API
       console.log('[Socket] Not connected, message will be sent via HTTP')
@@ -181,14 +240,38 @@ class SocketService {
   }
 
   joinConversation(conversationId: string) {
-    if (this.socket?.connected) {
-      this.socket.emit('join_conversation', { conversationId })
+    if (this.socket?.connected && this.subscribedInstance) {
+      this.socket.emit('join_conversation', {
+        instanceName: this.subscribedInstance,
+        conversationId,
+      })
     }
   }
 
   leaveConversation(conversationId: string) {
+    if (this.socket?.connected && this.subscribedInstance) {
+      this.socket.emit('leave_conversation', {
+        instanceName: this.subscribedInstance,
+        conversationId,
+      })
+    }
+  }
+
+  subscribeToInstance(instanceName: string) {
+    this.subscribedInstance = instanceName
+
     if (this.socket?.connected) {
-      this.socket.emit('leave_conversation', { conversationId })
+      this.socket.emit('subscribe_instance', { instanceName })
+    }
+  }
+
+  leaveInstance(instanceName: string) {
+    if (this.socket?.connected) {
+      this.socket.emit('leave_instance', { instanceName })
+    }
+
+    if (this.subscribedInstance === instanceName) {
+      this.subscribedInstance = null
     }
   }
 
@@ -208,6 +291,28 @@ class SocketService {
       this.socket = null
     }
     this.isConnected = false
+    this.subscribedInstance = null
+  }
+
+  private normalizeMessage(message: Message & { timestamp: string | Date }): Message {
+    return {
+      ...message,
+      timestamp: message.timestamp instanceof Date ? message.timestamp : new Date(message.timestamp),
+    }
+  }
+
+  private normalizeConversation(conversation: Conversation): Conversation {
+    const rawTimestamp =
+      (conversation as Conversation & { last_message_at?: string; updated_at?: string }).timestamp ||
+      (conversation as Conversation & { last_message_at?: string; updated_at?: string }).last_message_at ||
+      (conversation as Conversation & { last_message_at?: string; updated_at?: string }).updated_at ||
+      ''
+
+    return {
+      ...conversation,
+      timestamp: rawTimestamp ? formatTimestamp(rawTimestamp) : '',
+      unreadCount: conversation.unreadCount ?? 0,
+    }
   }
 }
 
