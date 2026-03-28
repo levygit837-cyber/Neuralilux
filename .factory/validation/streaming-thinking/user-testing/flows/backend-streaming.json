@@ -1,0 +1,154 @@
+{
+  "groupId": "backend-streaming",
+  "testedAt": "2026-03-28T00:00:00Z",
+  "isolation": {
+    "backendPath": "/home/levybonito/Projetos/Neuralilux/backend",
+    "venvPath": "backend/venv/",
+    "testFiles": ["tests/test_inference_streaming.py", "tests/test_thinking_events.py"]
+  },
+  "toolsUsed": ["pytest"],
+  "assertions": [
+    {
+      "id": "VAL-BE-001",
+      "title": "Requisição ao LM Studio usa stream: true",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Execute test_stream_uses_stream_true_in_payload",
+          "expected": "Payload contains 'stream': True",
+          "observed": "Test passed - payload confirmed to have stream=True"
+        }
+      ],
+      "evidence": {
+        "testName": "test_stream_uses_stream_true_in_payload",
+        "testFile": "tests/test_inference_streaming.py",
+        "testResult": "PASSED",
+        "details": "Captured payload confirms 'stream': True is sent to LM Studio in astream_chat_completion_with_thinking() method"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-BE-002",
+      "title": "Chunks SSE do LM Studio são parseados corretamente",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Execute SSE parsing tests",
+          "expected": "data: {...} deserialized, data: [DONE] terminates, empty lines ignored",
+          "observed": "All SSE parsing scenarios passed"
+        }
+      ],
+      "evidence": {
+        "testNames": [
+          "test_done_sentinel_terminates",
+          "test_empty_lines_ignored",
+          "test_malformed_chunks_graceful",
+          "test_empty_stream"
+        ],
+        "testFile": "tests/test_inference_streaming.py",
+        "testResult": "PASSED",
+        "details": "Tests cover: [DONE] sentinel termination, empty line handling, malformed JSON graceful handling, and empty stream scenarios"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-BE-003",
+      "title": "Conteúdo dentro de <thinking> é emitido como thinking tokens",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Execute test_normal_think_block",
+          "expected": "Content inside <thinking> tags classified as ('thinking', token)",
+          "observed": "Test passed - thinking tokens correctly classified"
+        }
+      ],
+      "evidence": {
+        "testName": "test_normal_think_block",
+        "testFile": "tests/test_inference_streaming.py",
+        "testResult": "PASSED",
+        "details": "Simulated chunks with <thinking>content</thinking> produced thinking tokens for content inside tags"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-BE-004",
+      "title": "Tag </thinking> encerra emissão de thinking tokens",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Execute test_response_after_think",
+          "expected": "Transition from inside_think to outside_think after </thinking>",
+          "observed": "Test passed - transition correctly handled"
+        }
+      ],
+      "evidence": {
+        "testName": "test_response_after_think",
+        "testFile": "tests/test_inference_streaming.py",
+        "testResult": "PASSED",
+        "details": "Test with <thinking>A</thinking>B returned ('thinking', 'A') and ('response', 'B') - correct transition confirmed"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-BE-005",
+      "title": "Conteúdo após </thinking> é coletado como response",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Execute test_response_after_think and test_final_response_is_response_tokens_only",
+          "expected": "Response buffer accumulates content after </thinking> only",
+          "observed": "Tests passed - response buffer correctly excludes thinking content"
+        }
+      ],
+      "evidence": {
+        "testNames": ["test_response_after_think", "test_final_response_is_response_tokens_only"],
+        "testFile": "tests/test_inference_streaming.py, tests/test_thinking_events.py",
+        "testResult": "PASSED",
+        "details": "Content after </thinking> correctly collected in response buffer; final LLM response contains only response tokens, no thinking content"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-BE-006",
+      "title": "Modelo sem <thinking> — fallback streaming as thinking",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Execute test_no_think_block_all_thinking",
+          "expected": "All tokens streamed as thinking when no <thinking> tags present",
+          "observed": "Test passed - fallback behavior confirmed"
+        }
+      ],
+      "evidence": {
+        "testName": "test_no_think_block_all_thinking",
+        "testFile": "tests/test_inference_streaming.py",
+        "testResult": "PASSED",
+        "details": "Stream without <thinking> tags produced only ('thinking', ...) tuples; response buffer contains full concatenation for models that don't emit thinking blocks"
+      },
+      "issues": null
+    },
+    {
+      "id": "VAL-BE-007",
+      "title": "Tags <thinking> divididas entre chunks são tratadas corretamente",
+      "status": "pass",
+      "steps": [
+        {
+          "action": "Execute test_split_open_tag and test_split_close_tag",
+          "expected": "Split tags recognized correctly, fragments don't leak to response",
+          "observed": "Tests passed - split tag handling confirmed"
+        }
+      ],
+      "evidence": {
+        "testNames": ["test_split_open_tag", "test_split_close_tag"],
+        "testFile": "tests/test_inference_streaming.py",
+        "testResult": "PASSED",
+        "details": "Tested scenarios: '<thi' in chunk1 + 'nk>' in chunk2, and '</thi' in chunk1 + 'nk>' in chunk2. Partial tag fragments correctly not leaked to response stream"
+      },
+      "issues": null
+    }
+  ],
+  "frictions": [],
+  "blockers": [],
+  "summary": "Tested 7 assertions: All 7 passed (VAL-BE-001 through VAL-BE-007). Pytest execution completed successfully with exit code 0. Test files provide comprehensive coverage of streaming inference functionality including SSE parsing, thinking tag detection, state transitions, split tag handling, and fallback behavior for models without thinking blocks."
+}
+</invoke>

@@ -91,3 +91,95 @@ docker exec -it neuralilux-redis redis-cli -a redis_password SUBSCRIBE neuralilu
 ### Conversation Room Joining
 
 The frontend joins `conversation:{instance}:{conversationId}` socket.io room after loading messages. Thinking events are also emitted to `instance:{instance}` room as fallback. Make sure the test conversation is loaded/selected in the dashboard before sending the webhook.
+
+---
+
+## Flow Validator Guidance: agent-browser
+
+### Isolation Rules for Dashboard UI Tests
+
+**Shared Infrastructure (DO NOT TOUCH):**
+- LM Studio at localhost:1234 (already running, do not reconfigure)
+- Docker containers (postgres, redis, rabbitmq, evolution)
+- Backend at localhost:8000 (do not restart)
+- Frontend at localhost:3000 (already running, do not restart)
+
+**Isolation Boundary:**
+Each flow validator gets:
+- A dedicated browser session
+- A dedicated test conversation (unique phone number/JID)
+- Unique test message IDs to avoid collisions
+
+**Naming Convention for Test Data:**
+- Phone numbers: Use pattern `55119{validator_id}{sequence}@s.whatsapp.net`
+- Message IDs: Use pattern `test-{validator_id}-{timestamp}-{sequence}`
+- Instance name: Use "Whatsapp" (the connected test instance)
+
+**State Mutation Rules:**
+- DO NOT click "Recolher" or "Expandir" on thinking components that belong to other validators
+- DO NOT send webhooks to the same conversationId simultaneously from different validators
+- OK to navigate between pages, login, logout
+- OK to create new conversations (they're isolated by phone number)
+
+**Resource Limits:**
+- Max 2 concurrent browser validators (per user-testing.md Validation Concurrency)
+- Each browser ~300MB RAM
+
+---
+
+## Flow Validator Guidance: curl
+
+### Isolation Rules for API Tests
+
+**Shared Infrastructure:**
+- Backend API at localhost:8000
+- LM Studio at localhost:1234
+- Redis, PostgreSQL via Docker
+
+**Isolation Boundary:**
+- No special isolation needed - API calls are stateless or use unique IDs
+- Use unique test message IDs: `test-{validator_id}-{timestamp}`
+- Use unique phone numbers: `55119{validator_id}999@s.whatsapp.net`
+
+**State Mutation Rules:**
+- OK to query any endpoint (GET requests are safe)
+- OK to POST to webhook endpoint (creates new messages, no collision if IDs unique)
+- DO NOT run database migrations
+- DO NOT restart services
+
+**Resource Limits:**
+- Max 5 concurrent curl validators
+- Negligible resource cost per validator
+
+---
+
+## Flow Validator Guidance: pytest
+
+### Isolation Rules for Unit Tests
+
+**Shared Infrastructure:**
+- Backend codebase at /home/levybonito/Projetos/Neuralilux/backend
+- Python venv at backend/venv/
+
+**Isolation Boundary:**
+- Unit tests mock external services (LM Studio)
+- No real network calls
+- Tests run in separate process via pytest
+
+**State Mutation Rules:**
+- DO NOT modify source code
+- DO NOT install new packages
+- OK to create test fixtures if needed
+- Tests should use mocks, not real services
+
+**Resource Limits:**
+- Max 4 concurrent pytest validators
+- Lightweight - only Python process overhead
+
+**Test Commands:**
+```bash
+cd /home/levybonito/Projetos/Neuralilux/backend
+source venv/bin/activate
+python -m pytest tests/test_inference_streaming.py -v
+python -m pytest tests/test_thinking_events.py -v
+```

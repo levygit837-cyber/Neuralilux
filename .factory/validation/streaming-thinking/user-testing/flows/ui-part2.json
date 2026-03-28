@@ -1,0 +1,161 @@
+{
+  "groupId": "ui-part2",
+  "testedAt": "2026-03-28T12:00:00Z",
+  "isolation": {
+    "frontendPath": "/home/levybonito/Projetos/Neuralilux/frontend",
+    "backendPath": "/home/levybonito/Projetos/Neuralilux/backend",
+    "instance": "Whatsapp",
+    "testPhone": "55119UI002999@s.whatsapp.net",
+    "testCredentials": {
+      "email": "usuario@teste.com",
+      "password": "teste123"
+    },
+    "toolsUsed": ["agent-browser"]
+  },
+  "assertions": [
+    {
+      "id": "VAL-UI-007",
+      "title": "Auto-scroll to last token",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Send multiple thinking_token events to create long content",
+          "expected": "ThinkingBubble content grows beyond visible area",
+          "observed": "Cannot reach authenticated view to test"
+        },
+        {
+          "action": "Verify auto-scroll behavior during streaming",
+          "expected": "Scroll position automatically moves to show latest token",
+          "observed": "Scroll behavior verification blocked"
+        }
+      ],
+      "evidence": {
+        "expectedBehavior": "During streaming, container should auto-scroll to keep latest content visible"
+      },
+      "issues": [
+        {
+          "type": "technical_blocker",
+          "description": "Browser automation session unstable"
+        }
+      ]
+    },
+    {
+      "id": "VAL-UI-008",
+      "title": "'Recolher' button transitions to collapsed",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Complete thinking flow: thinking_start -> tokens -> thinking_end",
+          "expected": "ThinkingBubble visible with 'Recolher' button",
+          "observed": "Cannot access authenticated view"
+        },
+        {
+          "action": "Click 'Recolher' button",
+          "expected": "UI transitions from ThinkingBubble to ThinkingCollapsed",
+          "observed": "Click interaction not possible"
+        }
+      ],
+      "evidence": {
+        "expectedTransition": "streaming -> collapsed when 'Recolher' clicked"
+      },
+      "issues": [
+        {
+          "type": "technical_blocker",
+          "description": "Unable to reach authenticated chat interface"
+        }
+      ]
+    },
+    {
+      "id": "VAL-UI-009",
+      "title": "ThinkingCollapsed shows summary",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "After clicking 'Recolher', observe ThinkingCollapsed",
+          "expected": "Collapsed component displays thinking summary",
+          "observed": "Component verification blocked"
+        }
+      ],
+      "evidence": {
+        "expectedSummary": "Brief summary of thinking content visible"
+      },
+      "issues": [
+        {
+          "type": "technical_blocker",
+          "description": "Browser automation session issues persist"
+        }
+      ]
+    },
+    {
+      "id": "VAL-UI-010",
+      "title": "Expand preserves summary",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "From collapsed state, click 'Expandir' button",
+          "expected": "UI transitions back to ThinkingBubble",
+          "observed": "Transition verification blocked"
+        },
+        {
+          "action": "Verify summary is preserved after expand/collapse cycle",
+          "expected": "Same summary text displayed",
+          "observed": "Summary preservation verification blocked"
+        }
+      ],
+      "evidence": {
+        "expectedBehavior": "Summary should be preserved when expanding and re-collapsing"
+      },
+      "issues": [
+        {
+          "type": "technical_blocker",
+          "description": "Browser context instability prevents testing"
+        }
+      ]
+    },
+    {
+      "id": "VAL-UI-011",
+      "title": "Auto-clear cancelled on user interaction",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Complete thinking flow to get ThinkingCollapsed",
+          "expected": "Component visible, auto-clear timer should be active",
+          "observed": "Cannot reach this state"
+        },
+        {
+          "action": "Click 'Expandir' within 5 seconds of thinking_end",
+          "expected": "User interaction detected, auto-clear timer cancelled",
+          "observed": "Interaction not possible"
+        },
+        {
+          "action": "Wait 6+ seconds after expand",
+          "expected": "ThinkingBubble still visible (not auto-cleared)",
+          "observed": "Timer cancellation verification blocked"
+        }
+      ],
+      "evidence": {
+        "expectedBehavior": "User interaction should cancel the auto-clear timer"
+      },
+      "issues": [
+        {
+          "type": "technical_blocker",
+          "description": "Browser automation session could not be maintained"
+        }
+      ]
+    }
+  ],
+  "frictions": [
+    {
+      "type": "browser_automation",
+      "description": "Browser context repeatedly closed unexpectedly"
+    }
+  ],
+  "blockers": [
+    {
+      "id": "B002",
+      "description": "Browser automation context instability",
+      "impact": "All UI assertions (VAL-UI-007 through VAL-UI-011) blocked"
+    }
+  ],
+  "summary": "Attempted to test 5 UI assertions (VAL-UI-007 through VAL-UI-011). All marked BLOCKED due to browser automation session instability. Test phone for Part 2: 55119UI002999@s.whatsapp.net. Manual verification recommended for auto-scroll, collapse/expand transitions, summary display/preservation, and auto-clear cancellation."
+}
