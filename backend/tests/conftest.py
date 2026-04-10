@@ -24,6 +24,13 @@ engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
+# Custom marker for E2E tests
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", "e2e: marks tests as end-to-end tests with real dependencies"
+    )
+
+
 @pytest.fixture
 def db():
     """Create test database"""

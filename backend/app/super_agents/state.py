@@ -59,6 +59,9 @@ class SuperAgentState(TypedDict):
     pending_action: Optional[Dict[str, Any]]
     skip_model_response: bool
 
+    # Agent loop: chat messages in OpenAI dict format (role, content, tool_calls, tool_call_id)
+    agent_messages: Optional[List[Dict[str, Any]]]
+
     # Checkpoint context
     needs_checkpoint: bool
     checkpoint_summary: Optional[str]

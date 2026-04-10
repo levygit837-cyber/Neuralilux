@@ -35,6 +35,7 @@ export interface AgentMessage {
   thinkingSummary?: string
   thinkingTokens?: string[]
   thinkingLive?: boolean
+  thinkingDurationSeconds?: number
   streaming?: boolean
   toolEvent?: AgentToolEvent
 }

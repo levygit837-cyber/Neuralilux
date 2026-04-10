@@ -114,7 +114,7 @@ export function renderStructuredAgentContent(
           isCompact
             ? 'leading-6 break-words text-xs'
             : isOutput
-              ? 'break-words text-[12px] leading-6'
+              ? 'break-words text-[15px] leading-relaxed'
               : 'leading-7 break-words'
         }
       >
@@ -137,12 +137,12 @@ export function renderStructuredAgentContent(
             ? isCompact
               ? 'list-decimal space-y-1.5 pl-4 leading-6 text-xs'
               : isOutput
-                ? 'list-decimal space-y-1.5 pl-5 text-[12px] leading-6'
+                ? 'list-decimal space-y-1.5 pl-5 text-[15px] leading-relaxed'
                 : 'list-decimal space-y-2 pl-5 leading-7'
             : isCompact
               ? 'list-disc space-y-1.5 pl-4 leading-6 text-xs'
               : isOutput
-                ? 'list-disc space-y-1.5 pl-5 text-[12px] leading-6'
+                ? 'list-disc space-y-1.5 pl-5 text-[15px] leading-relaxed'
                 : 'list-disc space-y-2 pl-5 leading-7'
         }
       >

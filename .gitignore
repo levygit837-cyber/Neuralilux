@@ -86,3 +86,5 @@ evolution-api/store/
 # Backups
 *.bak
 *.backup
+.aidesigner/*
+!.aidesigner/.gitkeep

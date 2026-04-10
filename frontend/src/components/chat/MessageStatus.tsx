@@ -1,4 +1,4 @@
-import { Clock, Check, CheckCheck } from 'lucide-react'
+import { Clock, Check } from '@phosphor-icons/react'
 import type { MessageStatus as MessageStatusType } from '@/types/chat'
 
 interface MessageStatusProps {
@@ -8,15 +8,15 @@ interface MessageStatusProps {
 export function MessageStatus({ status }: MessageStatusProps) {
   switch (status) {
     case 'pending':
-      return <Clock className="h-4 w-4 text-text-muted" />
+      return <Clock weight="regular" className="text-sm text-content-muted" />
     case 'sending':
-      return <Check className="h-4 w-4 text-text-muted" />
+      return <Check weight="regular" className="text-sm text-content-muted" />
     case 'sent':
-      return <CheckCheck className="h-4 w-4 text-text-muted" />
+      return <Check weight="regular" className="text-sm text-content-muted" />
     case 'delivered':
-      return <CheckCheck className="h-4 w-4 text-text-muted" />
+      return <Check weight="fill" className="text-sm text-content-muted" />
     case 'read':
-      return <CheckCheck className="h-4 w-4 text-primary" />
+      return <Check weight="fill" className="text-sm text-blue-400" />
     default:
       return null
   }

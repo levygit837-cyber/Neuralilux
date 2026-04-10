@@ -4,6 +4,7 @@ Handles async processing of WhatsApp messages via RabbitMQ
 """
 import asyncio
 import structlog
+import uuid
 from typing import Dict, Any
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
@@ -12,9 +13,74 @@ from app.services.message_queue_service import message_queue_service
 from app.services.realtime_event_bus import realtime_event_bus
 from app.core.config import settings
 from app.core.database import SessionLocal
-from app.models.models import Instance, Contact, Conversation, Message
+from app.models.models import Instance, Contact, Conversation, Message, Agent
+from app.agents.exceptions import (
+    AgentNotEnabledError,
+    AgentNotAssignedError,
+    AgentInactiveError,
+    MessageProcessingError,
+    InstanceNotFoundError,
+)
 
 logger = structlog.get_logger()
+
+
+def _resolve_default_agent(db: Session, instance: Instance) -> Agent | None:
+    """
+    Resolve um agent padrão para a instância quando agent_id é None.
+    
+    Prioridade:
+    1. Primeiro agent ativo do dono da instância
+    2. Primeiro agent global (owner_id=None) ativo
+    
+    Args:
+        db: Sessão do banco de dados
+        instance: Instância que precisa de um agent
+    
+    Returns:
+        Agent encontrado ou None
+    """
+    # Tentar buscar agent do dono da instância
+    if instance.owner_id:
+        owner_agent = db.query(Agent).filter(
+            Agent.owner_id == instance.owner_id,
+            Agent.is_active == True
+        ).first()
+        
+        if owner_agent:
+            logger.info(
+                "Resolved owner agent for instance",
+                instance_id=instance.id,
+                instance_name=instance.name,
+                owner_id=instance.owner_id,
+                agent_id=owner_agent.id,
+                agent_name=owner_agent.name
+            )
+            return owner_agent
+    
+    # Tentar buscar agent global
+    global_agent = db.query(Agent).filter(
+        Agent.owner_id.is_(None),
+        Agent.is_active == True
+    ).first()
+    
+    if global_agent:
+        logger.info(
+            "Resolved global agent for instance",
+            instance_id=instance.id,
+            instance_name=instance.name,
+            agent_id=global_agent.id,
+            agent_name=global_agent.name
+        )
+        return global_agent
+    
+    logger.warning(
+        "No default agent found for instance",
+        instance_id=instance.id,
+        instance_name=instance.name,
+        owner_id=instance.owner_id
+    )
+    return None
 
 
 class WhatsAppMessageConsumer:
@@ -161,6 +227,15 @@ class WhatsAppMessageConsumer:
             push_name = message_payload.get("pushName")
             timestamp = self._parse_message_timestamp(message_payload.get("messageTimestamp"))
 
+            # Log detalhado para debug de loop
+            logger.info(
+                "Message details",
+                message_id=message_id,
+                from_me=from_me,
+                remote_jid=remote_jid,
+                has_content=bool(message_data)
+            )
+
             # Extract message content
             content = ""
             message_type = "text"
@@ -266,7 +341,50 @@ class WhatsAppMessageConsumer:
             db.refresh(db_message)
 
             # === AGENTE AI: Processar mensagem com o agente se a instância tem agente atribuído ===
-            if not from_me and content and message_type == "text":
+            # Múltiplas camadas de detecção de auto-processamento
+            should_process = (
+                not from_me  # Layer 1: from_me flag
+                and content  # Must have content
+                and message_type == "text"  # Only text messages
+                and db_message.direction == "incoming"  # Layer 2: Direction must be incoming
+            )
+
+            # Layer 3: Check if message was sent by bot (participant field)
+            participant = key.get("participant")
+            if participant and "@" in participant:
+                # In group chats, participant indicates who sent the message
+                # If participant matches bot's number, skip processing
+                participant_number = participant.split("@")[0]
+                if participant_number == instance.evolution_instance_id:
+                    should_process = False
+                    logger.info(
+                        "Skipping bot's own message (participant check)",
+                        message_id=message_id,
+                        participant=participant
+                    )
+
+            # Layer 4: Check if this is a recently sent message by checking database
+            if should_process:
+                # Check if we have an outgoing message with same content sent recently (last 10 seconds)
+                from datetime import timedelta
+                recent_cutoff = datetime.now(timezone.utc) - timedelta(seconds=10)
+                recent_outgoing = db.query(Message).filter(
+                    Message.instance_id == instance.id,
+                    Message.conversation_id == conversation.id,
+                    Message.direction == "outgoing",
+                    Message.content == content,
+                    Message.timestamp >= recent_cutoff
+                ).first()
+
+                if recent_outgoing:
+                    should_process = False
+                    logger.info(
+                        "Skipping duplicate of recently sent message",
+                        message_id=message_id,
+                        original_message_id=recent_outgoing.message_id
+                    )
+
+            if should_process:
                 await self._try_process_with_agent(
                     db=db,
                     instance=instance,
@@ -274,6 +392,14 @@ class WhatsAppMessageConsumer:
                     remote_jid=remote_jid,
                     contact_name=contact.name or phone_number,
                     content=content,
+                )
+            else:
+                logger.info(
+                    "Message not processed by agent",
+                    message_id=message_id,
+                    from_me=from_me,
+                    direction=db_message.direction,
+                    reason="self-message or duplicate"
                 )
             logger.info(
                 "Message saved to database",
@@ -464,29 +590,104 @@ class WhatsAppMessageConsumer:
         """
         Tenta processar a mensagem com o agente AI se a instância tem um agente atribuído.
         """
+        correlation_id = str(uuid.uuid4())
+        
         try:
+            logger.info(
+                "Checking agent for instance",
+                correlation_id=correlation_id,
+                instance_id=instance.id,
+                instance_name=instance.name,
+                agent_enabled=instance.agent_enabled,
+                agent_id=instance.agent_id,
+                conversation_id=str(conversation.id)
+            )
+
             # Verificar se o agente está habilitado para esta instância
             if not instance.agent_enabled:
-                logger.info("Agent disabled for this instance", instance_id=instance.id, instance_name=instance.name)
-                return
+                logger.info(
+                    "Agent disabled for this instance",
+                    correlation_id=correlation_id,
+                    instance_id=instance.id,
+                    instance_name=instance.name
+                )
+                raise AgentNotEnabledError(
+                    "Agent is not enabled for this instance",
+                    context={
+                        "instance_id": str(instance.id),
+                        "instance_name": instance.name,
+                        "conversation_id": str(conversation.id)
+                    }
+                )
 
             # Verificar se a instância tem um agente atribuído
+            agent = None
             if not instance.agent_id:
-                return
+                # Tentar resolver automaticamente um agent
+                logger.info(
+                    "No agent assigned, attempting auto-resolution",
+                    correlation_id=correlation_id,
+                    instance_id=instance.id,
+                    instance_name=instance.name
+                )
+                agent = _resolve_default_agent(db, instance)
+                
+                if agent:
+                    # Atualizar instância com o agent resolvido
+                    instance.agent_id = agent.id
+                    db.commit()
+                    logger.info(
+                        "Auto-resolved agent assigned to instance",
+                        correlation_id=correlation_id,
+                        instance_id=instance.id,
+                        agent_id=agent.id,
+                        agent_name=agent.name
+                    )
+                else:
+                    logger.error(
+                        "No agent available for auto-resolution",
+                        correlation_id=correlation_id,
+                        instance_id=instance.id,
+                        instance_name=instance.name,
+                        owner_id=instance.owner_id
+                    )
+                    raise AgentNotAssignedError(
+                        "No agent assigned to this instance and no default agent available",
+                        context={
+                            "instance_id": str(instance.id),
+                            "instance_name": instance.name,
+                            "owner_id": instance.owner_id,
+                            "conversation_id": str(conversation.id)
+                        }
+                    )
+            else:
+                # Buscar agent atribuído
+                agent = db.query(Agent).filter(
+                    Agent.id == instance.agent_id,
+                    Agent.is_active == True
+                ).first()
 
-            # Verificar se o agente está ativo
-            from app.models.models import Agent
-            agent = db.query(Agent).filter(
-                Agent.id == instance.agent_id,
-                Agent.is_active == True
-            ).first()
-
+            # Verificar se o agente existe e está ativo
             if not agent:
-                logger.info("Agent not found or inactive", agent_id=instance.agent_id)
-                return
+                logger.error(
+                    "Agent not found or inactive",
+                    correlation_id=correlation_id,
+                    instance_id=instance.id,
+                    agent_id=instance.agent_id
+                )
+                raise AgentInactiveError(
+                    f"Agent {instance.agent_id} not found or inactive",
+                    context={
+                        "instance_id": str(instance.id),
+                        "instance_name": instance.name,
+                        "agent_id": instance.agent_id,
+                        "conversation_id": str(conversation.id)
+                    }
+                )
 
             logger.info(
                 "Processing message with AI agent",
+                correlation_id=correlation_id,
                 agent_id=agent.id,
                 agent_name=agent.name,
                 conversation_id=str(conversation.id)
@@ -507,18 +708,57 @@ class WhatsAppMessageConsumer:
             if response:
                 logger.info(
                     "Agent response sent",
+                    correlation_id=correlation_id,
                     conversation_id=str(conversation.id),
                     response_length=len(response)
                 )
             else:
-                logger.info("Agent returned no response", conversation_id=str(conversation.id))
+                logger.info(
+                    "Agent returned no response",
+                    correlation_id=correlation_id,
+                    conversation_id=str(conversation.id)
+                )
+
+        except (AgentNotEnabledError, AgentNotAssignedError, AgentInactiveError) as e:
+            # Exceções esperadas do fluxo - log informativo
+            logger.info(
+                "Agent processing skipped",
+                correlation_id=correlation_id,
+                conversation_id=str(conversation.id),
+                error_type=type(e).__name__,
+                error=str(e),
+                context=e.context if hasattr(e, 'context') else {}
+            )
+            # Não relançar - estas são condições esperadas
+
+        except MessageProcessingError as e:
+            # Erro de processamento de mensagem - log detalhado
+            import traceback
+            error_traceback = traceback.format_exc()
+            logger.error(
+                "Message processing error",
+                correlation_id=correlation_id,
+                conversation_id=str(conversation.id),
+                error_type=type(e).__name__,
+                error=str(e),
+                context=e.context if hasattr(e, 'context') else {},
+                traceback=error_traceback
+            )
+            # Não relançar para não quebrar o worker
 
         except Exception as e:
+            # Erro inesperado - log detalhado
+            import traceback
+            error_traceback = traceback.format_exc()
             logger.error(
-                "Error processing message with agent",
+                "Unexpected error processing message with agent",
+                correlation_id=correlation_id,
                 conversation_id=str(conversation.id),
-                error=str(e)
+                error=str(e),
+                error_type=type(e).__name__,
+                traceback=error_traceback
             )
+            # Não relançar para não quebrar o worker
     
     def register_consumers(self):
         """Register all consumer callbacks"""

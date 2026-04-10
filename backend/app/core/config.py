@@ -67,14 +67,19 @@ class Settings(BaseSettings):
     SUPER_AGENT_LM_STUDIO_TEMPERATURE: float = 0.7
 
     # WhatsApp Agent Configuration
-    WHATSAPP_AGENT_INFERENCE_PROVIDER: str = "gemini"  # "lm_studio" or "gemini"
-    WHATSAPP_AGENT_GEMINI_MODEL: str = "gemini-3.1-flash-lite-preview"
+    WHATSAPP_AGENT_INFERENCE_PROVIDER: str = "lm_studio"  # "lm_studio" or "gemini"
+    WHATSAPP_AGENT_GEMINI_MODEL: str = "gemini-2.0-flash-lite"
     WHATSAPP_AGENT_GEMINI_MAX_TOKENS: int = 2048
     WHATSAPP_AGENT_GEMINI_TEMPERATURE: float = 0.7
+    WHATSAPP_AGENT_LM_STUDIO_MODEL: str = "qwen3.5-4b-claude-4.6-opus-reasoning-distilled-v2"
+    WHATSAPP_AGENT_LM_STUDIO_MAX_TOKENS: int = 2048
+    WHATSAPP_AGENT_LM_STUDIO_TEMPERATURE: float = 0.7
 
     # CORS
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:3002",
         "http://localhost:8000",
     ]
 

@@ -3,6 +3,8 @@ Evolution API Service - Integration with Evolution API for WhatsApp.
 Handles QR code, connection status, and disconnection.
 """
 
+import re
+
 import httpx
 import structlog
 from typing import Optional, Dict, Any
@@ -277,24 +279,89 @@ class EvolutionAPIService:
             text: The text message content.
         
         Returns dict with message details including key.id (message_id).
+        
+        Raises:
+            EvolutionAPIError: If validation fails or API returns error.
         """
         logger.info(
             "Sending text message via Evolution API",
             instance=instance_name,
             remote_jid=remote_jid,
         )
+        
+        # Validate inputs
+        if not instance_name or not instance_name.strip():
+            raise EvolutionAPIError("instance_name is required", status_code=400)
+        
+        if not remote_jid or not remote_jid.strip():
+            raise EvolutionAPIError("remote_jid is required", status_code=400)
+        
+        if not text or not text.strip():
+            raise EvolutionAPIError("text message is required", status_code=400)
+        
+        # Normalize JID to number
+        number = remote_jid.split("@")[0] if "@" in remote_jid else remote_jid
+        number = re.sub(r"\D", "", number)
+        
+        if not number:
+            raise EvolutionAPIError(
+                f"Invalid remote_jid format: {remote_jid}",
+                status_code=400
+            )
+        
         payload = {
-            "number": remote_jid.split("@")[0] if "@" in remote_jid else remote_jid,
-            "text": text,
+            "number": number,
+            "text": text.strip(),
             "options": {
                 "delay": 1200,
                 "presence": "composing",
             },
         }
+        
         result = await self._request(
             "POST",
             f"/message/sendText/{instance_name}",
             data=payload,
+        )
+        
+        # Validate response contains expected fields
+        if not isinstance(result, dict):
+            raise EvolutionAPIError(
+                f"Invalid response from Evolution API: expected dict, got {type(result).__name__}",
+                status_code=500
+            )
+        
+        # Check for success indicator - Evolution API returns key.id on success
+        key = result.get("key")
+        if key and isinstance(key, dict) and key.get("id"):
+            logger.info(
+                "Message sent successfully",
+                instance=instance_name,
+                message_id=key.get("id"),
+            )
+            return result
+        
+        # Some versions return different format - check for success flag or message id
+        if result.get("success") or result.get("id") or result.get("messageId"):
+            logger.info(
+                "Message sent successfully (alternate format)",
+                instance=instance_name,
+            )
+            return result
+        
+        # Check for error in response
+        if "error" in result or result.get("status") == "error":
+            error_msg = result.get("error") or result.get("message") or "Unknown error"
+            raise EvolutionAPIError(
+                f"Evolution API returned error: {error_msg}",
+                status_code=500
+            )
+        
+        # Return result anyway - let caller decide
+        logger.warning(
+            "Message sent but response format unclear",
+            instance=instance_name,
+            response_keys=list(result.keys()) if isinstance(result, dict) else "N/A",
         )
         return result
 

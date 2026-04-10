@@ -9,9 +9,7 @@ from langgraph.graph import StateGraph, END
 from app.super_agents.state import SuperAgentState
 from app.super_agents.graph.nodes import (
     load_context_node,
-    classify_intent_node,
-    execute_action_node,
-    generate_response_node,
+    agent_loop_node,
     handle_checkpoint_node,
 )
 from app.services.tool_event_service import generate_request_id
@@ -24,7 +22,11 @@ def create_super_agent_graph() -> StateGraph:
     Create and return the Super Agent LangGraph.
 
     Flow:
-    1. load_context -> classify_intent -> execute_action -> generate_response -> handle_checkpoint -> END
+    1. load_context -> agent_loop -> handle_checkpoint -> END
+
+    The agent_loop node replaces the old classify_intent + execute_action +
+    generate_response nodes with a single ReAct loop that uses native
+    tool calling via the LM Studio OpenAI-compatible API.
 
     Returns:
         Compiled StateGraph ready for use
@@ -33,24 +35,20 @@ def create_super_agent_graph() -> StateGraph:
 
     # Add nodes
     workflow.add_node("load_context", load_context_node)
-    workflow.add_node("classify_intent", classify_intent_node)
-    workflow.add_node("execute_action", execute_action_node)
-    workflow.add_node("generate_response", generate_response_node)
+    workflow.add_node("agent_loop", agent_loop_node)
     workflow.add_node("handle_checkpoint", handle_checkpoint_node)
 
     # Define entry point
     workflow.set_entry_point("load_context")
 
     # Transitions
-    workflow.add_edge("load_context", "classify_intent")
-    workflow.add_edge("classify_intent", "execute_action")
-    workflow.add_edge("execute_action", "generate_response")
-    workflow.add_edge("generate_response", "handle_checkpoint")
+    workflow.add_edge("load_context", "agent_loop")
+    workflow.add_edge("agent_loop", "handle_checkpoint")
     workflow.add_edge("handle_checkpoint", END)
 
     # Compile the graph
     app = workflow.compile()
-    logger.info("Super Agent graph compiled successfully")
+    logger.info("Super Agent graph compiled successfully (native tool-calling)")
     return app
 
 
@@ -105,6 +103,7 @@ class SuperAgentGraph:
             "tool_calls": [],
             "pending_action": None,
             "skip_model_response": False,
+            "agent_messages": None,
             "needs_checkpoint": False,
             "checkpoint_summary": None,
             "response": None,

@@ -193,6 +193,31 @@ export const instanceService = {
     }
   },
 
+  async enableWebSocket(instanceName: string): Promise<void> {
+    try {
+      await evolutionApi.post(`/websocket/set/${instanceName}`, {
+        websocket: {
+          enabled: true,
+          events: [
+            'MESSAGES_UPSERT',
+            'MESSAGES_UPDATE',
+            'MESSAGES_DELETE',
+            'SEND_MESSAGE',
+            'CONTACTS_UPSERT',
+            'CONTACTS_UPDATE',
+            'PRESENCE_UPDATE',
+            'CHATS_UPSERT',
+            'CHATS_UPDATE',
+            'CHATS_DELETE',
+            'CONNECTION_UPDATE',
+          ],
+        },
+      })
+    } catch (error) {
+      console.error('Failed to enable WebSocket for instance:', instanceName, error)
+    }
+  },
+
   async updateAgentBinding(
     instanceName: string,
     agentId: string | null

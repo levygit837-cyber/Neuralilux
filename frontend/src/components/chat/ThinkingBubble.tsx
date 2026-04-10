@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { CaretDown } from '@phosphor-icons/react'
 import { renderStructuredAgentContent } from '@/components/agent/renderStructuredAgentContent'
 
 interface ThinkingBubbleProps {
@@ -82,7 +82,7 @@ export function ThinkingBubble({ tokens, onCollapse, isLive = true }: ThinkingBu
             aria-label="Recolher raciocínio"
             className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#3A2C70] bg-[#221A44] text-[#E9D5FF] transition-colors hover:bg-[#2D2255]"
           >
-            <ChevronDown className="h-4 w-4 -rotate-90 transition-transform duration-200" />
+            <CaretDown weight="bold" className="text-lg -rotate-90 transition-transform duration-200" />
           </button>
         </div>
       </div>

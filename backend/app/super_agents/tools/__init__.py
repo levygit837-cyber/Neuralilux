@@ -16,6 +16,20 @@ from app.super_agents.tools.knowledge_tool import (
     knowledge_store_tool,
 )
 from app.super_agents.tools.web_tool import web_fetch_tool, web_search_tool
+from app.super_agents.tools.schemas import (
+    SendMessageToolInput,
+    ReadMessagesToolInput,
+    ListContactsToolInput,
+    ToolExecutionResult,
+    get_tool_timeout,
+    TOOL_TIMEOUTS,
+)
+from app.super_agents.tools.executor import (
+    execute_with_timeout,
+    execute_with_fallback,
+    ToolTimeoutError,
+    ToolValidationError,
+)
 
 __all__ = [
     "database_query_tool",
@@ -30,4 +44,16 @@ __all__ = [
     "knowledge_store_tool",
     "web_fetch_tool",
     "web_search_tool",
+    # Schemas
+    "SendMessageToolInput",
+    "ReadMessagesToolInput",
+    "ListContactsToolInput",
+    "ToolExecutionResult",
+    "get_tool_timeout",
+    "TOOL_TIMEOUTS",
+    # Executor
+    "execute_with_timeout",
+    "execute_with_fallback",
+    "ToolTimeoutError",
+    "ToolValidationError",
 ]

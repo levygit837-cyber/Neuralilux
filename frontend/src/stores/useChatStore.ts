@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Message, Conversation, TypingIndicator, ThinkingEvent, ThinkingState } from '@/types/chat'
+import type { Message, Conversation, TypingIndicator, ThinkingEvent, ThinkingState, ContactFilter } from '@/types/chat'
 
 interface ChatStore {
   conversations: Conversation[]
@@ -7,6 +7,7 @@ interface ChatStore {
   activeConversationId: string | null
   typingIndicators: Record<string, boolean>
   thinkingEvents: Record<string, ThinkingEvent>
+  contactFilter: ContactFilter
   isLoadingConversations: boolean
   isLoadingMessages: boolean
   isSending: boolean
@@ -28,6 +29,7 @@ interface ChatStore {
   updateConversationLastMessage: (conversationId: string, message: string, timestamp: string) => void
   incrementUnreadCount: (conversationId: string) => void
   resetUnreadCount: (conversationId: string) => void
+  setContactFilter: (filter: ContactFilter) => void
   // Thinking actions
   setThinkingState: (conversationId: string, state: ThinkingState, summary?: string) => void
   appendThinkingToken: (conversationId: string, token: string) => void
@@ -46,27 +48,45 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   typingIndicators: {},
   thinkingEvents: {},
   thinkingClearTimers: {},
+  contactFilter: 'all',
   isLoadingConversations: false,
   isLoadingMessages: false,
   isSending: false,
   error: null,
 
-  setConversations: (conversations) => set({ conversations }),
+  setConversations: (conversations) =>
+    set({
+      conversations: conversations.sort((a, b) => {
+        const dateA = new Date(a.timestamp).getTime()
+        const dateB = new Date(b.timestamp).getTime()
+        return dateB - dateA // Sort by most recent first
+      }),
+    }),
 
   upsertConversation: (conversation) =>
     set((state) => {
       const existingIndex = state.conversations.findIndex((item) => item.id === conversation.id)
 
       if (existingIndex === -1) {
+        const newConversations = [...state.conversations, conversation]
         return {
-          conversations: [conversation, ...state.conversations],
+          conversations: newConversations.sort((a, b) => {
+            const dateA = new Date(a.timestamp).getTime()
+            const dateB = new Date(b.timestamp).getTime()
+            return dateB - dateA
+          }),
         }
       }
 
-      const nextConversations = [...state.conversations]
-      nextConversations.splice(existingIndex, 1)
+      const nextConversations = state.conversations.map((conv) =>
+        conv.id === conversation.id ? conversation : conv
+      )
       return {
-        conversations: [conversation, ...nextConversations],
+        conversations: nextConversations.sort((a, b) => {
+          const dateA = new Date(a.timestamp).getTime()
+          const dateB = new Date(b.timestamp).getTime()
+          return dateB - dateA
+        }),
       }
     }),
   
@@ -115,32 +135,7 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }),
 
   setActiveConversation: (conversationId) =>
-    set((state) => {
-      if (!conversationId) {
-        return { activeConversationId: null }
-      }
-
-      // Find the selected conversation and move it to the top
-      const conversationIndex = state.conversations.findIndex(
-        (conv) => conv.id === conversationId
-      )
-
-      if (conversationIndex <= 0) {
-        // Already at top or not found, just set active
-        return { activeConversationId: conversationId }
-      }
-
-      // Move selected conversation to the top
-      const selectedConversation = state.conversations[conversationIndex]
-      const remainingConversations = state.conversations.filter(
-        (conv) => conv.id !== conversationId
-      )
-
-      return {
-        activeConversationId: conversationId,
-        conversations: [selectedConversation, ...remainingConversations],
-      }
-    }),
+    set({ activeConversationId: conversationId }),
 
   setTyping: (conversationId, isTyping) =>
     set((state) => ({
@@ -156,13 +151,20 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   setError: (error) => set({ error }),
 
   updateConversationLastMessage: (conversationId, message, timestamp) =>
-    set((state) => ({
-      conversations: state.conversations.map((conv) =>
+    set((state) => {
+      const updatedConversations = state.conversations.map((conv) =>
         conv.id === conversationId
           ? { ...conv, lastMessage: message, timestamp }
           : conv
-      ),
-    })),
+      )
+      return {
+        conversations: updatedConversations.sort((a, b) => {
+          const dateA = new Date(a.timestamp).getTime()
+          const dateB = new Date(b.timestamp).getTime()
+          return dateB - dateA
+        }),
+      }
+    }),
 
   incrementUnreadCount: (conversationId) =>
     set((state) => ({
@@ -179,6 +181,8 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         conv.id === conversationId ? { ...conv, unreadCount: 0 } : conv
       ),
     })),
+
+  setContactFilter: (filter) => set({ contactFilter: filter }),
 
   setThinkingState: (conversationId, state, summary) =>
     set((prev) => ({

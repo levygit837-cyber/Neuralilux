@@ -1,5 +1,11 @@
 import axios from 'axios'
 import { API_BASE_URL } from '@/lib/constants'
+import type {
+  ChannelMetricsResponse,
+  ConversationTimeSeriesResponse,
+  ResolutionMetrics,
+  SatisfactionMetrics,
+} from '@/types/dashboard'
 
 export interface DashboardStats {
   total_conversations: number
@@ -36,6 +42,28 @@ export const dashboardService = {
 
   async getMetrics(): Promise<DashboardMetrics> {
     const response = await api.get('/dashboard/metrics')
+    return response.data
+  },
+
+  async getConversationsOverTime(
+    period: '7d' | '30d' | '90d' = '7d',
+  ): Promise<ConversationTimeSeriesResponse> {
+    const response = await api.get(`/dashboard/conversations-over-time?period=${period}`)
+    return response.data
+  },
+
+  async getChannelMetrics(): Promise<ChannelMetricsResponse> {
+    const response = await api.get('/dashboard/channel-metrics')
+    return response.data
+  },
+
+  async getResolutionMetrics(): Promise<ResolutionMetrics> {
+    const response = await api.get('/dashboard/resolution-metrics')
+    return response.data
+  },
+
+  async getSatisfactionMetrics(): Promise<SatisfactionMetrics> {
+    const response = await api.get('/dashboard/satisfaction-metrics')
     return response.data
   },
 }

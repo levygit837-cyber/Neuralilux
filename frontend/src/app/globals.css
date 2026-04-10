@@ -10,20 +10,140 @@
 
   /* Custom scrollbar for dark theme */
   ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 6px;
+    height: 6px;
   }
 
   ::-webkit-scrollbar-track {
-    @apply bg-dark;
+    background: transparent;
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-hover rounded-md;
+    background: #2D2447;
+    border-radius: 10px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-border-color;
+    background: #6D28D9;
+  }
+
+  /* SVG Chart Animations & Strokes */
+  .chart-path {
+    stroke-dasharray: 2000;
+    stroke-dashoffset: 2000;
+    animation: drawPath 2s ease-in-out forwards;
+  }
+  
+  @keyframes drawPath {
+    to { stroke-dashoffset: 0; }
+  }
+
+  /* Donut Chart Logic */
+  .donut-segment {
+    transition: stroke-width 0.3s ease, filter 0.3s ease;
+  }
+  .donut-segment:hover {
+    stroke-width: 14;
+    filter: drop-shadow(0 0 8px currentColor);
+    cursor: pointer;
+  }
+
+  /* Bar Chart Enhancements */
+  .bar-fill {
+    transition: height 1s cubic-bezier(0.2, 0.8, 0.2, 1), background-color 0.3s;
+  }
+  .chart-bar-group:hover .bar-fill {
+    filter: brightness(1.2);
+    box-shadow: 0 0 15px rgba(139, 92, 246, 0.4);
+  }
+
+  /* Staggered Animations */
+  .delay-100 { animation-delay: 100ms; }
+  .delay-200 { animation-delay: 200ms; }
+  .delay-300 { animation-delay: 300ms; }
+  .delay-400 { animation-delay: 400ms; }
+  .delay-500 { animation-delay: 500ms; }
+
+  /* Glass Tooltip */
+  .glass-tooltip {
+    background: rgba(26, 19, 51, 0.85);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid #2D2447;
+  }
+  
+  /* Subtle Grid Background for App */
+  .bg-grid-pattern {
+    background-image: linear-gradient(to right, rgba(45, 36, 71, 0.1) 1px, transparent 1px),
+                      linear-gradient(to bottom, rgba(45, 36, 71, 0.1) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  /* Chat-specific utilities */
+  .chat-pattern {
+    background-color: #0F0A1E;
+    background-image: radial-gradient(#251B47 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  /* Agent area dot pattern (matches 3-agent.html reference design) */
+  .bg-dots {
+    background-image: radial-gradient(#2D2447 1px, transparent 1px);
+    background-size: 24px 24px;
+    background-position: -12px -12px;
+  }
+
+  .glass-header {
+    background: rgba(26, 19, 51, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  /* Waveform bars for audio messages */
+  .wave-bar {
+    width: 3px;
+    border-radius: 2px;
+    background-color: #7C3AED;
+  }
+
+  .wave-bar.played {
+    background-color: #A78BFA;
+  }
+
+  .wave-bar-light {
+    background-color: #D1D5DB;
+  }
+
+  .wave-bar-light.played {
+    background-color: #F9FAFB;
+  }
+
+  /* Typing indicator dots */
+  .dot-1 {
+    animation: typing-dot 1.2s infinite ease-in-out;
+  }
+
+  .dot-2 {
+    animation: typing-dot 1.2s infinite ease-in-out 0.2s;
+  }
+
+  .dot-3 {
+    animation: typing-dot 1.2s infinite ease-in-out 0.4s;
+  }
+
+  /* Online pulse animation */
+  .online-pulse {
+    animation: pulse-ring 2s infinite;
+  }
+
+  /* Scrollbar hide utility */
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
   }
 }
 

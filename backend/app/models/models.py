@@ -197,6 +197,7 @@ class Conversation(Base):
     assigned_agent_id = Column(String, ForeignKey("agents.id"), nullable=True)
     tags = Column(JSONB)  # Array of tags for categorization
     priority = Column(String(20), default="normal")  # low, normal, high, urgent
+    rating = Column(Integer, nullable=True)  # Customer satisfaction score (1-5)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 

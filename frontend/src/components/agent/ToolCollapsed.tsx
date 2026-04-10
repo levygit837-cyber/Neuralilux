@@ -18,6 +18,7 @@ import {
 import { cn } from '@/lib/utils'
 import type { AgentToolEvent } from '@/types/agent'
 import { ToolResultCard } from './ToolResultCard'
+import { DocumentToolCard } from './DocumentToolCard'
 
 interface ToolCollapsedProps {
   toolEvent: AgentToolEvent
@@ -182,7 +183,11 @@ export function ToolCollapsed({ toolEvent }: ToolCollapsedProps) {
 
         {isExpanded && (
           <div className="border-t border-white/10 bg-black/10 px-4 py-4">
-            <ToolResultCard toolEvent={toolEvent} />
+            {toolEvent.toolName === 'create_document_tool' ? (
+              <DocumentToolCard toolEvent={toolEvent} />
+            ) : (
+              <ToolResultCard toolEvent={toolEvent} />
+            )}
           </div>
         )}
       </div>

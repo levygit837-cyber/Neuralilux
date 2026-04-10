@@ -83,7 +83,7 @@ def create_document_tool(
                 filename=full_filename,
                 file_type=file_type,
                 content=content if file_type != "pdf" else None,
-                content_base64=content_base64 if file_type == "pdf" else None,
+                content_base64=content_base64,  # Salvar base64 para todos os tipos (necessário para download)
                 file_size=file_size,
                 description=description,
             )

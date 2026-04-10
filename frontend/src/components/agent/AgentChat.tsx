@@ -1,9 +1,10 @@
 'use client'
 
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
-import { Clock3, MoreVertical, Plus, Search } from 'lucide-react'
+import { Clock3, Plus } from 'lucide-react'
 import { AgentMessage } from './AgentMessage'
 import { AgentInputBar } from './AgentInputBar'
+import { AgentPageHeader } from './AgentPageHeader'
 import { buildThinkingSummary } from './buildThinkingSummary'
 import type {
   AgentMessage as AgentMessageType,
@@ -243,6 +244,8 @@ export function AgentChat() {
   const liveResponseBlockRef = useRef<AgentMessageType | null>(null)
   const pendingAssistantMessageRef = useRef<AgentMessageType | null>(null)
   const scrollAnimationFrameRef = useRef<number | null>(null)
+  const responseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingFinalResponseRef = useRef<{ messageId: string; content: string } | null>(null)
   const autoScrollSnapshotRef = useRef<{
     messageCount: number
     lastMessageId: string | null
@@ -572,7 +575,17 @@ export function AgentChat() {
 
   const finalizeLiveResponse = useCallback((fallbackContent?: string, responseId?: string) => {
     const currentBlock = liveResponseBlockRef.current
-    const finalContent = (fallbackContent ?? currentBlock?.content ?? '').trim()
+
+    // Prioritize accumulated tokens over backend's final content
+    // Use whichever is longer (more complete)
+    const accumulatedContent = currentBlock?.content ?? ''
+    const backendContent = fallbackContent ?? ''
+
+    const finalContent = (
+      accumulatedContent.length >= backendContent.length
+        ? accumulatedContent
+        : backendContent
+    ).trim()
 
     if (!currentBlock && !finalContent) {
       return
@@ -602,10 +615,19 @@ export function AgentChat() {
       return false
     }
 
+    // Prioritize accumulated tokens over backend's final content
+    // Use whichever is longer (more complete)
+    const accumulatedContent = currentBlock.content || ''
+    const backendContent = finalContent || ''
+
+    const bestContent = accumulatedContent.length >= backendContent.length
+      ? accumulatedContent
+      : backendContent
+
     const reconciledMessage: AgentMessageType = {
       ...currentBlock,
       id: messageId,
-      content: finalContent || currentBlock.content,
+      content: bestContent,
       streaming: false,
     }
 
@@ -1020,6 +1042,21 @@ export function AgentChat() {
           startLiveResponse()
         }
         appendResponseToken(tokenValue)
+
+        // Clear existing timeout
+        if (responseTimeoutRef.current) {
+          clearTimeout(responseTimeoutRef.current)
+        }
+
+        // Set new timeout - if no token arrives in 30s, auto-finalize
+        responseTimeoutRef.current = setTimeout(() => {
+          console.warn('[Agent] Response stream timeout - auto-finalizing')
+          if (liveResponseBlockRef.current && !responseFinalizedRef.current) {
+            const currentContent = liveResponseBlockRef.current.content || ''
+            finalizeLiveResponse(currentContent)
+          }
+        }, 30000)
+
         break
       }
 
@@ -1029,7 +1066,22 @@ export function AgentChat() {
         }
         requestSawResponseRef.current = true
         const finalContent = typeof data?.content === 'string' ? data.content : undefined
-        finalizeLiveResponse(finalContent)
+
+        // Clear timeout since response completed successfully
+        if (responseTimeoutRef.current) {
+          clearTimeout(responseTimeoutRef.current)
+          responseTimeoutRef.current = null
+        }
+
+        // If we have a pending HTTP response, reconcile with it
+        const pending = pendingFinalResponseRef.current
+        if (pending) {
+          pendingFinalResponseRef.current = null
+          reconcileLiveResponseWithFinal(pending.messageId, pending.content)
+        } else {
+          finalizeLiveResponse(finalContent)
+        }
+
         break
       }
 
@@ -1165,8 +1217,63 @@ export function AgentChat() {
     return () => {
       cancelAutoScroll()
       clearTransientChatState()
+
+      // Clear response timeout on unmount
+      if (responseTimeoutRef.current) {
+        clearTimeout(responseTimeoutRef.current)
+        responseTimeoutRef.current = null
+      }
     }
   }, [cancelAutoScroll, clearTransientChatState])
+
+  // Monitor for tools stuck in 'started' phase and auto-mark as timeout
+  useEffect(() => {
+    const TOOL_TIMEOUT_MS = 15000 // 15 seconds
+    const timeouts = new Map<string, ReturnType<typeof setTimeout>>()
+
+    const checkForStuckTools = () => {
+      setMessages((prevMessages) => {
+        let updated = false
+        const newMessages = prevMessages.map((msg) => {
+          if (
+            msg.blockType === 'tool_result' &&
+            msg.toolEvent?.phase === 'started' &&
+            msg.toolEvent?.startedAt
+          ) {
+            const startedAt = new Date(msg.toolEvent.startedAt).getTime()
+            const now = Date.now()
+            const elapsed = now - startedAt
+
+            if (elapsed > TOOL_TIMEOUT_MS) {
+              // Mark as timeout
+              updated = true
+              return {
+                ...msg,
+                toolEvent: {
+                  ...msg.toolEvent,
+                  phase: 'failed' as const,
+                  error: 'A operação demorou mais que o esperado (timeout)',
+                  finishedAt: new Date().toISOString(),
+                },
+              }
+            }
+          }
+          return msg
+        })
+
+        return updated ? newMessages : prevMessages
+      })
+    }
+
+    // Check immediately and then every 2 seconds
+    checkForStuckTools()
+    const interval = setInterval(checkForStuckTools, 2000)
+
+    return () => {
+      clearInterval(interval)
+      timeouts.forEach((timeout) => clearTimeout(timeout))
+    }
+  }, [messages.length]) // Re-run when messages count changes
 
   useEffect(() => {
     if (!isSessionMenuOpen) {
@@ -1208,6 +1315,15 @@ export function AgentChat() {
       pendingAssistantMessageRef.current = null
       liveResponseBlockRef.current = null
       setLiveResponseBlock(null)
+
+      // Clear any existing response timeout from previous request
+      if (responseTimeoutRef.current) {
+        clearTimeout(responseTimeoutRef.current)
+        responseTimeoutRef.current = null
+      }
+
+      // Clear any pending HTTP response from previous request
+      pendingFinalResponseRef.current = null
 
       const optimisticThinkingId = `thinking-local-${Date.now()}`
       const optimisticThinkingBlock: AgentMessageType = {
@@ -1257,15 +1373,18 @@ export function AgentChat() {
         }
         const activeRuntime = activeThinkingRuntimeRef.current
         const sawThinkingStream = requestSawThinking || activeRuntime?.sawThinkingTokens
-        const sawResponseStream = requestSawResponseRef.current
 
-        if (sawResponseStream) {
+        if (sawThinkingStream) {
           pendingAssistantMessageRef.current = null
-          reconcileLiveResponseWithFinal(response.message_id, response.response)
+          // Don't finalize immediately - store for reconciliation when stream ends
+          pendingFinalResponseRef.current = {
+            messageId: response.message_id,
+            content: response.response
+          }
         }
 
         if (activeRuntime || requestSawThinking) {
-          if (!sawResponseStream) {
+          if (!sawThinkingStream) {
             pendingAssistantMessageRef.current = assistantMessage
           }
 
@@ -1311,7 +1430,7 @@ export function AgentChat() {
             appendPendingAssistantMessage()
           }
         } else {
-          if (sawResponseStream) {
+          if (sawThinkingStream) {
             return
           }
 
@@ -1331,7 +1450,6 @@ export function AgentChat() {
                 blockType: 'thinking_collapsed',
                 thinkingContent: responseThinking,
                 thinkingSummary: buildThinkingSummary(responseThinking),
-                thinkingLive: false,
               },
               assistantMessage,
             ]
@@ -1419,127 +1537,84 @@ export function AgentChat() {
   const isComposerDisabled = isTyping || isBootstrappingSession || isSwitchingSession
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-card">
-      <div className="flex items-center justify-between border-b border-border-color px-6 py-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary">
-            <svg
-              className="h-5 w-5 text-white"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2 2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-              />
-            </svg>
-          </div>
-          <div>
-            <h3 className="font-semibold text-text-light">Assistente Neuralilux</h3>
-            <p className="text-sm text-text-muted">
-              {isSwitchingSession
-                ? 'Abrindo outra sessão'
-                : currentSessionSummary
-                  ? `Sessão: ${getSessionDisplayTitle(currentSessionSummary)}`
-                  : sessionId
-                    ? 'Online e acompanhando esta sessão'
-                    : 'Preparando sessão'}
-            </p>
-          </div>
-        </div>
-        <div ref={sessionsMenuRef} className="relative flex items-center gap-2">
-          <button
-            className={`rounded-lg p-2 transition-colors hover:bg-hover ${isSessionMenuOpen ? 'bg-hover' : ''
-              }`}
-            type="button"
-            aria-label="Sessões recentes"
-            onClick={() => setIsSessionMenuOpen((current) => !current)}
-          >
-            <Clock3 className="h-5 w-5 text-text-gray" />
-          </button>
-          {isSessionMenuOpen && (
-            <div className="absolute right-0 top-12 z-20 w-[360px] rounded-2xl border border-border-color bg-card p-3 shadow-2xl">
-              <div className="mb-3 flex items-center justify-between gap-3 px-2">
-                <div>
-                  <p className="text-sm font-semibold text-text-light">Sessões recentes</p>
-                  <p className="text-xs text-text-muted">
-                    Cada sessão mantém o próprio histórico salvo no banco.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void handleCreateNewSession()}
-                  className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-primary/90"
-                >
-                  <Plus className="h-4 w-4" />
-                  Nova sessão
-                </button>
-              </div>
+    <div className="flex h-full min-h-0 flex-col relative">
+      {/* Dedicated agent header — replaces the generic Header from page.tsx */}
+      <AgentPageHeader />
 
-              <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
-                {isLoadingSessions ? (
-                  <div className="rounded-xl border border-border-color bg-dark px-4 py-6 text-center text-sm text-text-muted">
-                    Carregando sessões...
-                  </div>
-                ) : sessions.length ? (
-                  sessions.map((session) => {
-                    const isActive = session.id === sessionId
-
-                    return (
-                      <button
-                        key={session.id}
-                        type="button"
-                        onClick={() => void handleSelectSession(session.id)}
-                        className={`flex w-full flex-col rounded-xl border px-4 py-3 text-left transition-colors ${isActive
-                            ? 'border-primary bg-primary/10'
-                            : 'border-border-color bg-dark hover:border-primary/40 hover:bg-hover'
-                          }`}
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="line-clamp-1 text-sm font-semibold text-text-light">
-                            {getSessionDisplayTitle(session)}
-                          </p>
-                          <span className="text-[11px] text-text-muted">
-                            {formatSessionUpdatedAt(session.updated_at || session.created_at)}
-                          </span>
-                        </div>
-                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-text-gray">
-                          {session.last_message_preview?.trim() || 'Sem mensagens nesta sessão ainda.'}
-                        </p>
-                      </button>
-                    )
-                  })
-                ) : (
-                  <div className="rounded-xl border border-border-color bg-dark px-4 py-6 text-center text-sm text-text-muted">
-                    Nenhuma sessão recente encontrada.
-                  </div>
-                )}
+      {/* Session history dropdown */}
+      <div
+        ref={sessionsMenuRef}
+        className="absolute top-16 right-4 z-30"
+      >
+        {isSessionMenuOpen && (
+          <div className="w-[360px] rounded-2xl border border-border-color bg-card p-3 shadow-2xl">
+            <div className="mb-3 flex items-center justify-between gap-3 px-2">
+              <div>
+                <p className="text-sm font-semibold text-text-light">Sessões recentes</p>
+                <p className="text-xs text-text-muted">
+                  Cada sessão mantém o próprio histórico salvo no banco.
+                </p>
               </div>
+              <button
+                type="button"
+                onClick={() => void handleCreateNewSession()}
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-primary/90"
+              >
+                <Plus className="h-4 w-4" />
+                Nova sessão
+              </button>
             </div>
-          )}
-          <button className="rounded-lg p-2 hover:bg-hover" type="button" aria-label="Buscar">
-            <Search className="h-5 w-5 text-text-gray" />
-          </button>
-          <button className="rounded-lg p-2 hover:bg-hover" type="button" aria-label="Mais opções">
-            <MoreVertical className="h-5 w-5 text-text-gray" />
-          </button>
-        </div>
+
+            <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
+              {isLoadingSessions ? (
+                <div className="rounded-xl border border-border-color bg-dark px-4 py-6 text-center text-sm text-text-muted">
+                  Carregando sessões...
+                </div>
+              ) : sessions.length ? (
+                sessions.map((session) => {
+                  const isActive = session.id === sessionId
+
+                  return (
+                    <button
+                      key={session.id}
+                      type="button"
+                      onClick={() => void handleSelectSession(session.id)}
+                      className={`flex w-full flex-col rounded-xl border px-4 py-3 text-left transition-colors ${
+                        isActive
+                          ? 'border-primary bg-primary/10'
+                          : 'border-border-color bg-dark hover:border-primary/40 hover:bg-hover'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="line-clamp-1 text-sm font-semibold text-text-light">
+                          {getSessionDisplayTitle(session)}
+                        </p>
+                        <span className="text-[11px] text-text-muted">
+                          {formatSessionUpdatedAt(session.updated_at || session.created_at)}
+                        </span>
+                      </div>
+                      <p className="mt-1 line-clamp-2 text-xs leading-5 text-text-gray">
+                        {session.last_message_preview?.trim() || 'Sem mensagens nesta sessão ainda.'}
+                      </p>
+                    </button>
+                  )
+                })
+              ) : (
+                <div className="rounded-xl border border-border-color bg-dark px-4 py-6 text-center text-sm text-text-muted">
+                  Nenhuma sessão recente encontrada.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
+      {/* Scrollable message area */}
       <div
         ref={messagesContainerRef}
-        className="min-h-0 flex-1 overflow-y-auto p-6"
-        style={{ overflowAnchor: 'none' }}
+        className="min-h-0 flex-1 overflow-y-auto px-6 md:px-8"
       >
-        <div className="space-y-4">
-          <div className="flex items-center justify-center">
-            <span className="rounded-full bg-hover px-3 py-1 text-xs text-text-muted">
-              Hoje
-            </span>
-          </div>
+        <div className="max-w-4xl mx-auto w-full space-y-8 pt-8 pb-44">
 
           {messages.map((message) => (
             <AgentMessage
@@ -1568,39 +1643,21 @@ export function AgentChat() {
             />
           )}
 
-          {isTyping &&
-            !liveThinkingBlock && !liveResponseBlock && (
-              <div className="flex items-start gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-primary">
-                  <svg
-                    className="h-4 w-4 text-white"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2 2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
-                    />
-                  </svg>
-                </div>
-                <div className="rounded-2xl bg-hover px-4 py-3">
-                  <div className="flex gap-1">
-                    <span className="h-2 w-2 animate-bounce rounded-full bg-text-muted" />
-                    <span
-                      className="h-2 w-2 animate-bounce rounded-full bg-text-muted"
-                      style={{ animationDelay: '0.1s' }}
-                    />
-                    <span
-                      className="h-2 w-2 animate-bounce rounded-full bg-text-muted"
-                      style={{ animationDelay: '0.2s' }}
-                    />
-                  </div>
-                </div>
+          {isTyping && !liveThinkingBlock && !liveResponseBlock && (
+            <div className="flex w-full justify-start pl-12 pr-4">
+              <div className="bg-card border border-border-color rounded-full px-4 py-2 flex items-center gap-1.5 shadow-sm">
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-text-muted" />
+                <span
+                  className="h-1.5 w-1.5 animate-bounce rounded-full bg-text-muted"
+                  style={{ animationDelay: '0.1s' }}
+                />
+                <span
+                  className="h-1.5 w-1.5 animate-bounce rounded-full bg-text-muted"
+                  style={{ animationDelay: '0.2s' }}
+                />
               </div>
-            )}
+            </div>
+          )}
 
           {error && (
             <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
@@ -1610,6 +1667,19 @@ export function AgentChat() {
         </div>
       </div>
 
+      {/* Session toggle button — positioned above the input bar */}
+      <button
+        className={`absolute top-[72px] right-4 z-20 rounded-lg p-2 transition-colors hover:bg-hover border border-transparent hover:border-border-color ${
+          isSessionMenuOpen ? 'bg-hover border-border-color' : ''
+        }`}
+        type="button"
+        aria-label="Sessões recentes"
+        onClick={() => setIsSessionMenuOpen((current) => !current)}
+      >
+        <Clock3 className="h-5 w-5 text-text-gray" />
+      </button>
+
+      {/* Floating glassmorphic input bar */}
       <AgentInputBar
         onSendMessage={handleSendMessage}
         disabled={isComposerDisabled}

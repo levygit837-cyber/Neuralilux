@@ -1,6 +1,7 @@
 """Graph nodes for the WhatsApp agent."""
 import json
 import re
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict
 import structlog
@@ -12,6 +13,13 @@ from app.agents.prompts import INTENT_CLASSIFICATION_PROMPT, RESPONSE_GENERATION
 from app.agents.memory.history_loader import load_conversation_history
 from app.agents.tools.pedido_tool import set_active_conversation, _pedidos_ativos
 from app.agents.tools.tool_definitions import WHATSAPP_AGENT_TOOLS
+from app.agents.exceptions import (
+    ContextLoadError,
+    IntentClassificationError,
+    ResponseGenerationError,
+    InferenceError,
+    ToolExecutionError,
+)
 from app.core.database import SessionLocal
 from app.core.config import settings
 from app.services.order_service import (
@@ -44,16 +52,19 @@ VALID_FLOW_STAGES = {
 MENU_QUERY_PLAN_PROMPT = """Analise a mensagem do cliente e responda SOMENTE com um JSON válido no formato:
 {{"query":"resumo|listar_categorias|todos|categoria:<nome>|buscar:<termo>|item:<nome>"}}
 
+CATEGORIAS DO CARDÁPIO (use categoria:<nome> para estas):
+- PIZZA GRANDE, Carnes, Carnes na brasa, Aves, Peixes, Pastas, Porções, Sopas, Entradas, Acompanhamentos, Saladas, Bebidas, Vinhos, Sobremesas
+
 Regras:
 - Use "resumo" quando o cliente pedir o cardápio de forma genérica (ex: "quero ver o cardápio", "me mostra o menu").
 - Use "listar_categorias" quando o cliente quiser ver as categorias disponíveis.
-- Use "listar_categorias" quando o cliente disser que quer pedir, mas ainda não tiver escolhido item.
-- Use "todos" SOMENTE quando o cliente pedir EXPLICITAMENTE para ver o cardápio completo ou tudo.
-- Use "categoria:<nome>" quando o pedido for claramente sobre uma categoria específica.
-- Use "item:<nome>" quando a pergunta for sobre um item específico.
-- Use "buscar:<termo>" quando for uma busca textual ampla.
+- Use "categoria:<nome>" quando o cliente mencionar uma CATEGORIA da lista acima (ex: "pizza", "bebida", "carne").
+- Use "item:<nome>" SOMENTE quando o cliente mencionar um item ESPECÍFICO com nome completo (ex: "Pizza Margherita", "Coca-Cola 2L").
+- Use "buscar:<termo>" quando for uma busca textual ampla que não se encaixa nas categorias.
+- IMPORTANTE: "Pizza", "Bebida", "Carne" são CATEGORIAS, não itens. Use categoria:<nome> para elas.
+- IMPORTANTE: Se o cliente disser "quero uma pizza" sem especificar qual, use "categoria:pizza" para mostrar as opções.
+- Use "todos" SOMENTE quando o cliente pedir EXPLICITAMENTE para ver o cardápio completo.
 - Não escreva nada fora do JSON.
-- IMPORTANTE: Prefira "resumo" ao invés de "todos" para pedidos genéricos de cardápio.
 
 Mensagem: {message}
 Histórico: {history}
@@ -467,6 +478,97 @@ def _compact_generation_prompt(
     )
 
 
+async def validate_message_node(state: AgentState) -> Dict[str, Any]:
+    """
+    Nó 0: Valida se a mensagem deve ser processada.
+
+    Verificações:
+    - Mensagem não é do próprio bot
+    - Mensagem não está vazia
+    - Mensagem não foi processada recentemente (deduplicação)
+    - Remote JID é válido
+
+    Se a validação falhar, define should_respond=False para encerrar o fluxo.
+    """
+    conversation_id = state["conversation_id"]
+    current_message = state.get("current_message", "")
+    remote_jid = state.get("remote_jid", "")
+    correlation_id = state.get("correlation_id") or str(uuid.uuid4())
+
+    logger.info(
+        "Validating message",
+        correlation_id=correlation_id,
+        conversation_id=conversation_id,
+        node="validate_message",
+        message_length=len(current_message),
+        remote_jid=remote_jid
+    )
+
+    # Validação 1: Mensagem não pode estar vazia
+    if not current_message or not current_message.strip():
+        logger.warning(
+            "Message validation failed: empty message",
+            correlation_id=correlation_id,
+            conversation_id=conversation_id
+        )
+        return {
+            "should_respond": False,
+            "error": "Empty message",
+            "response": None
+        }
+
+    # Validação 2: Remote JID deve ser válido (formato WhatsApp)
+    if not remote_jid or "@" not in remote_jid:
+        logger.warning(
+            "Message validation failed: invalid remote JID",
+            correlation_id=correlation_id,
+            conversation_id=conversation_id,
+            remote_jid=remote_jid
+        )
+        return {
+            "should_respond": False,
+            "error": "Invalid remote JID",
+            "response": None
+        }
+
+    # Validação 3: Verificar se é mensagem de grupo (grupos terminam com @g.us)
+    # Por enquanto, apenas logar - podemos adicionar lógica específica para grupos depois
+    is_group = remote_jid.endswith("@g.us")
+    if is_group:
+        logger.info(
+            "Message from group chat",
+            correlation_id=correlation_id,
+            conversation_id=conversation_id,
+            remote_jid=remote_jid
+        )
+
+    # Validação 4: Verificar se mensagem é muito longa (limite WhatsApp: 65536 chars)
+    if len(current_message) > 65536:
+        logger.warning(
+            "Message validation failed: message too long",
+            correlation_id=correlation_id,
+            conversation_id=conversation_id,
+            message_length=len(current_message)
+        )
+        return {
+            "should_respond": False,
+            "error": "Message too long",
+            "response": None
+        }
+
+    logger.info(
+        "Message validation passed",
+        correlation_id=correlation_id,
+        conversation_id=conversation_id,
+        node="validate_message"
+    )
+
+    return {
+        "should_respond": True,
+        "correlation_id": correlation_id
+    }
+
+
 async def load_context_node(state: AgentState) -> Dict[str, Any]:
     """
     Nó 1: Carrega o contexto da conversa.
@@ -475,40 +577,74 @@ async def load_context_node(state: AgentState) -> Dict[str, Any]:
     - Informações do cliente coletadas
     """
     conversation_id = state["conversation_id"]
+    correlation_id = state.get("correlation_id") or str(uuid.uuid4())
 
-    logger.info("Loading context", conversation_id=conversation_id)
+    logger.info(
+        "Loading context",
+        correlation_id=correlation_id,
+        conversation_id=conversation_id,
+        node="load_context"
+    )
 
-    # Carregar histórico de mensagens
-    history = load_conversation_history(conversation_id, limit=10)
-
-    # Formatar histórico para o LLM
-    history_text = ""
-    for msg in history:
-        role_label = "Cliente" if msg["role"] == "user" else "Macedinho"
-        history_text += f"{role_label}: {msg['content']}\n"
-
-    set_active_conversation(conversation_id)
-    active_order = None
-    db = SessionLocal()
     try:
-        active_order = get_active_order(db, conversation_id)
-        order_state = _build_order_state_payload(active_order)
-        _pedidos_ativos[conversation_id] = order_state.get("pedido_atual") or []
-    finally:
-        db.close()
+        # Carregar histórico de mensagens
+        history = load_conversation_history(conversation_id, limit=10)
 
-    return {
-        "messages": [],
-        "_history_text": history_text,
-        "cardapio_context": None,
-        "cardapio_items": None,
-        **order_state,
-        "response": None,
-        "output_type": None,
-        "output_data": None,
-        "should_respond": True,
-        "error": None,
-    }
+        # Formatar histórico para o LLM
+        history_text = ""
+        for msg in history:
+            role_label = "Cliente" if msg["role"] == "user" else "Macedinho"
+            history_text += f"{role_label}: {msg['content']}\n"
+
+        set_active_conversation(conversation_id)
+        active_order = None
+        db = SessionLocal()
+        try:
+            active_order = get_active_order(db, conversation_id)
+            order_state = _build_order_state_payload(active_order)
+            _pedidos_ativos[conversation_id] = order_state.get("pedido_atual") or []
+        except Exception as e:
+            db.close()
+            raise ContextLoadError(
+                f"Failed to load order context: {str(e)}",
+                context={
+                    "conversation_id": conversation_id,
+                    "correlation_id": correlation_id
+                }
+            ) from e
+        finally:
+            db.close()
+
+        logger.info(
+            "Context loaded successfully",
+            correlation_id=correlation_id,
+            conversation_id=conversation_id,
+            history_length=len(history)
+        )
+
+        return {
+            "messages": [],
+            "_history_text": history_text,
+            "cardapio_context": None,
+            "cardapio_items": None,
+            **order_state,
+            "response": None,
+            "output_type": None,
+            "output_data": None,
+            "should_respond": True,
+            "error": None,
+        }
+
+    except ContextLoadError:
+        raise
+    except Exception as e:
+        raise ContextLoadError(
+            f"Failed to load conversation context: {str(e)}",
+            context={
+                "conversation_id": conversation_id,
+                "correlation_id": correlation_id
+            }
+        ) from e
 
 
 async def classify_intent_node(state: AgentState) -> Dict[str, Any]:
@@ -521,8 +657,15 @@ async def classify_intent_node(state: AgentState) -> Dict[str, Any]:
     current_message = state["current_message"]
     history_text = state.get("_history_text", "")
     current_stage = _normalize_flow_stage(state.get("flow_stage"))
+    correlation_id = state.get("correlation_id") or str(uuid.uuid4())
 
-    logger.info("Classifying intent", message=current_message[:100])
+    logger.info(
+        "Classifying intent",
+        correlation_id=correlation_id,
+        conversation_id=state.get("conversation_id"),
+        message_preview=current_message[:100],
+        node="classify_intent"
+    )
 
     try:
         prompt = INTENT_CLASSIFICATION_PROMPT.format(
@@ -546,7 +689,13 @@ async def classify_intent_node(state: AgentState) -> Dict[str, Any]:
         intent = normalized_intent if normalized_intent in VALID_INTENTS else "outro"
         flow_stage = _normalize_flow_stage(payload.get("flow_stage")) or _flow_stage_from_intent(intent, current_stage)
 
-        logger.info("Intent classified", intent=intent, flow_stage=flow_stage)
+        logger.info(
+            "Intent classified",
+            correlation_id=correlation_id,
+            intent=intent,
+            flow_stage=flow_stage,
+            node="classify_intent"
+        )
 
         return {
             "intent": intent,
@@ -554,14 +703,37 @@ async def classify_intent_node(state: AgentState) -> Dict[str, Any]:
             "flow_stage": flow_stage,
         }
 
-    except Exception as e:
-        logger.error("Error classifying intent", error=str(e))
-        return {
-            "intent": "outro",
-            "intent_confidence": 0.0,
-            "flow_stage": current_stage or "saudacao",
-            "error": f"Erro na classificação: {str(e)}",
-        }
+    except (InferenceError, Exception) as e:
+        if isinstance(e, InferenceError):
+            # Erro específico de inferência - relançar
+            logger.error(
+                "Inference error during intent classification",
+                correlation_id=correlation_id,
+                error=str(e),
+                context=e.context if hasattr(e, 'context') else {}
+            )
+            raise IntentClassificationError(
+                f"Failed to classify intent due to inference error: {str(e)}",
+                context={
+                    "conversation_id": state.get("conversation_id"),
+                    "correlation_id": correlation_id
+                }
+            ) from e
+        else:
+            # Outro erro - converter para IntentClassificationError
+            logger.error(
+                "Error classifying intent",
+                correlation_id=correlation_id,
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            raise IntentClassificationError(
+                f"Failed to classify intent: {str(e)}",
+                context={
+                    "conversation_id": state.get("conversation_id"),
+                    "correlation_id": correlation_id
+                }
+            ) from e
 
 
 async def execute_action_node(state: AgentState) -> Dict[str, Any]:
@@ -739,7 +911,7 @@ async def _emit_thinking_event(
             },
         })
     except Exception as exc:
-        logger.warning("Failed to emit thinking event", error=str(exc), event=event)
+        logger.warning("Failed to emit thinking event", error=str(exc), event_type=event)
 
 
 async def _astream_with_optional_tools(
@@ -752,30 +924,20 @@ async def _astream_with_optional_tools(
     tools: list[dict[str, Any]] | None,
 ):
     try:
+        # First try without tools (LM Studio doesn't support tools parameter)
         async for item in inference_service.astream_chat_completion_with_thinking(
             messages=messages,
             system_prompt=system_prompt,
             max_tokens=max_tokens,
             temperature=temperature,
-            tools=tools,
         ):
             yield item
     except TypeError as exc:
-        if not tools:
-            raise
-
         logger.info(
-            "Streaming inference does not support tools; retrying without tools",
+            "Streaming inference failed; this is expected for some inference services",
             error=str(exc),
         )
-
-        async for item in inference_service.astream_chat_completion_with_thinking(
-            messages=messages,
-            system_prompt=system_prompt,
-            max_tokens=max_tokens,
-            temperature=temperature,
-        ):
-            yield item
+        raise
 
 
 async def generate_response_node(state: AgentState) -> Dict[str, Any]:
@@ -791,12 +953,31 @@ async def generate_response_node(state: AgentState) -> Dict[str, Any]:
     conversation_id = state.get("conversation_id", "unknown")
     instance_name = state.get("instance_name", "default")
     flow_stage = _normalize_flow_stage(state.get("flow_stage")) or _flow_stage_from_intent(intent)
+    correlation_id = state.get("correlation_id") or str(uuid.uuid4())
 
-    logger.info("Generating response", intent=intent, conversation_id=conversation_id)
+    logger.info(
+        "Generating response",
+        correlation_id=correlation_id,
+        intent=intent,
+        conversation_id=conversation_id,
+        node="generate_response"
+    )
 
     from app.services.inference_service import get_inference_service
 
+    logger.info(
+        "Getting inference service for whatsapp_agent",
+        correlation_id=correlation_id,
+        conversation_id=conversation_id
+    )
     inference_service = get_inference_service("whatsapp_agent")
+    logger.info(
+        "Inference service obtained",
+        correlation_id=correlation_id,
+        conversation_id=conversation_id,
+        service_class=inference_service.__class__.__name__,
+        model=getattr(inference_service, 'model', 'unknown')
+    )
 
     # Montar contexto do pedido
     pedido_texto = ""
@@ -895,11 +1076,12 @@ async def generate_response_node(state: AgentState) -> Dict[str, Any]:
 
         while True:
             logger.info(
-                "Starting streaming",
+                "Starting streaming inference",
                 conversation_id=conversation_id,
                 message_count=len(messages),
                 tool_round=tool_round,
                 tools_enabled=tools_enabled,
+                service_class=inference_service.__class__.__name__,
             )
 
             pending_tool_calls: list[dict[str, Any]] = []
@@ -1155,26 +1337,46 @@ async def generate_response_node(state: AgentState) -> Dict[str, Any]:
 
         return {"response": response}
 
-    except Exception as e:
-        logger.error(
-            "Error generating response",
-            error=str(e),
-            conversation_id=conversation_id,
-            exc_info=True,
-        )
-
-        # Emit thinking_end with error summary
-        await _emit_thinking_event(
-            instance_name=instance_name,
-            conversation_id=conversation_id,
-            event="thinking_end",
-            data={"summary": "Erro ao gerar resposta"},
-        )
-
-        return {
-            "response": "Desculpe, estou com dificuldades técnicas no momento. Por favor, tente novamente em instantes. 😊",
-            "error": f"Erro na geração: {str(e)}",
-        }
+    except (InferenceError, Exception) as e:
+        import traceback
+        error_traceback = traceback.format_exc()
+        
+        if isinstance(e, InferenceError):
+            # Erro específico de inferência - relançar como ResponseGenerationError
+            logger.error(
+                "Inference error during response generation",
+                correlation_id=correlation_id,
+                conversation_id=conversation_id,
+                error=str(e),
+                context=e.context if hasattr(e, 'context') else {},
+                traceback=error_traceback
+            )
+            raise ResponseGenerationError(
+                f"Failed to generate response due to inference error: {str(e)}",
+                context={
+                    "conversation_id": conversation_id,
+                    "correlation_id": correlation_id,
+                    "intent": intent
+                }
+            ) from e
+        else:
+            # Outro erro - converter para ResponseGenerationError
+            logger.error(
+                "Error generating response",
+                correlation_id=correlation_id,
+                conversation_id=conversation_id,
+                error=str(e),
+                error_type=type(e).__name__,
+                traceback=error_traceback
+            )
+            raise ResponseGenerationError(
+                f"Failed to generate response: {str(e)}",
+                context={
+                    "conversation_id": conversation_id,
+                    "correlation_id": correlation_id,
+                    "intent": intent
+                }
+            ) from e
 
 
 def _processar_coleta_dados(state: AgentState) -> Dict[str, Any]:

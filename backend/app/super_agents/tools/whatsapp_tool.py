@@ -385,6 +385,43 @@ def _extract_message_text(message_payload: Dict[str, Any]) -> str:
     )
 
 
+def _extract_messages_list(result: Any) -> list:
+    """
+    Extract the flat list of message dicts from the Evolution API response.
+
+    Evolution API v2.3.7 returns several possible shapes:
+      - A plain list of messages
+      - {"messages": [...]}
+      - {"messages": {"total": N, "records": [...]}}  ← paginated
+      - {"data": [...]} or {"records": [...]}
+    """
+    if isinstance(result, list):
+        return result
+    if not isinstance(result, dict):
+        return []
+
+    messages_field = result.get("messages")
+
+    # Paginated: {"messages": {"total": N, "records": [...]}}
+    if isinstance(messages_field, dict):
+        return (
+            messages_field.get("records")
+            or messages_field.get("data")
+            or messages_field.get("messages")
+            or []
+        )
+
+    # Flat: {"messages": [...]}
+    if isinstance(messages_field, list):
+        return messages_field
+
+    return (
+        result.get("data")
+        or result.get("records")
+        or []
+    )
+
+
 def read_messages_for_contact(
     instance_name: str,
     remote_jid: str,
@@ -400,16 +437,7 @@ def read_messages_for_contact(
         )
 
     result = _run_async(_read())
-    raw_messages = []
-    if isinstance(result, list):
-        raw_messages = result
-    elif isinstance(result, dict):
-        raw_messages = (
-            result.get("messages")
-            or result.get("data")
-            or result.get("records")
-            or []
-        )
+    raw_messages = _extract_messages_list(result)
 
     messages = []
     for msg in raw_messages[:limit]:
@@ -493,6 +521,115 @@ def send_bulk_messages_via_whatsapp(
                     "error": str(exc),
                 }
             )
+            fail_count += 1
+
+    return {
+        "success": fail_count == 0,
+        "total": len(recipients),
+        "success_count": success_count,
+        "fail_count": fail_count,
+        "results": results,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Async versions — used by the dispatcher (running inside an event loop)
+# to avoid the _run_async thread-pool hack.
+# ---------------------------------------------------------------------------
+
+
+async def async_read_messages_for_contact(
+    instance_name: str,
+    remote_jid: str,
+    limit: int = 20,
+) -> Dict[str, Any]:
+    """Async version of read_messages_for_contact — no thread-pool needed."""
+    evolution = EvolutionAPIService()
+    result = await evolution.fetch_messages(
+        instance_name=instance_name,
+        remote_jid=remote_jid,
+        offset=min(limit, 100),
+    )
+
+    raw_messages = _extract_messages_list(result)
+
+    messages = []
+    for msg in raw_messages[:limit]:
+        if not isinstance(msg, dict):
+            continue
+        messages.append(
+            {
+                "id": msg.get("key", {}).get("id", "") or msg.get("id", ""),
+                "from_me": msg.get("key", {}).get("fromMe", False),
+                "timestamp": msg.get("messageTimestamp", "") or msg.get("timestamp", ""),
+                "content": _extract_message_text(msg),
+                "push_name": msg.get("pushName", ""),
+            }
+        )
+
+    return {
+        "messages": messages,
+        "count": len(messages),
+        "instance_name": instance_name,
+        "remote_jid": remote_jid,
+    }
+
+
+async def async_send_message_via_whatsapp(
+    instance_name: str,
+    remote_jid: str,
+    message: str,
+) -> Dict[str, Any]:
+    """Async version of send_message_via_whatsapp — no thread-pool needed."""
+    evolution = EvolutionAPIService()
+    result = await evolution.send_text_message(
+        instance_name=instance_name,
+        remote_jid=remote_jid,
+        text=message,
+    )
+    return {
+        "success": True,
+        "message": "Message sent successfully",
+        "instance_name": instance_name,
+        "remote_jid": remote_jid,
+        "result": result,
+    }
+
+
+async def async_send_bulk_messages(
+    recipients: List[Dict[str, Any]],
+    message: str,
+) -> Dict[str, Any]:
+    """Async version of send_bulk_messages_via_whatsapp — no thread-pool needed."""
+    evolution = EvolutionAPIService()
+    results = []
+    success_count = 0
+    fail_count = 0
+
+    for recipient in recipients:
+        instance_name = recipient.get("instance_name")
+        remote_jid = recipient.get("remote_jid")
+        try:
+            await evolution.send_text_message(
+                instance_name=instance_name,
+                remote_jid=remote_jid,
+                text=message,
+            )
+            results.append({
+                "jid": remote_jid,
+                "display_name": recipient.get("display_name"),
+                "instance_name": instance_name,
+                "success": True,
+            })
+            success_count += 1
+        except Exception as exc:
+            results.append({
+                "jid": remote_jid,
+                "display_name": recipient.get("display_name"),
+                "instance_name": instance_name,
+                "success": False,
+                "error": str(exc),
+            })
             fail_count += 1
 
     return {

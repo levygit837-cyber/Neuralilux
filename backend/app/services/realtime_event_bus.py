@@ -20,6 +20,7 @@ logger = structlog.get_logger()
 class RealtimeEventBus:
     def __init__(self) -> None:
         self._redis: Optional[Redis] = None
+        self._pub_redis: Optional[Redis] = None
         self._pubsub = None
         self._listener_task: Optional[asyncio.Task] = None
 
@@ -33,15 +34,16 @@ class RealtimeEventBus:
         return self._redis
 
     async def publish(self, event: dict[str, Any]) -> None:
-        redis = Redis.from_url(
-            settings.REDIS_URL,
-            encoding="utf-8",
-            decode_responses=True,
+        if self._pub_redis is None:
+            self._pub_redis = Redis.from_url(
+                settings.REDIS_URL,
+                encoding="utf-8",
+                decode_responses=True,
+            )
+        await self._pub_redis.publish(
+            settings.REALTIME_REDIS_CHANNEL,
+            json.dumps(event, default=str),
         )
-        try:
-            await redis.publish(settings.REALTIME_REDIS_CHANNEL, json.dumps(event, default=str))
-        finally:
-            await redis.aclose()
 
     async def start(
         self,
@@ -64,11 +66,12 @@ class RealtimeEventBus:
 
         while True:
             try:
-                message = await self._pubsub.get_message(timeout=1.0)
+                message = await self._pubsub.get_message(timeout=0.1)
                 if message and message.get("type") == "message":
                     payload = json.loads(message["data"])
                     await handler(payload)
-                await asyncio.sleep(0.01)
+                else:
+                    await asyncio.sleep(0.005)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # pragma: no cover - defensive logging path
@@ -88,6 +91,10 @@ class RealtimeEventBus:
             await self._pubsub.unsubscribe(settings.REALTIME_REDIS_CHANNEL)
             await self._pubsub.close()
             self._pubsub = None
+
+        if self._pub_redis:
+            await self._pub_redis.aclose()
+            self._pub_redis = None
 
         if self._redis:
             await self._redis.aclose()

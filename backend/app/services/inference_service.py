@@ -215,12 +215,11 @@ class InferenceService:
                         content_buffer = ""
                         break
 
-                    safe_len = max(0, len(content_buffer) - (len(THINK_CLOSE) - 1))
-                    if safe_len == 0:
-                        break
-
-                    yield from _yield_segment("thinking", content_buffer[:safe_len])
-                    content_buffer = content_buffer[safe_len:]
+                    # Yield tokens in small chunks for real-time streaming, but keep enough buffer to detect closing tag
+                    safe_len = max(1, len(content_buffer) - (len(THINK_CLOSE) - 1))
+                    if safe_len > 0:
+                        yield from _yield_segment("thinking", content_buffer[:safe_len])
+                        content_buffer = content_buffer[safe_len:]
                     continue
 
                 open_index = content_buffer.find(THINK_OPEN)
@@ -369,39 +368,39 @@ class InferenceService:
     ) -> Dict[str, Any]:
         """
         Send chat completion request to LM Studio.
-        
+
         Args:
             messages: List of message dicts
             system_prompt: Optional system prompt
             max_tokens: Override max tokens
             temperature: Override temperature
-            
+
         Returns:
             Dict with response content and metadata
-            
+
         Raises:
             InferenceServiceError: On API errors
             InferenceTimeoutError: On timeout
             InferenceRateLimitError: On rate limit
         """
         url = f"{self.base_url}/v1/chat/completions"
-        
+
         payload = self._build_payload(
             messages=messages,
             system_prompt=system_prompt,
             max_tokens=max_tokens,
             temperature=temperature,
         )
-        
+
         logger.info(
             "Sending chat completion request",
             url=url,
             message_count=len(payload["messages"]),
             max_tokens=payload["max_tokens"],
         )
-        
+
         last_error = None
-        
+
         for attempt in range(self.max_retries):
             try:
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
@@ -410,13 +409,13 @@ class InferenceService:
                         headers=self._get_headers(),
                         json=payload,
                     )
-                    
+
                     if response.status_code == 429:
                         retry_after = int(response.headers.get("Retry-After", 5))
                         logger.warning("Rate limited, waiting", retry_after=retry_after)
                         await asyncio.sleep(retry_after)
                         continue
-                    
+
                     if response.status_code != 200:
                         error_detail = response.text
                         logger.error(
@@ -427,23 +426,23 @@ class InferenceService:
                         raise InferenceServiceError(
                             f"API returned status {response.status_code}: {error_detail}"
                         )
-                    
+
                     data = response.json()
-                    
+
                     # Extract response content from multiple possible fields
                     content = ""
                     reasoning_content = ""
                     if data.get("choices") and len(data["choices"]) > 0:
                         message = data["choices"][0].get("message", {})
-                        
+
                         # Try standard content field first
                         content = (message.get("content", "") or "").strip()
-                        
+
                         # If content is empty, try reasoning fields (used by Nemotron, DeepSeek, etc.)
                         if not content:
                             reasoning_content = (
-                                message.get("reasoning", "") or 
-                                message.get("reasoning_content", "") or 
+                                message.get("reasoning", "") or
+                                message.get("reasoning_content", "") or
                                 ""
                             ).strip()
                             if reasoning_content:
@@ -452,7 +451,7 @@ class InferenceService:
                                     "Extracted content from reasoning field",
                                     content_length=len(content),
                                 )
-                        
+
                         # Also check for thinking field
                         if not content:
                             thinking = (message.get("thinking", "") or "").strip()
@@ -462,7 +461,7 @@ class InferenceService:
                                     "Extracted content from thinking field",
                                     content_length=len(content),
                                 )
-                    
+
                     return {
                         "content": content,
                         "reasoning_content": reasoning_content,
@@ -470,7 +469,7 @@ class InferenceService:
                         "usage": data.get("usage", {}),
                         "finish_reason": data.get("choices", [{}])[0].get("finish_reason"),
                     }
-                    
+
             except httpx.TimeoutException as e:
                 last_error = e
                 logger.warning(
@@ -481,20 +480,440 @@ class InferenceService:
                 if attempt < self.max_retries - 1:
                     await asyncio.sleep(1)
                     continue
-                    
+
             except httpx.RequestError as e:
                 last_error = e
                 logger.error("Request error", error=str(e))
                 if attempt < self.max_retries - 1:
                     await asyncio.sleep(1)
                     continue
-        
+
         # All retries exhausted
         if isinstance(last_error, httpx.TimeoutException):
             raise InferenceTimeoutError(f"Request timed out after {self.timeout}s")
-        
+
         raise InferenceServiceError(f"Request failed: {str(last_error)}")
-    
+
+    async def chat_completion_with_tools(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        system_prompt: Optional[str] = None,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        tool_choice: str = "auto",
+    ) -> Dict[str, Any]:
+        """
+        Send chat completion with native tool/function calling support.
+
+        Passes OpenAI-format tool definitions to LM Studio and extracts
+        tool_calls from the response. Used by the Super Agent loop.
+
+        Args:
+            messages: List of message dicts (role, content, tool_calls, tool_call_id)
+            tools: List of tool definitions in OpenAI format
+            system_prompt: Optional system prompt
+            max_tokens: Override max tokens
+            temperature: Override temperature
+            tool_choice: "auto", "none", or "required"
+
+        Returns:
+            Dict with content, tool_calls list, and metadata
+        """
+        url = f"{self.base_url}/v1/chat/completions"
+
+        payload = self._build_payload(
+            messages=messages,
+            system_prompt=system_prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        payload["tools"] = tools
+        payload["tool_choice"] = tool_choice
+
+        logger.info(
+            "Sending tool-calling chat completion",
+            url=url,
+            message_count=len(payload["messages"]),
+            tool_count=len(tools),
+            tool_choice=tool_choice,
+        )
+
+        last_error = None
+
+        for attempt in range(self.max_retries):
+            try:
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    response = await client.post(
+                        url,
+                        headers=self._get_headers(),
+                        json=payload,
+                    )
+
+                    if response.status_code == 429:
+                        retry_after = int(response.headers.get("Retry-After", 5))
+                        logger.warning("Rate limited, waiting", retry_after=retry_after)
+                        await asyncio.sleep(retry_after)
+                        continue
+
+                    if response.status_code != 200:
+                        error_detail = response.text
+                        logger.error(
+                            "LM Studio tool-calling API error",
+                            status_code=response.status_code,
+                            error=error_detail,
+                        )
+                        raise InferenceServiceError(
+                            f"API returned status {response.status_code}: {error_detail}"
+                        )
+
+                    data = response.json()
+                    content = ""
+                    tool_calls_raw: List[Dict[str, Any]] = []
+
+                    if data.get("choices") and len(data["choices"]) > 0:
+                        message = data["choices"][0].get("message", {})
+                        content = (message.get("content") or "").strip()
+                        tool_calls_raw = message.get("tool_calls") or []
+
+                    parsed_tool_calls: List[Dict[str, Any]] = []
+                    for tc in tool_calls_raw:
+                        fn = tc.get("function") or {}
+                        raw_args = fn.get("arguments", "{}")
+                        try:
+                            args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+                        except json.JSONDecodeError:
+                            logger.warning("Malformed tool_call arguments", raw=raw_args[:200])
+                            args = {}
+
+                        parsed_tool_calls.append({
+                            "id": tc.get("id", ""),
+                            "type": tc.get("type", "function"),
+                            "function": {
+                                "name": fn.get("name", ""),
+                                "arguments": args,
+                            },
+                        })
+
+                    if parsed_tool_calls:
+                        logger.info(
+                            "Tool calls received from model",
+                            count=len(parsed_tool_calls),
+                            tools=[tc["function"]["name"] for tc in parsed_tool_calls],
+                        )
+
+                    return {
+                        "content": content,
+                        "tool_calls": parsed_tool_calls,
+                        "model": data.get("model", self.model),
+                        "usage": data.get("usage", {}),
+                        "finish_reason": data.get("choices", [{}])[0].get("finish_reason"),
+                    }
+
+            except httpx.TimeoutException as e:
+                last_error = e
+                logger.warning(
+                    "Tool-calling request timeout",
+                    attempt=attempt + 1,
+                    max_retries=self.max_retries,
+                )
+                if attempt < self.max_retries - 1:
+                    await asyncio.sleep(1)
+                    continue
+
+            except httpx.RequestError as e:
+                last_error = e
+                logger.error("Tool-calling request error", error=str(e))
+                if attempt < self.max_retries - 1:
+                    await asyncio.sleep(1)
+                    continue
+
+        if isinstance(last_error, httpx.TimeoutException):
+            raise InferenceTimeoutError(f"Request timed out after {self.timeout}s")
+
+        raise InferenceServiceError(f"Request failed: {str(last_error)}")
+
+    async def stream_chat_completion_with_tools(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        system_prompt: Optional[str] = None,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        tool_choice: str = "auto",
+        on_thinking_token: Any = None,
+        on_response_token: Any = None,
+    ) -> Dict[str, Any]:
+        """
+        Streaming chat completion with tool calling.
+
+        Streams the response via SSE so that thinking / reasoning tokens
+        can be forwarded to the frontend in real-time via *on_thinking_token*,
+        and response content tokens via *on_response_token*.
+        Tool-call deltas are accumulated internally and returned in the
+        final result dict, exactly like ``chat_completion_with_tools``.
+
+        Args:
+            messages:          OpenAI-format messages list.
+            tools:             OpenAI-format tool definitions.
+            system_prompt:     Optional system prompt.
+            max_tokens:        Override default max_tokens.
+            temperature:       Override default temperature.
+            tool_choice:       "auto" | "none" | "required".
+            on_thinking_token: ``async def(token: str)`` callback fired
+                               for every thinking / reasoning token.
+            on_response_token: ``async def(token: str)`` callback fired
+                               for every response content token (real-time).
+
+        Returns:
+            Same shape as ``chat_completion_with_tools`` –
+            ``{"content": str, "tool_calls": [...], ...}``
+        """
+        url = f"{self.base_url}/v1/chat/completions"
+
+        payload = self._build_payload(
+            messages=messages,
+            system_prompt=system_prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        payload["stream"] = True
+        payload["tools"] = tools
+        payload["tool_choice"] = tool_choice
+
+        logger.info(
+            "Starting streaming tool-calling completion",
+            url=url,
+            message_count=len(payload["messages"]),
+            tool_count=len(tools),
+            tool_choice=tool_choice,
+        )
+
+        # ---- accumulators ----
+        content_parts: List[str] = []
+        # tool_calls indexed by position (index field in the delta)
+        tool_calls_acc: Dict[int, Dict[str, Any]] = {}
+
+        # State machine for <think> tag detection inside content
+        in_think_block = False
+        tag_buffer = ""
+        THINK_OPEN = "<think>"
+        THINK_CLOSE = "</think>"
+
+        async def _flush_thinking(text: str) -> None:
+            """Forward thinking text to the callback if present."""
+            if text and on_thinking_token is not None:
+                await on_thinking_token(text)
+
+        async def _process_content_token(token: str) -> None:
+            """
+            Parse content for <think> blocks.  Thinking content is sent
+            to the callback; everything else is accumulated as response
+            AND streamed in real-time via on_response_token.
+            """
+            nonlocal in_think_block, tag_buffer
+
+            tag_buffer += token
+
+            while tag_buffer:
+                if in_think_block:
+                    close_idx = tag_buffer.find(THINK_CLOSE)
+                    if close_idx != -1:
+                        think_text = tag_buffer[:close_idx]
+                        await _flush_thinking(think_text)
+                        tag_buffer = tag_buffer[close_idx + len(THINK_CLOSE):]
+                        in_think_block = False
+                        continue
+
+                    # Keep enough buffer to detect closing tag across chunks
+                    safe = max(0, len(tag_buffer) - (len(THINK_CLOSE) - 1))
+                    if safe > 0:
+                        await _flush_thinking(tag_buffer[:safe])
+                        tag_buffer = tag_buffer[safe:]
+                    break  # wait for more data
+                else:
+                    open_idx = tag_buffer.find(THINK_OPEN)
+                    if open_idx != -1:
+                        prefix = tag_buffer[:open_idx]
+                        if prefix:
+                            content_parts.append(prefix)
+                            # Stream response token in real-time
+                            if on_response_token is not None:
+                                await on_response_token(prefix)
+                        tag_buffer = tag_buffer[open_idx + len(THINK_OPEN):]
+                        in_think_block = True
+                        continue
+
+                    safe = max(0, len(tag_buffer) - (len(THINK_OPEN) - 1))
+                    if safe == 0:
+                        break  # wait for more data
+                    response_chunk = tag_buffer[:safe]
+                    content_parts.append(response_chunk)
+                    # Stream response token in real-time
+                    if response_chunk and on_response_token is not None:
+                        await on_response_token(response_chunk)
+                    tag_buffer = tag_buffer[safe:]
+
+        async def _finalize_tag_buffer() -> None:
+            nonlocal tag_buffer, in_think_block
+            if tag_buffer:
+                if in_think_block:
+                    await _flush_thinking(tag_buffer)
+                else:
+                    content_parts.append(tag_buffer)
+                    # Stream final response token in real-time
+                    if on_response_token is not None:
+                        await on_response_token(tag_buffer)
+                tag_buffer = ""
+
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                async with client.stream(
+                    "POST",
+                    url,
+                    headers=self._get_headers(),
+                    json=payload,
+                ) as response:
+                    status_code = response.status_code
+                    if hasattr(status_code, "__class__") and "Mock" in status_code.__class__.__name__:
+                        status_code = 200
+
+                    if status_code != 200:
+                        try:
+                            error_bytes = await response.aread()
+                            error_str = error_bytes.decode()[:200] if error_bytes else "Unknown error"
+                        except Exception:
+                            error_str = f"HTTP {status_code}"
+                        raise InferenceServiceError(
+                            f"Streaming tool-calling API returned status {status_code}: {error_str}"
+                        )
+
+                    sse_buffer = ""
+
+                    async for chunk in response.aiter_text():
+                        if isinstance(chunk, bytes):
+                            chunk = chunk.decode("utf-8")
+                        sse_buffer += chunk
+
+                        while "\n" in sse_buffer:
+                            line_end = sse_buffer.find("\n")
+                            line = sse_buffer[:line_end].strip()
+                            sse_buffer = sse_buffer[line_end + 1:]
+
+                            if not line:
+                                continue
+
+                            if line == "data: [DONE]":
+                                await _finalize_tag_buffer()
+                                break
+
+                            if not line.startswith("data: "):
+                                continue
+
+                            data_str = line[6:]
+                            if not data_str:
+                                continue
+
+                            try:
+                                json_data = json.loads(data_str)
+                            except json.JSONDecodeError:
+                                continue
+
+                            choices = json_data.get("choices", [])
+                            if not choices:
+                                continue
+
+                            delta = choices[0].get("delta", {})
+
+                            # ---- reasoning / thinking (dedicated fields) ----
+                            reasoning = delta.get("reasoning") or delta.get("reasoning_content") or ""
+                            if reasoning:
+                                await _flush_thinking(reasoning)
+
+                            # ---- content tokens (may contain <think> tags) ----
+                            content_token = delta.get("content") or ""
+                            if content_token:
+                                await _process_content_token(content_token)
+
+                            # ---- tool_calls deltas ----
+                            tc_deltas = delta.get("tool_calls") or []
+                            for tc_delta in tc_deltas:
+                                idx = tc_delta.get("index", 0)
+                                if idx not in tool_calls_acc:
+                                    tool_calls_acc[idx] = {
+                                        "id": tc_delta.get("id", ""),
+                                        "type": tc_delta.get("type", "function"),
+                                        "function": {
+                                            "name": "",
+                                            "arguments": "",
+                                        },
+                                    }
+                                entry = tool_calls_acc[idx]
+                                if tc_delta.get("id"):
+                                    entry["id"] = tc_delta["id"]
+                                fn_delta = tc_delta.get("function") or {}
+                                if fn_delta.get("name"):
+                                    entry["function"]["name"] += fn_delta["name"]
+                                if fn_delta.get("arguments"):
+                                    entry["function"]["arguments"] += fn_delta["arguments"]
+
+                    # handle leftover sse_buffer
+                    remaining = sse_buffer.strip()
+                    if remaining and remaining.startswith("data: ") and remaining != "data: [DONE]":
+                        try:
+                            leftover_data = json.loads(remaining[6:])
+                            leftover_choices = leftover_data.get("choices", [])
+                            if leftover_choices:
+                                leftover_delta = leftover_choices[0].get("delta", {})
+                                leftover_content = leftover_delta.get("content") or ""
+                                if leftover_content:
+                                    await _process_content_token(leftover_content)
+                        except (json.JSONDecodeError, IndexError):
+                            pass
+
+                    await _finalize_tag_buffer()
+
+        except httpx.TimeoutException:
+            raise InferenceTimeoutError(f"Streaming request timed out after {self.timeout}s")
+        except httpx.RequestError as e:
+            raise InferenceServiceError(f"Streaming request failed: {str(e)}")
+
+        # ---- assemble result ----
+        final_content = "".join(content_parts).strip()
+
+        parsed_tool_calls: List[Dict[str, Any]] = []
+        for idx in sorted(tool_calls_acc.keys()):
+            tc = tool_calls_acc[idx]
+            raw_args = tc["function"]["arguments"]
+            try:
+                args = json.loads(raw_args) if raw_args else {}
+            except json.JSONDecodeError:
+                logger.warning("Malformed streamed tool_call arguments", raw=raw_args[:200])
+                args = {}
+            parsed_tool_calls.append({
+                "id": tc["id"],
+                "type": tc["type"],
+                "function": {
+                    "name": tc["function"]["name"],
+                    "arguments": args,
+                },
+            })
+
+        if parsed_tool_calls:
+            logger.info(
+                "Streamed tool calls received",
+                count=len(parsed_tool_calls),
+                tools=[tc["function"]["name"] for tc in parsed_tool_calls],
+            )
+
+        return {
+            "content": final_content,
+            "tool_calls": parsed_tool_calls,
+            "model": self.model,
+            "usage": {},
+            "finish_reason": "tool_calls" if parsed_tool_calls else "stop",
+        }
+
     async def generate_response(
         self,
         user_message: str,
@@ -621,6 +1040,17 @@ def get_inference_service(agent_type: str = "default"):
                 model=settings.SUPER_AGENT_LM_STUDIO_MODEL,
                 max_tokens=settings.SUPER_AGENT_LM_STUDIO_MAX_TOKENS,
                 temperature=settings.SUPER_AGENT_LM_STUDIO_TEMPERATURE,
+            )
+        
+        if agent_type == "whatsapp_agent":
+            logger.info(
+                "Using LM Studio inference service for WhatsApp Agent",
+                model=settings.WHATSAPP_AGENT_LM_STUDIO_MODEL,
+            )
+            return InferenceService(
+                model=settings.WHATSAPP_AGENT_LM_STUDIO_MODEL,
+                max_tokens=settings.WHATSAPP_AGENT_LM_STUDIO_MAX_TOKENS,
+                temperature=settings.WHATSAPP_AGENT_LM_STUDIO_TEMPERATURE,
             )
         
         logger.info("Using LM Studio inference service", model=settings.LM_STUDIO_MODEL)

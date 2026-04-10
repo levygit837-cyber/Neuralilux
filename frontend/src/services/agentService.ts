@@ -118,4 +118,30 @@ export const agentService = {
 
     return response.json()
   },
+
+  async getModels(): Promise<{ models: Array<{ id: string; name: string; provider: string }>; count: number; source: string; error?: string }> {
+    const response = await fetch(`${API_BASE_URL}/api/v1/inference/models`, {
+      headers: getAuthHeaders(),
+    })
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
+      throw new Error(error.detail || 'Failed to load models')
+    }
+
+    return response.json()
+  },
+
+  async getCurrentModel(): Promise<{ id: string; name: string; provider: string; max_tokens?: number }> {
+    const response = await fetch(`${API_BASE_URL}/api/v1/inference/models/current`, {
+      headers: getAuthHeaders(),
+    })
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Unknown error' }))
+      throw new Error(error.detail || 'Failed to load current model')
+    }
+
+    return response.json()
+  },
 }

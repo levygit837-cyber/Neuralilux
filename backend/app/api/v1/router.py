@@ -12,6 +12,7 @@ from app.api.v1.endpoints import (
     dashboard,
     menu,
     settings,
+    inference,
 )
 
 api_router = APIRouter()
@@ -30,3 +31,4 @@ api_router.include_router(
 )
 api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 api_router.include_router(settings.router, prefix="/settings", tags=["settings"])
+api_router.include_router(inference.router, prefix="/inference", tags=["inference"])

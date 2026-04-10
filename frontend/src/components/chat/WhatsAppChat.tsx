@@ -6,6 +6,7 @@ import { useChatStore } from '@/stores/useChatStore'
 import { agentService } from '@/services/agentService'
 import { chatService } from '@/services/chatService'
 import { socketService } from '@/services/socketService'
+import { evolutionSocketService } from '@/services/evolutionSocketService'
 import { instanceService, EvolutionInstance } from '@/services/instanceService'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useInstanceStore, SelectedInstance } from '@/stores/useInstanceStore'
@@ -16,6 +17,7 @@ import { ChatInput } from './ChatInput'
 import { EmptyChat } from './EmptyChat'
 import { TypingIndicator } from './TypingIndicator'
 import { ThinkingManager } from './ThinkingManager'
+import { SystemMessage } from './SystemMessage'
 import { POLLING_INTERVAL, TYPING_TIMEOUT, ROUTES } from '@/lib/constants'
 import { generateTempId, formatTimestamp } from '@/lib/utils'
 import type { Message } from '@/types/chat'
@@ -257,22 +259,43 @@ export function WhatsAppChat() {
     [instanceName, isBindingAgent, selectedAgentId, availableAgents]
   )
 
-  // Initialize WebSocket connection
+  // Initialize Evolution API WebSocket connection (real-time WhatsApp events)
+  useEffect(() => {
+    evolutionSocketService.connect()
+
+    const checkConnection = setInterval(() => {
+      setIsConnected(evolutionSocketService.getConnectionStatus())
+    }, 1000)
+
+    return () => {
+      clearInterval(checkConnection)
+      evolutionSocketService.disconnect()
+    }
+  }, [])
+
+  // Subscribe to Evolution API instance for real-time events
+  useEffect(() => {
+    if (!instanceName) return
+
+    // Enable WebSocket events for this instance on the Evolution API
+    void instanceService.enableWebSocket(instanceName)
+    evolutionSocketService.subscribeToInstance(instanceName)
+
+    return () => {
+      evolutionSocketService.leaveInstance(instanceName)
+    }
+  }, [instanceName])
+
+  // Initialize backend Socket.IO for agent features (thinking, tool events)
   useEffect(() => {
     if (!token) {
-      setIsConnected(false)
       socketService.disconnect()
       return
     }
 
     socketService.connect(token)
 
-    const checkConnection = setInterval(() => {
-      setIsConnected(socketService.getConnectionStatus())
-    }, 1000)
-
     return () => {
-      clearInterval(checkConnection)
       socketService.disconnect()
     }
   }, [token])
@@ -410,6 +433,7 @@ export function WhatsAppChat() {
       timestamp: new Date(),
       isOutgoing: true,
       status: 'sending',
+      messageType: 'text',
     }
 
     // Optimistically add message
@@ -427,6 +451,7 @@ export function WhatsAppChat() {
         timestamp: new Date(),
         isOutgoing: true,
         status: 'sent',
+        messageType: 'text',
       }
       updateMessage(tempId, sentMessage)
       updateConversationLastMessage(
@@ -482,72 +507,83 @@ export function WhatsAppChat() {
 
   if (isResolvingInstance && !resolvedInstance) {
     return (
-      <div className="flex h-full min-h-0 items-center justify-center bg-dark text-text-gray">
+      <div className="flex flex-1 h-full min-h-0 items-center justify-center bg-brand-base text-content-muted">
         Carregando instância...
       </div>
     )
   }
 
   return (
-    <div className="flex h-full min-h-0 bg-dark">
+    <div className="flex flex-1 h-full min-h-0 bg-brand-base overflow-hidden">
       <ChatSidebar
         conversations={conversations}
         activeConversationId={activeConversationId}
         onSelectConversation={handleSelectConversation}
         isLoading={isLoadingConversations}
       />
-      <div className="flex min-h-0 flex-1 flex-col">
-        {activeConversation ? (
-          <>
-            <ChatHeader
-              name={activeConversation.name}
-              avatar={activeConversation.avatar}
-              status={isTyping ? 'digitando...' : (activeConversation.isOnline ? 'Online' : 'Offline')}
-              isOnline={activeConversation.isOnline}
-              agentEnabled={agentEnabled}
-              agentName={selectedAgentName}
-              availableAgents={availableAgents}
-              selectedAgentId={selectedAgentId}
-              onSelectAgent={handleSelectAgent}
-              onToggleAgent={handleToggleAgent}
-              isAgentLoading={isAgentStatusLoading || isTogglingAgent}
-              isAgentBindingLoading={isAgentsLoading || isBindingAgent}
-            />
-            {agentStatusError && (
-              <div className="border-b border-yellow-500/20 bg-yellow-500/10 px-6 py-3 text-sm text-yellow-300">
-                {agentStatusError}
-              </div>
-            )}
-            <div className="flex-1 overflow-y-auto p-6">
-              {isLoadingMessages ? (
-                <div className="flex h-full items-center justify-center">
-                  <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {activeMessages.map((message) => (
-                    <MessageBubble key={message.id} message={message} />
-                  ))}
-                  {activeConversationId && <ThinkingManager conversationId={activeConversationId} />}
-                  {isTyping && <TypingIndicator />}
-                  <div ref={messagesEndRef} />
+      <div className="flex-1 flex flex-col min-h-0 relative overflow-hidden">
+        {/* Chat Layer Background */}
+        <div className="absolute inset-0 chat-pattern opacity-80 pointer-events-none z-0" />
+
+        <div className="relative z-10 flex flex-col h-full">
+          {activeConversation ? (
+            <>
+              <ChatHeader
+                name={activeConversation.name}
+                avatar={activeConversation.avatar}
+                status={isTyping ? 'digitando...' : (activeConversation.isOnline ? 'Online' : 'Offline')}
+                isOnline={activeConversation.isOnline}
+                agentEnabled={agentEnabled}
+                agentName={selectedAgentName}
+                availableAgents={availableAgents}
+                selectedAgentId={selectedAgentId}
+                onSelectAgent={handleSelectAgent}
+                onToggleAgent={handleToggleAgent}
+                isAgentLoading={isAgentStatusLoading || isTogglingAgent}
+                isAgentBindingLoading={isAgentsLoading || isBindingAgent}
+              />
+              {agentStatusError && (
+                <div className="border-b border-warning/20 bg-warning/10 px-6 py-3 text-sm text-warning">
+                  {agentStatusError}
                 </div>
               )}
+              <div className="flex-1 overflow-y-auto px-6 py-8 h-full relative">
+                {isLoadingMessages ? (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {activeMessages.map((message) => {
+                      if (message.messageType === 'system' && message.systemMetadata) {
+                        return <SystemMessage key={message.id} metadata={message.systemMetadata} />
+                      }
+                      return <MessageBubble key={message.id} message={message} />
+                    })}
+                    {activeConversationId && <ThinkingManager conversationId={activeConversationId} />}
+                    {isTyping && <TypingIndicator />}
+                    <div ref={messagesEndRef} />
+                  </div>
+                )}
+              </div>
+              <ChatInput
+                onSendMessage={handleSendMessage}
+                onTyping={handleTyping}
+                disabled={isSending}
+              />
+            </>
+          ) : (
+            <div className="flex-1 flex items-center justify-center">
+              <EmptyChat />
             </div>
-            <ChatInput
-              onSendMessage={handleSendMessage}
-              onTyping={handleTyping}
-              disabled={isSending}
-            />
-          </>
-        ) : (
-          <EmptyChat />
-        )}
+          )}
+        </div>
       </div>
       {/* Connection status indicator */}
       {!isConnected && (
-        <div className="fixed bottom-4 right-4 rounded-lg bg-yellow-500/20 px-4 py-2 text-sm text-yellow-400">
-          Modo offline - usando polling
+        <div className="fixed bottom-4 right-4 rounded-lg bg-brand-card/90 border border-brand-border px-4 py-2 text-sm text-content-muted backdrop-blur-sm">
+          <span className="inline-block w-2 h-2 rounded-full bg-yellow-500 mr-2 animate-pulse" />
+          Conectando ao WhatsApp...
         </div>
       )}
     </div>

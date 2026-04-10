@@ -259,12 +259,11 @@ class GeminiInferenceService:
                         content_buffer = ""
                         break
 
-                    safe_len = max(0, len(content_buffer) - (len(THINK_CLOSE) - 1))
-                    if safe_len == 0:
-                        break
-
-                    yield from _yield_segment("thinking", content_buffer[:safe_len])
-                    content_buffer = content_buffer[safe_len:]
+                    # Yield tokens in small chunks for real-time streaming, but keep enough buffer to detect closing tag
+                    safe_len = max(1, len(content_buffer) - (len(THINK_CLOSE) - 1))
+                    if safe_len > 0:
+                        yield from _yield_segment("thinking", content_buffer[:safe_len])
+                        content_buffer = content_buffer[safe_len:]
                     continue
 
                 open_index = content_buffer.find(THINK_OPEN)

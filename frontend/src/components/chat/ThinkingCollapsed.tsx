@@ -1,6 +1,6 @@
 'use client'
 
-import { ChevronDown } from 'lucide-react'
+import { CaretDown } from '@phosphor-icons/react'
 
 interface ThinkingCollapsedProps {
   summary?: string
@@ -37,7 +37,7 @@ export function ThinkingCollapsed({ summary, onExpand }: ThinkingCollapsedProps)
           aria-label="Expandir raciocínio"
           className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-[#3A2C70] bg-[#221A44] text-[#E9D5FF] transition-colors hover:bg-[#2D2255]"
         >
-          <ChevronDown className="h-4 w-4 transition-transform duration-200" />
+          <CaretDown weight="bold" className="text-lg transition-transform duration-200" />
         </button>
       </div>
     </div>

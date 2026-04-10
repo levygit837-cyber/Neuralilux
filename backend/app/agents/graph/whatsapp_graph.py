@@ -10,6 +10,7 @@ import structlog
 
 from app.agents.state import AgentState
 from app.agents.graph.nodes import (
+    validate_message_node,
     load_context_node,
     classify_intent_node,
     execute_action_node,
@@ -26,6 +27,7 @@ def create_whatsapp_graph() -> StateGraph:
     Cria e retorna o grafo LangGraph do agente WhatsApp.
 
     Fluxo:
+    0. validate_message: Valida se mensagem deve ser processada
     1. load_context: Carrega contexto da conversa
     2. classify_intent: Classifica intenção da mensagem
     3. (condicional) execute_action: Executa tool se necessário
@@ -38,15 +40,17 @@ def create_whatsapp_graph() -> StateGraph:
     workflow = StateGraph(AgentState)
 
     # Adicionar nós
+    workflow.add_node("validate_message", validate_message_node)
     workflow.add_node("load_context", load_context_node)
     workflow.add_node("classify_intent", classify_intent_node)
     workflow.add_node("execute_action", execute_action_node)
     workflow.add_node("generate_response", generate_response_node)
 
     # Definir ponto de entrada
-    workflow.set_entry_point("load_context")
+    workflow.set_entry_point("validate_message")
 
     # Transições
+    workflow.add_edge("validate_message", "load_context")
     workflow.add_edge("load_context", "classify_intent")
 
     # Condicional após classificação
@@ -140,7 +144,9 @@ class WhatsAppAgentGraph:
         )
 
         try:
+            logger.info("Graph ainvoke starting", step="invoke_start")
             final_state = await self.graph.ainvoke(initial_state)
+            logger.info("Graph ainvoke completed", step="invoke_complete")
 
             logger.info(
                 "Agent graph completed",
@@ -152,7 +158,15 @@ class WhatsAppAgentGraph:
             return final_state
 
         except Exception as e:
-            logger.error("Agent graph execution failed", error=str(e))
+            import traceback
+            error_traceback = traceback.format_exc()
+            logger.error(
+                "Agent graph execution failed",
+                error=str(e),
+                error_type=type(e).__name__,
+                traceback=error_traceback,
+                step="graph_invoke_failed"
+            )
             return {
                 **initial_state,
                 "response": "Desculpe, ocorreu um erro ao processar sua mensagem. Por favor, tente novamente. 😊",

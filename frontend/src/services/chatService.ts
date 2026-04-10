@@ -235,6 +235,7 @@ function mapMessage(remoteJid: string, record: EvolutionMessageRecord): Message 
     timestamp: normalizeTimestamp(record.messageTimestamp),
     isOutgoing,
     status: normalizeMessageStatus(record.status),
+    messageType: 'text',
     sender: isOutgoing
       ? undefined
       : {
