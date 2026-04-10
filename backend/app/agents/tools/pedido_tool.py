@@ -5,6 +5,7 @@ Usa a comanda persistida no banco como fonte oficial.
 from typing import Any, Dict, List
 
 from app.core.langchain_compat import patch_forward_ref_evaluate_for_python312
+from app.agents.message_variations import get_pedido_vazio_message
 
 patch_forward_ref_evaluate_for_python312()
 
@@ -168,7 +169,7 @@ def _consultar_pedido(db) -> str:
     order = get_active_order(db, _current_conversation_id)
     if not order:
         _sync_cache(_current_conversation_id, None)
-        return "🛒 Seu pedido está vazio. Quer ver o cardápio para escolher algo?"
+        return get_pedido_vazio_message()
 
     _sync_cache(_current_conversation_id, order)
     resultado = format_comanda(serialize_order(order))
@@ -186,7 +187,7 @@ def _limpar_pedido(db) -> str:
 def _mostrar_total(db) -> str:
     order = get_active_order(db, _current_conversation_id)
     if not order:
-        return "Seu pedido está vazio."
+        return get_pedido_vazio_message()
     _sync_cache(_current_conversation_id, order)
     qtd_itens = sum(item.quantity for item in order.items)
     return f"💰 Total da comanda #{order.order_number}: {_formatar_preco(float(order.total_amount or 0))} ({qtd_itens} itens)"

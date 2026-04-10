@@ -5,6 +5,10 @@ Usa o banco quando a estrutura já foi sincronizada e cai para o JSON local quan
 from typing import Any, Iterable
 
 from app.core.langchain_compat import patch_forward_ref_evaluate_for_python312
+from app.agents.message_variations import (
+    get_cardapio_saudacao,
+    get_sugestao_proximo_passo,
+)
 
 patch_forward_ref_evaluate_for_python312()
 
@@ -76,7 +80,7 @@ def _listar_categorias(snapshot: MenuSnapshot) -> str:
 
     lines.append("")
     lines.append("━━━━━━━━━━━━")
-    lines.append("💡 Me diga qual categoria você quer ver primeiro.")
+    lines.append(f"💡 {get_sugestao_proximo_passo('apos_resumo')}")
     return "\n".join(lines)
 
 
@@ -102,10 +106,10 @@ def _buscar_por_categoria(snapshot: MenuSnapshot, category_name: str) -> str:
 
     if len(items) > len(preview_items):
         lines.append("━━━━━━━━━━━━")
-        lines.append("Se quiser, posso te mostrar mais opções dessa categoria.")
+        lines.append("Tem mais opções nessa categoria se quiser ver!")
         lines.append("")
 
-    lines.append("💡 Quer adicionar algum item na sua comanda?")
+    lines.append(f"💡 {get_sugestao_proximo_passo('apos_categoria')}")
     return "\n".join(lines)
 
 
@@ -140,9 +144,9 @@ def _buscar_por_termo(snapshot: MenuSnapshot, term: str) -> str:
         lines.append("")
 
     if len(items) > len(preview_items):
-        lines.append("Posso te mostrar mais opções se quiser.")
+        lines.append("Tem mais resultados se quiser explorar!")
 
-    lines.append("💡 Se preferir, posso organizar por categoria.")
+    lines.append(f"💡 {get_sugestao_proximo_passo('busca_vazia')}")
     return "\n".join(lines)
 
 
@@ -221,9 +225,9 @@ def _listar_todos(snapshot: MenuSnapshot, limit: int = MAX_FULL_MENU_ITEMS) -> s
 
     lines.append("━━━━━━━━━━━━")
     if items_shown < total_items:
-        lines.append("💡 Para ver mais, me diga qual categoria você quer explorar.")
+        lines.append(f"💡 {get_sugestao_proximo_passo('apos_todos')}")
     else:
-        lines.append("💡 Se quiser detalhes de algum item, é só me perguntar!")
+        lines.append(f"💡 {get_sugestao_proximo_passo('apos_todos')}")
 
     return "\n".join(lines)
 

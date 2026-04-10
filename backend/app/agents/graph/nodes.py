@@ -10,6 +10,17 @@ from app.agents.state import AgentState
 from app.agents.outputs.coleta_output import format_coleta
 from app.agents.outputs.pedido_output import format_comanda
 from app.agents.prompts import INTENT_CLASSIFICATION_PROMPT, RESPONSE_GENERATION_PROMPT, SYSTEM_PROMPT
+from app.agents.message_variations import (
+    get_saudacao,
+    get_fallback_message,
+    get_mensagem_sem_comanda,
+    get_pedido_vazio_message,
+)
+from app.agents.llm_responses import (
+    generate_saudacao_with_fallback,
+    generate_fallback_response_with_fallback,
+    get_cardapio_context_with_variations,
+)
 from app.agents.memory.history_loader import load_conversation_history
 from app.agents.tools.pedido_tool import set_active_conversation, _pedidos_ativos
 from app.agents.tools.tool_definitions import WHATSAPP_AGENT_TOOLS
@@ -19,6 +30,16 @@ from app.agents.exceptions import (
     ResponseGenerationError,
     InferenceError,
     ToolExecutionError,
+)
+from app.services.gemini_inference_service import (
+    GeminiInferenceServiceError,
+    GeminiInferenceTimeoutError,
+    GeminiInferenceRateLimitError,
+)
+from app.services.vertex_inference_service import (
+    VertexInferenceServiceError,
+    VertexInferenceTimeoutError,
+    VertexInferenceRateLimitError,
 )
 from app.core.database import SessionLocal
 from app.core.config import settings
@@ -332,8 +353,14 @@ async def _execute_tool_call(
         return result
     
     elif tool_name == "horario_tool":
-        # Simple hardcoded response for now
-        result = "A Macedos funciona de segunda a sábado, das 18h às 23h. Domingos fechado."
+        # Call actual horario_tool instead of returning mock
+        from app.agents.tools.horario_tool import horario_tool
+        try:
+            result = horario_tool.invoke({})
+        except Exception as e:
+            logger.warning("Horario tool failed, using fallback", error=str(e))
+            # Fallback: still call tool with empty args which returns default
+            result = horario_tool.invoke({})
         state["cardapio_context"] = result
         return result
     
@@ -703,20 +730,25 @@ async def classify_intent_node(state: AgentState) -> Dict[str, Any]:
             "flow_stage": flow_stage,
         }
 
-    except (InferenceError, Exception) as e:
-        if isinstance(e, InferenceError):
+    except (InferenceError, GeminiInferenceServiceError, GeminiInferenceTimeoutError, GeminiInferenceRateLimitError,
+            VertexInferenceServiceError, VertexInferenceTimeoutError, VertexInferenceRateLimitError, Exception) as e:
+        inference_errors = (InferenceError, GeminiInferenceServiceError, GeminiInferenceTimeoutError, GeminiInferenceRateLimitError,
+                          VertexInferenceServiceError, VertexInferenceTimeoutError, VertexInferenceRateLimitError)
+        if isinstance(e, inference_errors):
             # Erro específico de inferência - relançar
             logger.error(
                 "Inference error during intent classification",
                 correlation_id=correlation_id,
                 error=str(e),
-                context=e.context if hasattr(e, 'context') else {}
+                error_type=type(e).__name__,
+                context=getattr(e, 'context', {})
             )
             raise IntentClassificationError(
                 f"Failed to classify intent due to inference error: {str(e)}",
                 context={
                     "conversation_id": state.get("conversation_id"),
-                    "correlation_id": correlation_id
+                    "correlation_id": correlation_id,
+                    "error_type": type(e).__name__
                 }
             ) from e
         else:
@@ -924,7 +956,21 @@ async def _astream_with_optional_tools(
     tools: list[dict[str, Any]] | None,
 ):
     try:
-        # First try without tools (LM Studio doesn't support tools parameter)
+        # Pass tools to the inference service if available
+        async for item in inference_service.astream_chat_completion_with_thinking(
+            messages=messages,
+            system_prompt=system_prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            tools=tools,
+        ):
+            yield item
+    except TypeError as exc:
+        # Fallback: try without tools if the service doesn't support them
+        logger.info(
+            "Streaming inference with tools failed; retrying without tools",
+            error=str(exc),
+        )
         async for item in inference_service.astream_chat_completion_with_thinking(
             messages=messages,
             system_prompt=system_prompt,
@@ -932,12 +978,6 @@ async def _astream_with_optional_tools(
             temperature=temperature,
         ):
             yield item
-    except TypeError as exc:
-        logger.info(
-            "Streaming inference failed; this is expected for some inference services",
-            error=str(exc),
-        )
-        raise
 
 
 async def generate_response_node(state: AgentState) -> Dict[str, Any]:
@@ -1017,10 +1057,15 @@ async def generate_response_node(state: AgentState) -> Dict[str, Any]:
         }:
             direct_response = _format_whatsapp_response(cardapio_context, cardapio_context)
     elif intent == "saudacao":
-        direct_response = (
-            "Olá! 😊 Posso te mostrar o cardápio ou as categorias disponíveis. "
-            "Se quiser, já te envio!"
-        )
+        # Só saudar se não houver histórico de conversa
+        has_history = bool(history_text and history_text.strip())
+        if has_history:
+            # Já existe conversa, não saudar novamente
+            direct_response = None  # Deixar o LLM gerar resposta apropriada
+        else:
+            # Primeira mensagem: usar variações de banco (rápido) ou LLM
+            # Por performance, usamos variações diretas para saudação inicial
+            direct_response = get_saudacao(tem_historico=False)
 
     if direct_response:
         await _emit_thinking_event(
@@ -1277,24 +1322,27 @@ async def generate_response_node(state: AgentState) -> Dict[str, Any]:
                 )
                 response = thinking_content.strip()
             else:
+                # Verificar se há histórico para decidir se deve saudar
+                has_history = bool(history_text and history_text.strip())
+                
                 if intent == "saudacao":
-                    response = (
-                        "Olá! 😊 Posso te mostrar o cardápio ou as categorias disponíveis. "
-                        "Se quiser, já te envio!"
-                    )
+                    # Usar variações de banco para resposta rápida
+                    response = get_saudacao(tem_historico=has_history)
                 elif intent == "outro":
-                    response = (
-                        "Posso te ajudar com o cardápio, categorias, pedidos e horários. "
-                        "Se quiser, já posso te mostrar o cardápio 😊"
-                    )
+                    # Usar variações de banco para resposta rápida
+                    response = get_fallback_message(tem_historico=has_history)
                 else:
                     logger.info(
                         "Generating fallback response via LLM",
                         conversation_id=conversation_id,
                     )
+                    # Instrução para não saudar se já houver histórico
+                    no_greet_instruction = "" if has_history else "Inclua uma saudação inicial."
                     fallback_prompt = (
                         f"Você é Macedinho da Macedos. O cliente disse: '{current_message}'. "
                         f"Responda de forma gentil e proativa em 1-2 frases curtas. "
+                        f"{'NÃO saudar, apenas responda ao assunto diretamente. ' if has_history else ''}"
+                        f"{no_greet_instruction} "
                         f"Fluxo atual: {flow_stage}. Intenção: {intent}."
                     )
                     fallback_result = await inference_service.chat_completion(
@@ -1302,10 +1350,7 @@ async def generate_response_node(state: AgentState) -> Dict[str, Any]:
                         max_tokens=100,
                         temperature=0.3,
                     )
-                    response = fallback_result.get("content", "").strip() or (
-                        "Posso te ajudar com o cardápio, categorias, pedidos e horários. "
-                        "Se quiser, já posso te mostrar o cardápio 😊"
-                    )
+                    response = fallback_result.get("content", "").strip() or get_fallback_message(tem_historico=has_history)
                     logger.info(
                         "Fallback response generated",
                         conversation_id=conversation_id,
@@ -1337,18 +1382,22 @@ async def generate_response_node(state: AgentState) -> Dict[str, Any]:
 
         return {"response": response}
 
-    except (InferenceError, Exception) as e:
+    except (InferenceError, GeminiInferenceServiceError, GeminiInferenceTimeoutError, GeminiInferenceRateLimitError,
+            VertexInferenceServiceError, VertexInferenceTimeoutError, VertexInferenceRateLimitError, Exception) as e:
         import traceback
         error_traceback = traceback.format_exc()
-        
-        if isinstance(e, InferenceError):
+
+        inference_errors = (InferenceError, GeminiInferenceServiceError, GeminiInferenceTimeoutError, GeminiInferenceRateLimitError,
+                          VertexInferenceServiceError, VertexInferenceTimeoutError, VertexInferenceRateLimitError)
+        if isinstance(e, inference_errors):
             # Erro específico de inferência - relançar como ResponseGenerationError
             logger.error(
                 "Inference error during response generation",
                 correlation_id=correlation_id,
                 conversation_id=conversation_id,
                 error=str(e),
-                context=e.context if hasattr(e, 'context') else {},
+                error_type=type(e).__name__,
+                context=getattr(e, 'context', {}),
                 traceback=error_traceback
             )
             raise ResponseGenerationError(
@@ -1356,7 +1405,8 @@ async def generate_response_node(state: AgentState) -> Dict[str, Any]:
                 context={
                     "conversation_id": conversation_id,
                     "correlation_id": correlation_id,
-                    "intent": intent
+                    "intent": intent,
+                    "error_type": type(e).__name__
                 }
             ) from e
         else:
@@ -1389,10 +1439,11 @@ def _processar_coleta_dados(state: AgentState) -> Dict[str, Any]:
         if not coleta_etapa:
             active_order = get_active_order(db, state["conversation_id"])
             if not active_order:
+                mensagem_sem_comanda = get_mensagem_sem_comanda()
                 return {
                     "output_type": "mensagem",
-                    "mensagem": "Não encontrei uma comanda aberta para finalizar.",
-                    "mensagem_formatada": "Não encontrei uma comanda aberta para finalizar.",
+                    "mensagem": mensagem_sem_comanda,
+                    "mensagem_formatada": mensagem_sem_comanda,
                     "pedido_atual": [],
                     "pedido_total": None,
                     "flow_stage": "saudacao",

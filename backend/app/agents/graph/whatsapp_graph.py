@@ -2,12 +2,15 @@
 from typing import Dict, Any
 
 from app.core.langchain_compat import patch_forward_ref_evaluate_for_python312
+from app.agents.message_variations import get_error_message
+from app.agents.llm_responses import get_error_message_with_tracking
 
 patch_forward_ref_evaluate_for_python312()
 
 from langgraph.graph import StateGraph, END
 import structlog
 
+from app.core.config import settings
 from app.agents.state import AgentState
 from app.agents.graph.nodes import (
     validate_message_node,
@@ -135,6 +138,7 @@ class WhatsAppAgentGraph:
             "output_data": None,
             "should_respond": True,
             "error": None,
+            "correlation_id": None,
         }
 
         logger.info(
@@ -159,16 +163,65 @@ class WhatsAppAgentGraph:
 
         except Exception as e:
             import traceback
+            from app.agents.exceptions import (
+                InferenceError,
+                ContextLoadError,
+                IntentClassificationError,
+                ResponseGenerationError,
+                ToolExecutionError,
+                EvolutionAPIError,
+            )
+            from app.services.gemini_inference_service import (
+                GeminiInferenceServiceError,
+                GeminiInferenceTimeoutError,
+                GeminiInferenceRateLimitError,
+            )
+            from app.services.vertex_inference_service import (
+                VertexInferenceServiceError,
+                VertexInferenceTimeoutError,
+                VertexInferenceRateLimitError,
+            )
+
             error_traceback = traceback.format_exc()
+            error_type = type(e).__name__
+            error_message = str(e)
+
+            # Log detalhado do erro
             logger.error(
                 "Agent graph execution failed",
-                error=str(e),
-                error_type=type(e).__name__,
+                error=error_message,
+                error_type=error_type,
                 traceback=error_traceback,
                 step="graph_invoke_failed"
             )
+
+            # Determinar mensagem de erro baseada no tipo de exceção
+            # Usar variações de banco para mensagens mais naturais
+            error_type_map = {
+                "InferenceError": "inference",
+                "GeminiInferenceServiceError": "inference",
+                "VertexInferenceServiceError": "inference",
+                "GeminiInferenceTimeoutError": "timeout",
+                "VertexInferenceTimeoutError": "timeout",
+                "GeminiInferenceRateLimitError": "timeout",
+                "VertexInferenceRateLimitError": "timeout",
+                "ContextLoadError": "context_load",
+                "IntentClassificationError": "intent_classification",
+                "ResponseGenerationError": "response_generation",
+                "ToolExecutionError": "tool_execution",
+                "EvolutionAPIError": "evolution_api",
+            }
+            
+            error_key = error_type_map.get(error_type, "generico")
+            user_message = get_error_message(error_key)
+
+            # Em desenvolvimento, incluir mais detalhes no erro
+            if settings.DEBUG:
+                user_message += f"\n\n[Debug: {error_type}: {error_message}]"
+
             return {
                 **initial_state,
-                "response": "Desculpe, ocorreu um erro ao processar sua mensagem. Por favor, tente novamente. 😊",
-                "error": str(e),
+                "response": user_message,
+                "error": error_message,
+                "error_type": error_type,
             }

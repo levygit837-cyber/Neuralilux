@@ -14,11 +14,22 @@ from app.agents.exceptions import (
     EvolutionAPIError,
     ResponseGenerationError,
 )
+from app.services.gemini_inference_service import (
+    GeminiInferenceServiceError,
+    GeminiInferenceTimeoutError,
+    GeminiInferenceRateLimitError,
+)
+from app.services.vertex_inference_service import (
+    VertexInferenceServiceError,
+    VertexInferenceTimeoutError,
+    VertexInferenceRateLimitError,
+)
 
 
 patch_forward_ref_evaluate_for_python312()
 
 from app.agents.graph.whatsapp_graph import WhatsAppAgentGraph
+from app.agents.message_variations import get_error_message
 from app.agents.tools.pedido_tool import set_active_conversation, _pedidos_ativos
 from app.services.realtime_event_bus import realtime_event_bus
 
@@ -181,7 +192,8 @@ class WhatsAppAgent:
 
             return response
 
-        except (InferenceError, ResponseGenerationError) as e:
+        except (InferenceError, ResponseGenerationError, GeminiInferenceServiceError, GeminiInferenceTimeoutError, GeminiInferenceRateLimitError,
+                VertexInferenceServiceError, VertexInferenceTimeoutError, VertexInferenceRateLimitError) as e:
             # Erros específicos de inferência/geração - log detalhado
             import traceback
             error_traceback = traceback.format_exc()
@@ -191,12 +203,23 @@ class WhatsAppAgent:
                 conversation_id=conversation_id,
                 error_type=type(e).__name__,
                 error=str(e),
-                context=e.context if hasattr(e, 'context') else {},
+                context=getattr(e, 'context', {}),
                 traceback=error_traceback
             )
 
             # Enviar mensagem de erro mais específica
-            error_msg = f"Desculpe, tive um problema ao processar sua solicitação: {str(e)}"
+            from app.core.config import settings
+
+            # Mensagem baseada no tipo de erro usando variações
+            timeout_errors = (GeminiInferenceTimeoutError, GeminiInferenceRateLimitError, VertexInferenceTimeoutError, VertexInferenceRateLimitError)
+            if isinstance(e, timeout_errors):
+                error_msg = get_error_message("timeout")
+            else:
+                error_msg = get_error_message("inference")
+
+            if settings.DEBUG:
+                error_msg += f"\n\n[Debug: {type(e).__name__}: {str(e)}]"
+
             await self._send_response(
                 instance_name=instance_name,
                 remote_jid=remote_jid,
@@ -239,7 +262,12 @@ class WhatsAppAgent:
                 traceback=error_traceback
             )
 
-            error_msg = f"Desculpe, ocorreu um erro: {str(e)}"
+            from app.core.config import settings
+            error_msg = get_error_message("generico")
+
+            if settings.DEBUG:
+                error_msg += f"\n\n[Debug: {type(e).__name__}: {str(e)}]"
+
             await self._send_response(
                 instance_name=instance_name,
                 remote_jid=remote_jid,
@@ -263,7 +291,12 @@ class WhatsAppAgent:
             )
 
             # Enviar mensagem de erro genérica para erros inesperados
-            error_msg = "Desculpe, estou com dificuldades técnicas no momento. Por favor, tente novamente em instantes. 😊"
+            from app.core.config import settings
+            error_msg = get_error_message("generico")
+
+            if settings.DEBUG:
+                error_msg += f"\n\n[Debug: {type(e).__name__}: {str(e)}]"
+
             await self._send_response(
                 instance_name=instance_name,
                 remote_jid=remote_jid,
