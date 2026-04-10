@@ -1,0 +1,278 @@
+{
+  "groupId": "cross-area",
+  "testedAt": "2026-03-28T14:30:00Z",
+  "isolation": {
+    "frontendPath": "/home/levybonito/Projetos/Neuralilux/frontend",
+    "backendPath": "/home/levybonito/Projetos/Neuralilux/backend",
+    "instance": "Whatsapp",
+    "testPhones": {
+      "phoneA": "55119CR001999@s.whatsapp.net",
+      "phoneB": "55119CR002999@s.whatsapp.net",
+      "phoneC": "55119CR003999@s.whatsapp.net"
+    },
+    "testCredentials": {
+      "email": "usuario@teste.com",
+      "password": "teste123"
+    },
+    "toolsUsed": ["agent-browser"]
+  },
+  "assertions": [
+    {
+      "id": "VAL-CROSS-001",
+      "title": "Fluxo E2E completo — webhook → ThinkingBubble → mensagem",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Navigate to http://localhost:3000 and login",
+          "expected": "User authenticated, dashboard loads, conversation list visible",
+          "observed": "Login page loads but browser context closes during authentication flow"
+        },
+        {
+          "action": "Open conversation with phone 55119CR001999@s.whatsapp.net",
+          "expected": "Chat interface loads, message history displayed",
+          "observed": "Cannot reach authenticated state due to browser automation issues"
+        },
+        {
+          "action": "Send webhook POST to /api/v1/webhooks/evolution with message from 55119CR001999@s.whatsapp.net",
+          "expected": "Webhook accepted (200 OK), backend starts inference",
+          "observed": "Webhook endpoint accessible at localhost:8000 but UI state unreachable"
+        },
+        {
+          "action": "Verify thinking_start event appears in UI",
+          "expected": "ThinkingIndicator shows 'Pensando...' text",
+          "observed": "Cannot verify without stable browser session"
+        },
+        {
+          "action": "Verify thinking_token events populate ThinkingBubble",
+          "expected": "ThinkingBubble component appears with streaming tokens",
+          "observed": "Expected flow: thinking_start → thinking_token (streaming) → thinking_complete → message appears"
+        },
+        {
+          "action": "Verify thinking_complete event finalizes thinking display",
+          "expected": "ThinkingBubble collapses or transitions to final message",
+          "observed": "Full E2E flow cannot be validated"
+        },
+        {
+          "action": "Verify final message appears in conversation",
+          "expected": "LLM response message visible in chat thread",
+          "observed": "Complete flow blocked - end-to-end validation unavailable"
+        }
+      ],
+      "evidence": {
+        "expectedFlow": [
+          "1. Webhook received by backend (POST /api/v1/webhooks/evolution)",
+          "2. Backend emits thinking_start event",
+          "3. Frontend shows ThinkingIndicator ('Pensando...')",
+          "4. Backend emits thinking_token events during streaming",
+          "5. Frontend displays ThinkingBubble with accumulating tokens",
+          "6. Backend emits thinking_complete event",
+          "7. Frontend shows final LLM message in conversation"
+        ],
+        "screenshots": [],
+        "notes": "Complete E2E flow requires: (1) successful authentication, (2) webhook triggering, (3) streaming thinking events, (4) UI component transitions"
+      },
+      "issues": [
+        {
+          "type": "technical_blocker",
+          "description": "Browser automation session unstable - context closed unexpectedly during login attempts"
+        }
+      ]
+    },
+    {
+      "id": "VAL-CROSS-002",
+      "title": "Thinking isolado por conversationId",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Setup: Open two browser tabs - Tab A (conversation A), Tab B (conversation B)",
+          "expected": "Both tabs logged in, each showing different conversation",
+          "observed": "Cannot establish first authenticated session"
+        },
+        {
+          "action": "Send webhook for conversation A (55119CR001999@s.whatsapp.net) triggering thinking stream",
+          "expected": "Tab A shows ThinkingIndicator and ThinkingBubble",
+          "observed": "Browser context issues prevent multi-tab testing"
+        },
+        {
+          "action": "Verify Tab B (55119CR002999@s.whatsapp.net) shows no thinking components",
+          "expected": "Tab B conversation B remains idle, no thinking UI",
+          "observed": "Multi-conversation isolation test blocked"
+        },
+        {
+          "action": "Send thinking_token events for conversation A",
+          "expected": "Only Tab A receives and displays thinking tokens",
+          "observed": "Expected behavior: WebSocket/SSE events routed by conversationId"
+        },
+        {
+          "action": "Verify conversationId isolation - check Tab B is unaffected",
+          "expected": "Tab B shows no thinking components, no interference",
+          "observed": "Isolation validation requires working multi-session support"
+        },
+        {
+          "action": "Verify conversation B can start its own thinking stream independently",
+          "expected": "Tab B can show thinking UI for its own messages",
+          "observed": "Concurrent conversation isolation test blocked"
+        }
+      ],
+      "evidence": {
+        "expectedIsolationBehavior": "Each conversation should have independent thinking state. WebSocket events tagged with conversationId should only affect matching conversation UI.",
+        "testScenario": "Conversation A processing while Conversation B idle - B should show no thinking UI even when A is streaming",
+        "screenshots": [],
+        "notes": "Cross-conversation isolation is critical to prevent thinking UI from appearing in wrong chats. Implementation uses conversationId in WebSocket event routing."
+      },
+      "issues": [
+        {
+          "type": "technical_blocker",
+          "description": "Browser automation context instability prevents multi-tab/multi-conversation testing"
+        }
+      ]
+    },
+    {
+      "id": "VAL-CROSS-003",
+      "title": "Duas mensagens consecutivas processam sem estado residual",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Login and open conversation with 55119CR001999@s.whatsapp.net",
+          "expected": "Chat interface ready for testing",
+          "observed": "Login flow blocked by browser context issues"
+        },
+        {
+          "action": "Send first message via webhook and observe complete thinking flow",
+          "expected": "First message: thinking_start → tokens → thinking_complete → message shown",
+          "observed": "First message flow cannot be observed"
+        },
+        {
+          "action": "Verify first message complete - check UI returns to idle state",
+          "expected": "No thinking components visible, conversation shows final message",
+          "observed": "Idle state verification blocked"
+        },
+        {
+          "action": "Immediately send second message via webhook",
+          "expected": "Second message triggers fresh thinking_start event",
+          "observed": "Cannot trigger second message without first completing"
+        },
+        {
+          "action": "Verify second thinking flow starts with clean state",
+          "expected": "Second thinking flow shows from beginning, no residual tokens from first message",
+          "observed": "Expected: No thinking state leakage between consecutive messages"
+        },
+        {
+          "action": "Verify second message completes and displays correctly",
+          "expected": "Second message appears, thinking UI cleaned up properly",
+          "observed": "State reset validation requires working session"
+        },
+        {
+          "action": "Check no accumulation - previous message thinking tokens not present",
+          "expected": "ThinkingBubble for second message contains only second message thinking",
+          "observed": "State isolation between consecutive messages test blocked"
+        }
+      ],
+      "evidence": {
+        "expectedStateReset": "After first message completes, all thinking state should be cleared. Second message should start with fresh ThinkingIndicator, not show previous tokens.",
+        "stateComponentsToVerify": [
+          "thinkingBuffer cleared",
+          "responseBuffer cleared", 
+          "thinkingText reset to empty",
+          "isExpanded reset to false",
+          "autoClearTimer cancelled/reset"
+        ],
+        "screenshots": [],
+        "notes": "Critical test to ensure no memory/state leakage between messages. Previous bug found where autoClearTimer wasn't cancelled on expand."
+      },
+      "issues": [
+        {
+          "type": "technical_blocker",
+          "description": "Browser session instability prevents sequential message testing"
+        }
+      ]
+    },
+    {
+      "id": "VAL-CROSS-004",
+      "title": "ThinkingIndicator persiste durante processamento lento",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Login and open conversation with 55119CR001999@s.whatsapp.net",
+          "expected": "Chat interface ready",
+          "observed": "Authentication flow blocked"
+        },
+        {
+          "action": "Configure backend to simulate slow inference (add artificial delays between tokens)",
+          "expected": "Backend configured for slow token emission",
+          "observed": "Backend endpoint accessible but UI testing blocked"
+        },
+        {
+          "action": "Send webhook triggering thinking_start event",
+          "expected": "ThinkingIndicator appears immediately with 'Pensando...'",
+          "observed": "Cannot verify UI component appearance"
+        },
+        {
+          "action": "Wait 2-3 seconds before first thinking_token arrives",
+          "expected": "ThinkingIndicator remains visible throughout delay",
+          "observed": "Persistence during gap test requires working session"
+        },
+        {
+          "action": "Verify indicator animation continues during delay",
+          "expected": "Animation (pulsing/spinner) persists without interruption",
+          "observed": "Animation continuity test blocked"
+        },
+        {
+          "action": "Receive first thinking_token and observe transition to ThinkingBubble",
+          "expected": "Smooth transition from indicator to bubble with first token",
+          "observed": "Transition timing test blocked"
+        },
+        {
+          "action": "Simulate slow streaming - verify indicator/thinking state persists between tokens",
+          "expected": "During gaps between tokens, UI remains in thinking state",
+          "observed": "Slow inference persistence validation blocked"
+        },
+        {
+          "action": "Verify no flicker or disappearance during the entire slow process",
+          "expected": "Thinking UI persists continuously from start to complete",
+          "observed": "Continuous presence test requires stable browser session"
+        }
+      ],
+      "evidence": {
+        "slowInferenceScenario": "Simulate backend delays: thinking_start emitted, 2-3s gap before first token, then slow token emission (100-200ms between tokens)",
+        "expectedPersistence": "ThinkingIndicator should show continuously from thinking_start until first thinking_token arrives. No flickering, no disappearance.",
+        "keyMetrics": [
+          "Time from thinking_start to first thinking_token: indicator visible",
+          "Gaps between thinking_token events: thinking state maintained", 
+          "Time from thinking_start to thinking_complete: continuous UI presence"
+        ],
+        "screenshots": [],
+        "notes": "Tests that thinking UI doesn't flicker or disappear during slow backend processing. Critical for user experience with slower models or network delays."
+      },
+      "issues": [
+        {
+          "type": "technical_blocker",
+          "description": "Browser automation session issues prevent observing indicator persistence during slow operations"
+        }
+      ]
+    }
+  ],
+  "frictions": [
+    {
+      "type": "browser_automation",
+      "description": "Browser context repeatedly closed unexpectedly during login and navigation attempts"
+    },
+    {
+      "type": "multi_session",
+      "description": "VAL-CROSS-002 requires multiple concurrent sessions which compounds browser stability issues"
+    }
+  ],
+  "blockers": [
+    {
+      "id": "B001",
+      "description": "Browser automation context instability prevents login and navigation to authenticated chat views",
+      "impact": "All cross-area assertions blocked - requires authenticated UI state to validate webhook → UI flows"
+    },
+    {
+      "id": "B002",
+      "description": "Multi-tab/multi-conversation testing requires stable session management",
+      "impact": "VAL-CROSS-002 (conversation isolation) and VAL-CROSS-003 (consecutive messages) cannot be validated"
+    }
+  ],
+  "summary": "Attempted to test 4 cross-area assertions (VAL-CROSS-001 through VAL-CROSS-004). All marked BLOCKED due to browser automation session instability. Test plans include detailed steps for E2E flow validation, conversation isolation testing, state reset verification between messages, and persistence testing during slow inference. Manual testing recommended to validate these cross-area integrations."
+}

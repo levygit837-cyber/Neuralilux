@@ -1,0 +1,180 @@
+{
+  "groupId": "ui-part1",
+  "testedAt": "2026-03-28T12:00:00Z",
+  "isolation": {
+    "frontendPath": "/home/levybonito/Projetos/Neuralilux/frontend",
+    "backendPath": "/home/levybonito/Projetos/Neuralilux/backend",
+    "instance": "Whatsapp",
+    "testPhone": "55119UI001999@s.whatsapp.net",
+    "testCredentials": {
+      "email": "usuario@teste.com",
+      "password": "teste123"
+    },
+    "toolsUsed": ["agent-browser"]
+  },
+  "assertions": [
+    {
+      "id": "VAL-UI-001",
+      "title": "No thinking components when idle",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Login to dashboard at http://localhost:3000",
+          "expected": "User authenticated and redirected to chat interface",
+          "observed": "Login page loads but authentication flow blocked by browser context issues"
+        },
+        {
+          "action": "Navigate to test conversation with phone 55119UI001999@s.whatsapp.net",
+          "expected": "Conversation list visible, no thinking components present",
+          "observed": "Could not reach dashboard due to login issues"
+        },
+        {
+          "action": "Verify idle state - check for ThinkingIndicator or ThinkingBubble",
+          "expected": "No thinking-related components visible in DOM",
+          "observed": "Test blocked - unable to access authenticated chat view"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "notes": "Test intended to verify that when no inference is running, the UI shows no thinking indicator, no ThinkingBubble, and no ThinkingCollapsed components."
+      },
+      "issues": [
+        {
+          "type": "technical_blocker",
+          "description": "Browser automation session unstable - context closed unexpectedly during login attempts"
+        }
+      ]
+    },
+    {
+      "id": "VAL-UI-002",
+      "title": "thinking_start shows ThinkingIndicator with 'Pensando...'",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Trigger webhook with thinking_start event",
+          "expected": "POST to /api/v1/webhooks/evolution with thinking_start event",
+          "observed": "Backend endpoint accessible at localhost:8000"
+        },
+        {
+          "action": "Wait for ThinkingIndicator to appear",
+          "expected": "Indicator component visible with text 'Pensando...'",
+          "observed": "Cannot verify without successful login"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "expected": "ThinkingIndicator with 'Pensando...' text visible"
+      },
+      "issues": [
+        {
+          "type": "technical_blocker",
+          "description": "Unable to reach authenticated state to observe thinking_start event handling"
+        }
+      ]
+    },
+    {
+      "id": "VAL-UI-003",
+      "title": "Indicator has animation",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "After thinking_start, observe ThinkingIndicator",
+          "expected": "Visual animation present (e.g., pulsing dots, spinner)",
+          "observed": "Cannot access authenticated view to test"
+        }
+      ],
+      "evidence": {
+        "screenshots": [],
+        "expectedAnimation": "CSS animation on ThinkingIndicator"
+      },
+      "issues": [
+        {
+          "type": "technical_blocker",
+          "description": "Browser automation session issues prevent accessing the chat interface"
+        }
+      ]
+    },
+    {
+      "id": "VAL-UI-004",
+      "title": "First thinking_token transitions to ThinkingBubble",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Send thinking_start event via webhook",
+          "expected": "ThinkingIndicator appears",
+          "observed": "Webhook endpoint accessible but UI state unreachable"
+        },
+        {
+          "action": "Send first thinking_token event",
+          "expected": "UI transitions from ThinkingIndicator to ThinkingBubble",
+          "observed": "Cannot verify transition without working session"
+        }
+      ],
+      "evidence": {
+        "expectedBehavior": "State transition: indicator -> streaming (ThinkingBubble appears)"
+      },
+      "issues": [
+        {
+          "type": "technical_blocker",
+          "description": "Browser automation session repeatedly closes unexpectedly"
+        }
+      ]
+    },
+    {
+      "id": "VAL-UI-005",
+      "title": "Tokens accumulate progressively",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "Send multiple thinking_token events in sequence",
+          "expected": "Each token appended to previous content in ThinkingBubble",
+          "observed": "Cannot reach UI to verify progressive accumulation"
+        }
+      ],
+      "evidence": {
+        "expectedAccumulation": "Tokens should concatenate in ThinkingBubble display"
+      },
+      "issues": [
+        {
+          "type": "technical_blocker",
+          "description": "Unable to establish stable browser session"
+        }
+      ]
+    },
+    {
+      "id": "VAL-UI-006",
+      "title": "Blinking cursor visible during streaming",
+      "status": "blocked",
+      "steps": [
+        {
+          "action": "During thinking_token streaming, observe ThinkingBubble",
+          "expected": "Blinking cursor visible at end of streamed text",
+          "observed": "Cannot access authenticated view"
+        }
+      ],
+      "evidence": {
+        "expectedCursor": "Blinking cursor element at end of text"
+      },
+      "issues": [
+        {
+          "type": "technical_blocker",
+          "description": "Browser automation session issues prevent testing"
+        }
+      ]
+    }
+  ],
+  "frictions": [
+    {
+      "type": "browser_automation",
+      "description": "Browser context repeatedly closed during login attempts"
+    }
+  ],
+  "blockers": [
+    {
+      "id": "B001",
+      "description": "Browser automation context instability prevents login and navigation to authenticated views",
+      "impact": "All UI assertions blocked"
+    }
+  ],
+  "summary": "Attempted to test 6 UI assertions (VAL-UI-001 through VAL-UI-006). All marked BLOCKED due to browser automation session instability. Manual testing recommended."
+}
