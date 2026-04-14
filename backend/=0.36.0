@@ -1,0 +1,4 @@
+Requirement already satisfied: starlette in ./venv/lib/python3.12/site-packages (0.35.1)
+Requirement already satisfied: anyio<5,>=3.4.0 in ./venv/lib/python3.12/site-packages (from starlette) (4.13.0)
+Requirement already satisfied: idna>=2.8 in ./venv/lib/python3.12/site-packages (from anyio<5,>=3.4.0->starlette) (3.11)
+Requirement already satisfied: typing_extensions>=4.5 in ./venv/lib/python3.12/site-packages (from anyio<5,>=3.4.0->starlette) (4.15.0)

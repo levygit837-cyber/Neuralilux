@@ -39,7 +39,8 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=True),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(["contact_id"], ["contacts.id"]),
-        sa.ForeignKeyConstraint(["conversation_id"], ["conversations.id"]),
+        # NOTE: Conversations table doesn't exist yet
+        # sa.ForeignKeyConstraint(["conversation_id"], ["conversations.id"]),
         sa.ForeignKeyConstraint(["instance_id"], ["instances.id"]),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("order_number"),

@@ -1,3 +1,6 @@
+# DEPRECATED: Use MenuItem/MenuCategory endpoints instead for inventory management
+# This endpoint is maintained for backward compatibility only.
+# New code should use menu endpoints.
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional

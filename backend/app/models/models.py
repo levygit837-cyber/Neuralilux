@@ -42,6 +42,12 @@ class MessageType(str, enum.Enum):
     STICKER = "sticker"
 
 
+class AgentTypeEnum(str, enum.Enum):
+    SALES = "sales"
+    SAC = "sac"
+    SUPER_AGENT = "super_agent"
+
+
 class BusinessType(Base):
     __tablename__ = "business_types"
 
@@ -78,18 +84,7 @@ class Company(Base):
     phone = Column(String(20))
     email = Column(String(100))
     whatsapp = Column(String(20))
-    website = Column(String(200))
-
-    # Business hours (JSON)
-    business_hours = Column(JSONB)
-
-    # AI Configuration
-    ai_system_prompt = Column(Text)
-    ai_model = Column(String(50), default="gpt-4-turbo-preview")
-    ai_temperature = Column(Integer, default=70)
-    ai_max_tokens = Column(Integer, default=1000)
-
-    # Status
+    pix_key = Column(String(500))  # Chave Pix para pagamentos
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -97,11 +92,13 @@ class Company(Base):
     # Relationships
     business_type = relationship("BusinessType", back_populates="companies")
     users = relationship("User", back_populates="company")
-    products = relationship("Product", back_populates="company")
+    instances = relationship("Instance", back_populates="company")
+    products = relationship("Product", back_populates="company")  # DEPRECATED
     menu_catalogs = relationship("MenuCatalog", back_populates="company")
 
 
 class ProductType(Base):
+    # DEPRECATED: Use MenuItem/MenuCategory instead for inventory management
     __tablename__ = "product_types"
 
     id = Column(String, primary_key=True, default=generate_uuid)
@@ -145,6 +142,7 @@ class Instance(Base):
     qr_code = Column(Text)
     is_active = Column(Boolean, default=True)
     owner_id = Column(String, ForeignKey("users.id"))
+    company_id = Column(String, ForeignKey("companies.id"))
     agent_id = Column(String, ForeignKey("agents.id"), nullable=True)
     agent_enabled = Column(Boolean, default=True)  # Toggle para habilitar/desabilitar agente
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -152,6 +150,7 @@ class Instance(Base):
 
     # Relationships
     owner = relationship("User", back_populates="instances")
+    company = relationship("Company", back_populates="instances")
     agent = relationship("Agent", back_populates="instances")
     messages = relationship("Message", back_populates="instance")
     contacts = relationship("Contact", back_populates="instance")
@@ -195,6 +194,7 @@ class Conversation(Base):
     last_message_at = Column(DateTime(timezone=True))
     last_message_preview = Column(Text)
     assigned_agent_id = Column(String, ForeignKey("agents.id"), nullable=True)
+    active_agent_type = Column(String, default="sales", nullable=False)  # "sales", "sac"
     tags = Column(JSONB)  # Array of tags for categorization
     priority = Column(String(20), default="normal")  # low, normal, high, urgent
     rating = Column(Integer, nullable=True)  # Customer satisfaction score (1-5)
@@ -221,6 +221,7 @@ class Agent(Base):
     max_tokens = Column(Integer, default=1000)
     use_rag = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
+    agent_type = Column(String, default="sales", nullable=False)  # "sales", "sac", "super_agent"
     owner_id = Column(String, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -265,7 +266,7 @@ class CustomerOrder(Base):
     instance_id = Column(String, ForeignKey("instances.id"), nullable=False, index=True)
     contact_id = Column(String, ForeignKey("contacts.id"), nullable=False, index=True)
     remote_jid = Column(String, nullable=False, index=True)
-    status = Column(String(30), nullable=False, default="open")  # open, collecting_data, ready_for_confirmation, closed, cancelled
+    status = Column(String(30), nullable=False, default="open")  # open, collecting_data, ready_for_confirmation, closed, cancelled, in_production, sent, delivered
     customer_name = Column(String(200))
     customer_address = Column(Text)
     customer_phone = Column(String(30))
@@ -306,6 +307,20 @@ class CustomerOrderItem(Base):
     order = relationship("CustomerOrder", back_populates="items")
 
 
+class DeliveryZone(Base):
+    """Zonas de entrega com taxas baseadas em bairro/região."""
+    __tablename__ = "delivery_zones"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    name = Column(String(200), nullable=False)  # Nome da zona (ex: "Centro", "Zona Norte")
+    neighborhoods = Column(JSONB, nullable=False)  # Lista de bairros nesta zona
+    delivery_fee = Column(Numeric(10, 2), nullable=False)  # Taxa de entrega
+    minimum_order_value = Column(Numeric(10, 2), default=0)  # Valor mínimo pedido (opcional)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+
 class Document(Base):
     __tablename__ = "documents"
 
@@ -325,6 +340,7 @@ class Document(Base):
 
 
 class Product(Base):
+    # DEPRECATED: Use MenuItem/MenuCategory instead for inventory management
     __tablename__ = "products"
 
     id = Column(String, primary_key=True, default=generate_uuid)
@@ -402,6 +418,8 @@ class MenuItem(Base):
     sort_order = Column(Integer, default=0)
     custom_attributes = Column(JSONB, default=list, nullable=False)
     raw_payload = Column(JSONB)
+    sku = Column(String(50), unique=True, index=True, nullable=True)
+    stock_quantity = Column(Integer, default=0)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -511,9 +529,49 @@ class SuperAgentDocument(Base):
     content = Column(Text)
     content_base64 = Column(Text)
     file_size = Column(Integer)
-    description = Column(Text)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+# ============== WhatsApp Agent Models ==============
+
+
+class Ticket(Base):
+    """Tickets para chamar atendentes humanos no atendimento WhatsApp."""
+    __tablename__ = "tickets"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    conversation_id = Column(String, ForeignKey("conversations.id"), nullable=False, index=True)
+    instance_id = Column(String, ForeignKey("instances.id"), nullable=False, index=True)
+    contact_id = Column(String, ForeignKey("contacts.id"), nullable=False, index=True)
+    agent_type = Column(String(20), nullable=False)  # "sales" ou "sac"
+    reason = Column(Text, nullable=False)  # Motivo do ticket
+    content = Column(Text, nullable=False)  # Conteúdo da reclamação/mensagem do usuário
+    status = Column(String(20), nullable=False, default="open")  # "open", "in_progress", "closed"
+    assigned_to = Column(String, ForeignKey("users.id"), nullable=True)  # ID do atendente humano
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
-    session = relationship("SuperAgentSession")
-    company = relationship("Company")
+    conversation = relationship("Conversation")
+    instance = relationship("Instance")
+    contact = relationship("Contact")
+    assigned_user = relationship("User")
+
+
+class PaymentRecord(Base):
+    """Registros de pagamentos para vendas fechadas."""
+    __tablename__ = "payment_records"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    order_id = Column(String, ForeignKey("customer_orders.id"), nullable=False, index=True)
+    conversation_id = Column(String, ForeignKey("conversations.id"), nullable=False, index=True)
+    amount = Column(Numeric(10, 2), nullable=False)  # Valor do pagamento
+    pix_key = Column(String(255), nullable=False)  # Chave Pix configurada
+    qr_code_data = Column(Text, nullable=True)  # Dados do QR Code gerado
+    status = Column(String(20), nullable=False, default="pending")  # "pending", "paid", "cancelled", "expired"
+    payment_method = Column(String(20), nullable=False, default="pix")  # "pix"
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    paid_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Relationships
+    order = relationship("CustomerOrder")
+    conversation = relationship("Conversation")

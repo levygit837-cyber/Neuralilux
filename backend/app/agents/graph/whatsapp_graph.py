@@ -123,6 +123,7 @@ class WhatsAppAgentGraph:
             "intent": None,
             "intent_confidence": None,
             "flow_stage": None,
+            "active_agent_type": None,
             "cardapio_context": None,
             "cardapio_items": None,
             "pedido_atual": None,

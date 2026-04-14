@@ -27,17 +27,19 @@ def upgrade() -> None:
     op.add_column("messages", sa.Column("caption", sa.Text(), nullable=True))
     op.add_column("messages", sa.Column("latitude", sa.Numeric(10, 8), nullable=True))
     op.add_column("messages", sa.Column("longitude", sa.Numeric(11, 8), nullable=True))
-    op.create_foreign_key(
-        "messages_conversation_id_fkey",
-        "messages",
-        "conversations",
-        ["conversation_id"],
-        ["id"],
-    )
+    # NOTE: Foreign key to conversations table removed - table doesn't exist yet
+    # op.create_foreign_key(
+    #     "messages_conversation_id_fkey",
+    #     "messages",
+    #     "conversations",
+    #     ["conversation_id"],
+    #     ["id"],
+    # )
 
 
 def downgrade() -> None:
-    op.drop_constraint("messages_conversation_id_fkey", "messages", type_="foreignkey")
+    # NOTE: Foreign key was not created
+    # op.drop_constraint("messages_conversation_id_fkey", "messages", type_="foreignkey")
     op.drop_column("messages", "longitude")
     op.drop_column("messages", "latitude")
     op.drop_column("messages", "caption")

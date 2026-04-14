@@ -1,3 +1,6 @@
+# DEPRECATED: Use MenuItem/MenuCategory schemas instead for inventory management
+# This schema is maintained for backward compatibility only.
+# New code should use menu schemas.
 from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime

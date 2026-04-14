@@ -27,6 +27,8 @@ class MenuItemCreate(BaseModel):
     price: Optional[Decimal] = Field(None, ge=0)
     is_available: bool = True
     custom_attributes: List[MenuAttributeInput] = Field(default_factory=list)
+    sku: Optional[str] = Field(None, max_length=50)
+    stock_quantity: int = Field(0, ge=0)
 
 
 class MenuItemUpdate(BaseModel):
@@ -36,6 +38,8 @@ class MenuItemUpdate(BaseModel):
     price: Optional[Decimal] = Field(None, ge=0)
     is_available: Optional[bool] = None
     custom_attributes: Optional[List[MenuAttributeInput]] = None
+    sku: Optional[str] = Field(None, max_length=50)
+    stock_quantity: Optional[int] = Field(None, ge=0)
 
 
 class MenuCatalogResponse(BaseModel):
@@ -65,6 +69,8 @@ class MenuItemResponse(BaseModel):
     price: Optional[Decimal] = None
     is_available: bool
     custom_attributes: List[MenuAttributeInput] = Field(default_factory=list)
+    sku: Optional[str] = None
+    stock_quantity: int = 0
     created_at: datetime
     updated_at: Optional[datetime] = None
 

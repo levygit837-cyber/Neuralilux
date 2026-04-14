@@ -332,4 +332,306 @@ SUPER_AGENT_TOOLS: List[Dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "inventory_list_product_categories",
+            "description": (
+                "Lista todas as categorias de produtos do catálogo ativo da empresa. "
+                "Use para descobrir quais categorias existem antes de listar ou criar produtos."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "company_id": {
+                        "type": "string",
+                        "description": "ID da empresa.",
+                    },
+                    "user_id": {
+                        "type": "string",
+                        "description": "ID do usuário solicitante.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Máximo de categorias a retornar (padrão 50).",
+                    },
+                },
+                "required": ["company_id", "user_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "inventory_list_products_by_category",
+            "description": (
+                "Lista todos os produtos de uma categoria específica. "
+                "Use para ver quais produtos existem em uma categoria."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "company_id": {
+                        "type": "string",
+                        "description": "ID da empresa.",
+                    },
+                    "user_id": {
+                        "type": "string",
+                        "description": "ID do usuário solicitante.",
+                    },
+                    "category_id": {
+                        "type": "string",
+                        "description": "ID da categoria.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Máximo de produtos a retornar (padrão 20).",
+                    },
+                },
+                "required": ["company_id", "user_id", "category_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "inventory_search_product_in_category",
+            "description": (
+                "Busca um produto por nome em uma categoria específica. "
+                "Use para encontrar um produto específico pelo nome."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "company_id": {
+                        "type": "string",
+                        "description": "ID da empresa.",
+                    },
+                    "user_id": {
+                        "type": "string",
+                        "description": "ID do usuário solicitante.",
+                    },
+                    "category_id": {
+                        "type": "string",
+                        "description": "ID da categoria.",
+                    },
+                    "product_name": {
+                        "type": "string",
+                        "description": "Nome do produto para buscar.",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Máximo de resultados (padrão 10).",
+                    },
+                },
+                "required": ["company_id", "user_id", "category_id", "product_name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "inventory_create_product_category",
+            "description": (
+                "Cria uma nova categoria de produtos. "
+                "Use quando o usuário pedir para criar uma nova categoria no catálogo."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "company_id": {
+                        "type": "string",
+                        "description": "ID da empresa.",
+                    },
+                    "user_id": {
+                        "type": "string",
+                        "description": "ID do usuário solicitante.",
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Nome da categoria.",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Descrição opcional da categoria.",
+                    },
+                },
+                "required": ["company_id", "user_id", "name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "inventory_create_product",
+            "description": (
+                "Cria um novo produto em uma categoria. "
+                "Use quando o usuário pedir para adicionar um novo produto ao catálogo."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "company_id": {
+                        "type": "string",
+                        "description": "ID da empresa.",
+                    },
+                    "user_id": {
+                        "type": "string",
+                        "description": "ID do usuário solicitante.",
+                    },
+                    "category_id": {
+                        "type": "string",
+                        "description": "ID da categoria onde o produto será criado.",
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Nome do produto.",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Descrição opcional do produto.",
+                    },
+                    "price": {
+                        "type": "number",
+                        "description": "Preço do produto.",
+                    },
+                    "sku": {
+                        "type": "string",
+                        "description": "SKU único do produto (opcional).",
+                    },
+                    "stock_quantity": {
+                        "type": "integer",
+                        "description": "Quantidade em estoque (padrão 0).",
+                    },
+                    "is_available": {
+                        "type": "boolean",
+                        "description": "Disponibilidade do produto (padrão true).",
+                    },
+                    "image_url": {
+                        "type": "string",
+                        "description": "URL da imagem do produto (opcional).",
+                    },
+                },
+                "required": ["company_id", "user_id", "category_id", "name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "inventory_update_product",
+            "description": (
+                "Edita um produto existente. "
+                "Use quando o usuário pedir para modificar um produto do catálogo."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "company_id": {
+                        "type": "string",
+                        "description": "ID da empresa.",
+                    },
+                    "user_id": {
+                        "type": "string",
+                        "description": "ID do usuário solicitante.",
+                    },
+                    "product_id": {
+                        "type": "string",
+                        "description": "ID do produto a ser editado.",
+                    },
+                    "category_id": {
+                        "type": "string",
+                        "description": "Nova categoria do produto (opcional).",
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Novo nome do produto (opcional).",
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Nova descrição do produto (opcional).",
+                    },
+                    "price": {
+                        "type": "number",
+                        "description": "Novo preço do produto (opcional).",
+                    },
+                    "sku": {
+                        "type": "string",
+                        "description": "Novo SKU do produto (opcional).",
+                    },
+                    "stock_quantity": {
+                        "type": "integer",
+                        "description": "Nova quantidade em estoque (opcional).",
+                    },
+                    "is_available": {
+                        "type": "boolean",
+                        "description": "Nova disponibilidade do produto (opcional).",
+                    },
+                    "image_url": {
+                        "type": "string",
+                        "description": "Nova URL da imagem do produto (opcional).",
+                    },
+                },
+                "required": ["company_id", "user_id", "product_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "inventory_delete_product_category",
+            "description": (
+                "Exclui uma categoria e todos os seus produtos. "
+                "Use quando o usuário pedir para remover uma categoria do catálogo. "
+                "Não permite exclusão se houver produtos com estoque > 0."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "company_id": {
+                        "type": "string",
+                        "description": "ID da empresa.",
+                    },
+                    "user_id": {
+                        "type": "string",
+                        "description": "ID do usuário solicitante.",
+                    },
+                    "category_id": {
+                        "type": "string",
+                        "description": "ID da categoria a ser excluída.",
+                    },
+                },
+                "required": ["company_id", "user_id", "category_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "inventory_delete_product",
+            "description": (
+                "Exclui um produto do catálogo. "
+                "Use quando o usuário pedir para remover um produto. "
+                "Não permite exclusão se o produto tiver estoque > 0."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "company_id": {
+                        "type": "string",
+                        "description": "ID da empresa.",
+                    },
+                    "user_id": {
+                        "type": "string",
+                        "description": "ID do usuário solicitante.",
+                    },
+                    "product_id": {
+                        "type": "string",
+                        "description": "ID do produto a ser excluído.",
+                    },
+                },
+                "required": ["company_id", "user_id", "product_id"],
+            },
+        },
+    },
 ]

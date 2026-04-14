@@ -36,6 +36,29 @@ def db():
     """Create test database"""
     Base.metadata.create_all(bind=engine)
     db = TestingSessionLocal()
+    
+    # Populate delivery zones for testing
+    from app.models.models import DeliveryZone
+    zone1 = DeliveryZone(
+        id="zone_test_001",
+        name="Centro",
+        neighborhoods=["Centro", "Centro Histórico"],
+        delivery_fee=5.00,
+        minimum_order_value=30.00,
+        is_active=True
+    )
+    zone2 = DeliveryZone(
+        id="zone_test_002",
+        name="Zona Norte",
+        neighborhoods=["Vila Nova", "Jardim das Flores"],
+        delivery_fee=8.00,
+        minimum_order_value=30.00,
+        is_active=True
+    )
+    db.add(zone1)
+    db.add(zone2)
+    db.commit()
+    
     try:
         yield db
     finally:

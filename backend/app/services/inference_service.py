@@ -996,7 +996,49 @@ def get_inference_service(agent_type: str = "default"):
         logger.info("Getting inference service (default)", provider=provider)
     
     # Return appropriate service based on provider
-    if provider == "gemini":
+    if provider == "vertex":
+        from app.services.vertex_inference_service import (
+            VertexInferenceService,
+            VertexInferenceServiceError,
+        )
+        try:
+            if agent_type == "super_agent":
+                logger.info(
+                    "Using Vertex AI inference service for Super Agent",
+                    model=settings.SUPER_AGENT_VERTEX_MODEL,
+                )
+                return VertexInferenceService(
+                    model=settings.SUPER_AGENT_VERTEX_MODEL,
+                    max_tokens=settings.SUPER_AGENT_VERTEX_MAX_TOKENS,
+                    temperature=settings.SUPER_AGENT_VERTEX_TEMPERATURE,
+                )
+            elif agent_type == "whatsapp_agent":
+                logger.info(
+                    "Using Vertex AI inference service for WhatsApp Agent",
+                    model=settings.WHATSAPP_AGENT_VERTEX_MODEL,
+                )
+                return VertexInferenceService(
+                    model=settings.WHATSAPP_AGENT_VERTEX_MODEL,
+                    max_tokens=settings.WHATSAPP_AGENT_VERTEX_MAX_TOKENS,
+                    temperature=settings.WHATSAPP_AGENT_VERTEX_TEMPERATURE,
+                )
+            else:
+                logger.info("Using Vertex AI inference service", model=settings.VERTEX_MODEL)
+                return VertexInferenceService()
+        except VertexInferenceServiceError as e:
+            logger.warning(
+                "Vertex provider selected but configuration invalid, falling back to Gemini",
+                error=str(e),
+                agent_type=agent_type,
+            )
+            # Fallback to Gemini
+            from app.services.gemini_inference_service import gemini_inference_service
+            if gemini_inference_service is None:
+                logger.warning("Gemini also not configured, falling back to LM Studio")
+                return InferenceService()
+            return gemini_inference_service
+
+    elif provider == "gemini":
         from app.services.gemini_inference_service import gemini_inference_service
         if gemini_inference_service is None:
             logger.warning(

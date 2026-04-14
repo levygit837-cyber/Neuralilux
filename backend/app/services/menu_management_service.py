@@ -164,6 +164,25 @@ def _assert_unique_category_name(
         )
 
 
+def _assert_unique_sku(
+    db: Session,
+    catalog_id: str,
+    sku: str,
+    ignore_item_id: Optional[str] = None,
+) -> None:
+    query = (
+        db.query(MenuItem)
+        .filter(MenuItem.catalog_id == catalog_id, MenuItem.sku == sku)
+    )
+    if ignore_item_id:
+        query = query.filter(MenuItem.id != ignore_item_id)
+    if query.first():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Já existe um item com esse SKU",
+        )
+
+
 def _serialize_category(category: MenuCategory, items_count: int) -> dict[str, Any]:
     return {
         "id": category.id,
@@ -185,6 +204,8 @@ def _serialize_item(item: MenuItem) -> dict[str, Any]:
         "price": item.price,
         "is_available": bool(item.is_available),
         "custom_attributes": item.custom_attributes or [],
+        "sku": item.sku,
+        "stock_quantity": item.stock_quantity or 0,
         "created_at": item.created_at,
         "updated_at": item.updated_at,
     }
@@ -278,6 +299,18 @@ def delete_menu_category(db: Session, company_id: Optional[str], category_id: st
     catalog, category = _get_category_for_company(db, resolved_company_id, category_id)
     _promote_catalog_to_manual(catalog)
 
+    # Check for items with stock
+    items_with_stock = (
+        db.query(MenuItem)
+        .filter(MenuItem.category_id == category.id, MenuItem.stock_quantity > 0)
+        .all()
+    )
+    if items_with_stock:
+        item_names = [item.name for item in items_with_stock]
+        raise ValueError(
+            f"Não é possível excluir categoria com itens em estoque: {', '.join(item_names)}"
+        )
+
     db.query(MenuItem).filter(MenuItem.category_id == category.id).delete(synchronize_session=False)
     db.delete(category)
     db.commit()
@@ -288,6 +321,10 @@ def create_menu_item(db: Session, company_id: Optional[str], payload: MenuItemCr
     catalog = get_or_create_active_catalog(db, resolved_company_id)
     _promote_catalog_to_manual(catalog)
     category = _get_category_in_catalog(db, resolved_company_id, catalog.id, payload.category_id)
+
+    # Validate SKU uniqueness if provided
+    if payload.sku:
+        _assert_unique_sku(db, catalog.id, payload.sku)
 
     last_sort_order = (
         db.query(MenuItem.sort_order)
@@ -306,6 +343,8 @@ def create_menu_item(db: Session, company_id: Optional[str], payload: MenuItemCr
         is_available=payload.is_available,
         sort_order=next_sort_order,
         custom_attributes=_normalize_custom_attributes(payload.model_dump().get("custom_attributes")),
+        sku=payload.sku,
+        stock_quantity=payload.stock_quantity or 0,
     )
     db.add(item)
     db.commit()
@@ -343,6 +382,14 @@ def update_menu_item(
     if "custom_attributes" in updated_fields:
         item.custom_attributes = _normalize_custom_attributes(payload.model_dump().get("custom_attributes"))
 
+    if "sku" in updated_fields:
+        if payload.sku and payload.sku != item.sku:
+            _assert_unique_sku(db, catalog.id, payload.sku, ignore_item_id=item.id)
+        item.sku = payload.sku
+
+    if "stock_quantity" in updated_fields:
+        item.stock_quantity = payload.stock_quantity or 0
+
     db.commit()
     db.refresh(item)
     return _serialize_item(item)
@@ -354,3 +401,54 @@ def delete_menu_item(db: Session, company_id: Optional[str], item_id: str) -> No
     _promote_catalog_to_manual(catalog)
     db.delete(item)
     db.commit()
+
+
+def get_menu_item(db: Session, item_id: str) -> Optional[MenuItem]:
+    """Get a menu item by ID."""
+    return db.query(MenuItem).filter(MenuItem.id == item_id).first()
+
+
+def get_menu_items_by_company(
+    db: Session,
+    company_id: str,
+    skip: int = 0,
+    limit: int = 100,
+    only_available: bool = True,
+) -> list[MenuItem]:
+    """Get all menu items for a specific company."""
+    query = (
+        db.query(MenuItem)
+        .join(MenuCatalog, MenuItem.catalog_id == MenuCatalog.id)
+        .filter(MenuCatalog.company_id == company_id, MenuCatalog.is_active == True)
+    )
+    
+    if only_available:
+        query = query.filter(MenuItem.is_available == True)
+    
+    return query.offset(skip).limit(limit).all()
+
+
+def list_menu_items(
+    db: Session,
+    skip: int = 0,
+    limit: int = 100,
+    only_available: bool = True,
+) -> list[MenuItem]:
+    """List all menu items with pagination."""
+    query = db.query(MenuItem)
+    
+    if only_available:
+        query = query.filter(MenuItem.is_available == True)
+    
+    return query.offset(skip).limit(limit).all()
+
+
+def soft_delete_menu_item(db: Session, item_id: str) -> bool:
+    """Soft delete menu item (set is_available to False instead of deleting)."""
+    item = get_menu_item(db, item_id)
+    if not item:
+        return False
+    
+    item.is_available = False
+    db.commit()
+    return True

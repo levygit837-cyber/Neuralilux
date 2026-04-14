@@ -23,7 +23,7 @@ from app.agents.llm_responses import (
 )
 from app.agents.memory.history_loader import load_conversation_history
 from app.agents.tools.pedido_tool import set_active_conversation, _pedidos_ativos
-from app.agents.tools.tool_definitions import WHATSAPP_AGENT_TOOLS
+from app.agents.tools.tool_definitions import WHATSAPP_AGENT_TOOLS, SALES_AGENT_TOOLS, SAC_AGENT_TOOLS
 from app.agents.exceptions import (
     ContextLoadError,
     IntentClassificationError,
@@ -364,6 +364,27 @@ async def _execute_tool_call(
         state["cardapio_context"] = result
         return result
     
+    elif tool_name == "delivery_tool":
+        from app.agents.tools.delivery_tool import delivery_tool, set_active_conversation
+        
+        set_active_conversation(state["conversation_id"])
+        
+        tool_input = {
+            "acao": tool_arguments.get("acao", "listar_regioes"),
+            "bairro": tool_arguments.get("bairro", "") if isinstance(tool_arguments.get("bairro", ""), str) else "",
+            "valor_pedido": tool_arguments.get("valor_pedido", 0) if isinstance(tool_arguments.get("valor_pedido", 0), (int, float)) else 0,
+        }
+        
+        result, _ = await _run_tracked_whatsapp_tool(
+            state,
+            "delivery_tool",
+            tool_input,
+            lambda: delivery_tool.invoke(tool_input),
+            display_name="Consultar taxa de entrega",
+        )
+        state["cardapio_context"] = result
+        return result
+    
     else:
         logger.warning("Unknown tool called", tool_name=tool_name)
         return f"Ferramenta '{tool_name}' não encontrada."
@@ -602,6 +623,7 @@ async def load_context_node(state: AgentState) -> Dict[str, Any]:
     - Histórico de mensagens do DB
     - Pedido atual (carrinho)
     - Informações do cliente coletadas
+    - Tipo de agente ativo e roteamento
     """
     conversation_id = state["conversation_id"]
     correlation_id = state.get("correlation_id") or str(uuid.uuid4())
@@ -625,11 +647,38 @@ async def load_context_node(state: AgentState) -> Dict[str, Any]:
 
         set_active_conversation(conversation_id)
         active_order = None
+        conversation_db = None
         db = SessionLocal()
         try:
+            # Carregar pedido ativo
             active_order = get_active_order(db, conversation_id)
             order_state = _build_order_state_payload(active_order)
             _pedidos_ativos[conversation_id] = order_state.get("pedido_atual") or []
+            
+            # Carregar conversa para obter tipo de agente
+            from app.models.models import Conversation
+            conversation_db = db.query(Conversation).filter(
+                Conversation.id == conversation_id
+            ).first()
+            
+            # Rotear agente baseado na mensagem atual
+            from app.agents.agent_router import route_agent
+            routing_result = route_agent(
+                conversation_id=conversation_id,
+                message=state["current_message"],
+                conversation_db=conversation_db
+            )
+            
+            active_agent_type = routing_result["agent_type"]
+            
+            logger.info(
+                "Agent routing completed",
+                correlation_id=correlation_id,
+                conversation_id=conversation_id,
+                active_agent_type=active_agent_type,
+                transition_occurred=routing_result["transition_occurred"]
+            )
+            
         except Exception as e:
             db.close()
             raise ContextLoadError(
@@ -652,6 +701,7 @@ async def load_context_node(state: AgentState) -> Dict[str, Any]:
         return {
             "messages": [],
             "_history_text": history_text,
+            "active_agent_type": active_agent_type,
             "cardapio_context": None,
             "cardapio_items": None,
             **order_state,
@@ -1131,13 +1181,22 @@ async def generate_response_node(state: AgentState) -> Dict[str, Any]:
 
             pending_tool_calls: list[dict[str, Any]] = []
 
+            # Selecionar ferramentas baseadas no tipo de agente ativo
+            active_agent_type = state.get("active_agent_type", "sales")
+            if active_agent_type == "sales":
+                tools_to_use = SALES_AGENT_TOOLS if tools_enabled else None
+            elif active_agent_type == "sac":
+                tools_to_use = SAC_AGENT_TOOLS if tools_enabled else None
+            else:
+                tools_to_use = WHATSAPP_AGENT_TOOLS if tools_enabled else None
+
             async for token_type, token in _astream_with_optional_tools(
                 inference_service,
                 messages=messages,
                 system_prompt=system_prompt,
                 max_tokens=settings.AGENT_RESPONSE_MAX_TOKENS,
                 temperature=0.2,
-                tools=WHATSAPP_AGENT_TOOLS if tools_enabled else None,
+                tools=tools_to_use,
             ):
                 if token_type == "thinking":
                     text_token = token if isinstance(token, str) else str(token)

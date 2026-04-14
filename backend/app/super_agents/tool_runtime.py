@@ -18,6 +18,16 @@ from app.super_agents.memory.session_memory import SessionMemory
 from app.super_agents.prompts import TOOL_ACTION_SELECTION_PROMPT
 from app.super_agents.tools.database_tool import _execute_database_query
 from app.super_agents.tools.document_tool import create_document_tool
+from app.super_agents.tools.inventory_tool import (
+    create_product,
+    create_product_category,
+    delete_product,
+    delete_product_category,
+    list_product_categories,
+    list_products_by_category,
+    search_product_in_category,
+    update_product,
+)
 from app.super_agents.tools.menu_tool import lookup_company_menu
 from app.super_agents.tools.web_tool import fetch_web_content, search_web
 from app.super_agents.tools.whatsapp_tool import (
@@ -1064,6 +1074,288 @@ async def execute_tools_for_state(state: Dict[str, Any]) -> Dict[str, Any]:
             "document_id": document_payload.get("document_id"),
             "document_type": document_payload.get("file_type"),
             "document_content": tool_plan.get("document_content") or state.get("current_message"),
+            "skip_model_response": True,
+        }
+
+    if mode == "inventory_list_categories":
+        payload = list_product_categories(
+            company_id=company_id,
+            user_id=state.get("user_id"),
+            limit=_safe_limit(tool_plan.get("limit"), 50, maximum=100),
+        )
+        categories_list = "\n".join(
+            f"- {cat.get('name')} ({cat.get('items_count', 0)} itens)"
+            for cat in payload.get("categories", [])
+        )
+        response = f"Categorias do catálogo '{payload.get('catalog_name')}':\n{categories_list}" if categories_list else "Nenhuma categoria encontrada."
+        return {
+            **_empty_result(state),
+            "response": response,
+            "thinking_content": _with_thinking(state, "Listei as categorias disponíveis no catálogo."),
+            "tool_calls": [
+                _tool_call(
+                    name="inventory_list_product_categories",
+                    tool_input={
+                        "company_id": company_id,
+                        "user_id": state.get("user_id"),
+                        "limit": _safe_limit(tool_plan.get("limit"), 50, maximum=100),
+                    },
+                    output=payload,
+                    request_id=request_id,
+                    index=0,
+                    display_name="Listagem de categorias",
+                )
+            ],
+            "inventory_result": payload,
+            "skip_model_response": True,
+        }
+
+    if mode == "inventory_list_products":
+        payload = list_products_by_category(
+            company_id=company_id,
+            user_id=state.get("user_id"),
+            category_id=tool_plan.get("category_id"),
+            limit=_safe_limit(tool_plan.get("limit"), 20, maximum=100),
+        )
+        items_list = "\n".join(
+            f"- {item.get('name')}: R$ {item.get('price', 0):.2f} (estoque: {item.get('stock_quantity', 0)})"
+            for item in payload.get("items", [])
+        )
+        response = f"Produtos em '{payload.get('category_name')}':\n{items_list}" if items_list else "Nenhum produto encontrado nesta categoria."
+        return {
+            **_empty_result(state),
+            "response": response,
+            "thinking_content": _with_thinking(state, f"Listei os produtos da categoria '{payload.get('category_name')}'."),
+            "tool_calls": [
+                _tool_call(
+                    name="inventory_list_products_by_category",
+                    tool_input={
+                        "company_id": company_id,
+                        "user_id": state.get("user_id"),
+                        "category_id": tool_plan.get("category_id"),
+                        "limit": _safe_limit(tool_plan.get("limit"), 20, maximum=100),
+                    },
+                    output=payload,
+                    request_id=request_id,
+                    index=0,
+                    display_name="Listagem de produtos",
+                )
+            ],
+            "inventory_result": payload,
+            "skip_model_response": True,
+        }
+
+    if mode == "inventory_search_product":
+        payload = search_product_in_category(
+            company_id=company_id,
+            user_id=state.get("user_id"),
+            category_id=tool_plan.get("category_id"),
+            product_name=tool_plan.get("product_name"),
+            limit=_safe_limit(tool_plan.get("limit"), 10, maximum=50),
+        )
+        items_list = "\n".join(
+            f"- {item.get('name')}: R$ {item.get('price', 0):.2f}"
+            for item in payload.get("items", [])
+        )
+        response = f"Resultados para '{tool_plan.get('product_name')}':\n{items_list}" if items_list else "Nenhum produto encontrado."
+        return {
+            **_empty_result(state),
+            "response": response,
+            "thinking_content": _with_thinking(state, f"Busquei por '{tool_plan.get('product_name')}' na categoria."),
+            "tool_calls": [
+                _tool_call(
+                    name="inventory_search_product_in_category",
+                    tool_input={
+                        "company_id": company_id,
+                        "user_id": state.get("user_id"),
+                        "category_id": tool_plan.get("category_id"),
+                        "product_name": tool_plan.get("product_name"),
+                        "limit": _safe_limit(tool_plan.get("limit"), 10, maximum=50),
+                    },
+                    output=payload,
+                    request_id=request_id,
+                    index=0,
+                    display_name="Busca de produto",
+                )
+            ],
+            "inventory_result": payload,
+            "skip_model_response": True,
+        }
+
+    if mode == "inventory_create_category":
+        payload = create_product_category(
+            company_id=company_id,
+            user_id=state.get("user_id"),
+            name=tool_plan.get("category_name"),
+            description=tool_plan.get("category_description"),
+        )
+        response = f"Categoria '{payload.get('name')}' criada com sucesso."
+        return {
+            **_empty_result(state),
+            "response": response,
+            "thinking_content": _with_thinking(state, f"Criei a categoria '{payload.get('name')}'."),
+            "tool_calls": [
+                _tool_call(
+                    name="inventory_create_product_category",
+                    tool_input={
+                        "company_id": company_id,
+                        "user_id": state.get("user_id"),
+                        "name": tool_plan.get("category_name"),
+                        "description": tool_plan.get("category_description"),
+                    },
+                    output=payload,
+                    request_id=request_id,
+                    index=0,
+                    display_name="Criação de categoria",
+                )
+            ],
+            "inventory_result": payload,
+            "skip_model_response": True,
+        }
+
+    if mode == "inventory_create_product":
+        payload = create_product(
+            company_id=company_id,
+            user_id=state.get("user_id"),
+            category_id=tool_plan.get("category_id"),
+            name=tool_plan.get("product_name"),
+            description=tool_plan.get("product_description"),
+            price=tool_plan.get("product_price"),
+            sku=tool_plan.get("product_sku"),
+            stock_quantity=tool_plan.get("stock_quantity", 0),
+            is_available=tool_plan.get("is_available", True),
+            image_url=tool_plan.get("image_url"),
+        )
+        response = f"Produto '{payload.get('name')}' criado com sucesso na categoria."
+        return {
+            **_empty_result(state),
+            "response": response,
+            "thinking_content": _with_thinking(state, f"Criei o produto '{payload.get('name')}' no catálogo."),
+            "tool_calls": [
+                _tool_call(
+                    name="inventory_create_product",
+                    tool_input={
+                        "company_id": company_id,
+                        "user_id": state.get("user_id"),
+                        "category_id": tool_plan.get("category_id"),
+                        "name": tool_plan.get("product_name"),
+                        "description": tool_plan.get("product_description"),
+                        "price": tool_plan.get("product_price"),
+                        "sku": tool_plan.get("product_sku"),
+                        "stock_quantity": tool_plan.get("stock_quantity", 0),
+                        "is_available": tool_plan.get("is_available", True),
+                        "image_url": tool_plan.get("image_url"),
+                    },
+                    output=payload,
+                    request_id=request_id,
+                    index=0,
+                    display_name="Criação de produto",
+                )
+            ],
+            "inventory_result": payload,
+            "skip_model_response": True,
+        }
+
+    if mode == "inventory_update_product":
+        payload = update_product(
+            company_id=company_id,
+            user_id=state.get("user_id"),
+            product_id=tool_plan.get("product_id"),
+            category_id=tool_plan.get("category_id"),
+            name=tool_plan.get("product_name"),
+            description=tool_plan.get("product_description"),
+            price=tool_plan.get("product_price"),
+            sku=tool_plan.get("product_sku"),
+            stock_quantity=tool_plan.get("stock_quantity"),
+            is_available=tool_plan.get("is_available"),
+            image_url=tool_plan.get("image_url"),
+        )
+        response = f"Produto '{payload.get('name')}' atualizado com sucesso."
+        return {
+            **_empty_result(state),
+            "response": response,
+            "thinking_content": _with_thinking(state, f"Atualizei o produto '{payload.get('name')}'."),
+            "tool_calls": [
+                _tool_call(
+                    name="inventory_update_product",
+                    tool_input={
+                        "company_id": company_id,
+                        "user_id": state.get("user_id"),
+                        "product_id": tool_plan.get("product_id"),
+                        "category_id": tool_plan.get("category_id"),
+                        "name": tool_plan.get("product_name"),
+                        "description": tool_plan.get("product_description"),
+                        "price": tool_plan.get("product_price"),
+                        "sku": tool_plan.get("product_sku"),
+                        "stock_quantity": tool_plan.get("stock_quantity"),
+                        "is_available": tool_plan.get("is_available"),
+                        "image_url": tool_plan.get("image_url"),
+                    },
+                    output=payload,
+                    request_id=request_id,
+                    index=0,
+                    display_name="Atualização de produto",
+                )
+            ],
+            "inventory_result": payload,
+            "skip_model_response": True,
+        }
+
+    if mode == "inventory_delete_category":
+        payload = delete_product_category(
+            company_id=company_id,
+            user_id=state.get("user_id"),
+            category_id=tool_plan.get("category_id"),
+        )
+        response = f"Categoria '{payload.get('category_name')}' excluída com sucesso."
+        return {
+            **_empty_result(state),
+            "response": response,
+            "thinking_content": _with_thinking(state, f"Excluí a categoria '{payload.get('category_name')}' e seus produtos."),
+            "tool_calls": [
+                _tool_call(
+                    name="inventory_delete_product_category",
+                    tool_input={
+                        "company_id": company_id,
+                        "user_id": state.get("user_id"),
+                        "category_id": tool_plan.get("category_id"),
+                    },
+                    output=payload,
+                    request_id=request_id,
+                    index=0,
+                    display_name="Exclusão de categoria",
+                )
+            ],
+            "inventory_result": payload,
+            "skip_model_response": True,
+        }
+
+    if mode == "inventory_delete_product":
+        payload = delete_product(
+            company_id=company_id,
+            user_id=state.get("user_id"),
+            product_id=tool_plan.get("product_id"),
+        )
+        response = f"Produto '{payload.get('product_name')}' excluído com sucesso."
+        return {
+            **_empty_result(state),
+            "response": response,
+            "thinking_content": _with_thinking(state, f"Excluí o produto '{payload.get('product_name')}' do catálogo."),
+            "tool_calls": [
+                _tool_call(
+                    name="inventory_delete_product",
+                    tool_input={
+                        "company_id": company_id,
+                        "user_id": state.get("user_id"),
+                        "product_id": tool_plan.get("product_id"),
+                    },
+                    output=payload,
+                    request_id=request_id,
+                    index=0,
+                    display_name="Exclusão de produto",
+                )
+            ],
+            "inventory_result": payload,
             "skip_model_response": True,
         }
 
