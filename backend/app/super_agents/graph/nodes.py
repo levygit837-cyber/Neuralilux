@@ -13,7 +13,7 @@ patch_forward_ref_evaluate_for_python312()
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-from app.services.inference_service import get_inference_service
+from app.services.inference_service import get_inference_service_with_fallback
 from app.services.realtime_event_bus import realtime_event_bus
 from app.services.tool_event_service import ToolEventTracker
 from app.super_agents.prompts import SUPER_AGENT_SYSTEM_PROMPT
@@ -135,7 +135,7 @@ async def agent_loop_node(state: SuperAgentState) -> Dict[str, Any]:
     agent_messages = list(state.get("agent_messages") or [])
     agent_messages.append({"role": "user", "content": state["current_message"]})
 
-    inference_svc = get_inference_service("super_agent")
+    inference_svc = get_inference_service_with_fallback("super_agent")
     all_tool_calls: List[Dict[str, Any]] = []
     thinking_parts: List[str] = []
     response_text = ""
@@ -453,7 +453,7 @@ async def handle_checkpoint_node(state: SuperAgentState) -> Dict[str, Any]:
                 ])
 
                 summary_prompt = CHECKPOINT_SUMMARY_PROMPT.format(conversation_history=conversation_text)
-                inference_service = get_inference_service("super_agent")
+                inference_service = get_inference_service_with_fallback("super_agent")
                 result = await inference_service.chat_completion(
                     messages=[{"role": "user", "content": summary_prompt}],
                     max_tokens=500,

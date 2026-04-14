@@ -955,7 +955,7 @@ class InferenceService:
     async def health_check(self) -> bool:
         """
         Check if LM Studio is available and responding.
-        
+
         Returns:
             True if healthy, False otherwise
         """
@@ -967,6 +967,469 @@ class InferenceService:
         except Exception as e:
             logger.error("Health check failed", error=str(e))
             return False
+
+
+class FallbackInferenceService:
+    """
+    Inference service with dynamic fallback between providers.
+
+    Implements automatic fallback from Vertex AI (primary) to Gemini (secondary)
+    with retry logic. Used for all agent types to ensure resilience.
+    """
+
+    def __init__(self, agent_type: str = "default"):
+        """
+        Initialize fallback inference service.
+
+        Args:
+            agent_type: Type of agent ("whatsapp_agent", "super_agent", or "default")
+        """
+        self.agent_type = agent_type
+        self.primary_service = self._get_primary_service()
+        self.secondary_service = self._get_secondary_service()
+        self.max_retries = 3
+
+    def _get_primary_service(self):
+        """Get Vertex AI service as primary provider."""
+        from app.core.config import settings
+        from app.services.vertex_inference_service import VertexInferenceService
+
+        if self.agent_type == "super_agent":
+            return VertexInferenceService(
+                model=settings.SUPER_AGENT_VERTEX_MODEL,
+                max_tokens=settings.SUPER_AGENT_VERTEX_MAX_TOKENS,
+                temperature=settings.SUPER_AGENT_VERTEX_TEMPERATURE,
+            )
+        elif self.agent_type == "whatsapp_agent":
+            return VertexInferenceService(
+                model=settings.WHATSAPP_AGENT_VERTEX_MODEL,
+                max_tokens=settings.WHATSAPP_AGENT_VERTEX_MAX_TOKENS,
+                temperature=settings.WHATSAPP_AGENT_VERTEX_TEMPERATURE,
+            )
+        else:
+            return VertexInferenceService()
+
+    def _get_secondary_service(self):
+        """Get Gemini service as secondary provider."""
+        from app.core.config import settings
+        from app.services.gemini_inference_service import GeminiInferenceService
+
+        if self.agent_type == "whatsapp_agent":
+            return GeminiInferenceService(
+                api_key=settings.GEMINI_API_KEY,
+                model=settings.WHATSAPP_AGENT_GEMINI_MODEL,
+                max_tokens=settings.WHATSAPP_AGENT_GEMINI_MAX_TOKENS,
+                temperature=settings.WHATSAPP_AGENT_GEMINI_TEMPERATURE,
+            )
+        else:
+            from app.services.gemini_inference_service import gemini_inference_service
+            return gemini_inference_service
+
+    async def _try_with_retry(
+        self,
+        service,
+        method_name: str,
+        *args,
+        **kwargs
+    ):
+        """
+        Try calling a method with retry logic.
+
+        Args:
+            service: The inference service instance
+            method_name: Name of the method to call
+            *args: Positional arguments for the method
+            **kwargs: Keyword arguments for the method
+
+        Returns:
+            Result from the method call
+
+        Raises:
+            Exception: If all retries fail
+        """
+        method = getattr(service, method_name)
+        last_error = None
+
+        for attempt in range(self.max_retries):
+            try:
+                return await method(*args, **kwargs)
+            except Exception as e:
+                last_error = e
+                logger.warning(
+                    f"Attempt {attempt + 1}/{self.max_retries} failed for {method_name}",
+                    service=service.__class__.__name__,
+                    error=str(e),
+                )
+                if attempt < self.max_retries - 1:
+                    await asyncio.sleep(0.5 * (attempt + 1))  # Backoff
+
+        raise last_error
+
+    async def chat_completion(
+        self,
+        messages: List[Dict[str, str]],
+        system_prompt: Optional[str] = None,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """
+        Chat completion with automatic fallback.
+
+        Tries Vertex AI with retries, then falls back to Gemini.
+        Handles different method names: Vertex uses 'generate', Gemini uses 'chat_completion'.
+
+        Args:
+            messages: List of message dicts
+            system_prompt: Optional system prompt
+            max_tokens: Override max tokens
+            temperature: Override temperature
+
+        Returns:
+            Dict with response content and metadata
+        """
+        # Try primary service (Vertex AI) with retries
+        try:
+            logger.info(
+                "Attempting chat completion with primary provider (Vertex AI)",
+                agent_type=self.agent_type,
+            )
+            # Vertex AI uses 'generate' method
+            if hasattr(self.primary_service, 'generate'):
+                result = await self._try_with_retry(
+                    self.primary_service,
+                    "generate",
+                    messages=messages,
+                    system_prompt=system_prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                )
+                # Convert InferenceResult to standard dict format
+                return {
+                    "content": result.text,
+                    "tool_calls": [
+                        {
+                            "id": tc.call_id or "",
+                            "type": "function",
+                            "function": {
+                                "name": tc.name,
+                                "arguments": tc.args,
+                            },
+                        }
+                        for tc in result.tool_calls
+                    ],
+                    "model": getattr(self.primary_service, 'model', 'unknown'),
+                    "usage": {},
+                    "finish_reason": "tool_calls" if result.tool_calls else "stop",
+                }
+            else:
+                return await self._try_with_retry(
+                    self.primary_service,
+                    "chat_completion",
+                    messages=messages,
+                    system_prompt=system_prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                )
+        except Exception as primary_error:
+            logger.error(
+                "Primary provider (Vertex AI) failed after retries, falling back to secondary (Gemini)",
+                error=str(primary_error),
+                agent_type=self.agent_type,
+            )
+
+            # Try secondary service (Gemini)
+            try:
+                if self.secondary_service:
+                    logger.info(
+                        "Attempting chat completion with secondary provider (Gemini)",
+                        agent_type=self.agent_type,
+                    )
+                    return await self.secondary_service.chat_completion(
+                        messages=messages,
+                        system_prompt=system_prompt,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                    )
+            except Exception as secondary_error:
+                logger.error(
+                    "Secondary provider (Gemini) also failed",
+                    error=str(secondary_error),
+                    agent_type=self.agent_type,
+                )
+
+            # Both failed, raise the original error
+            raise InferenceServiceError(
+                f"All providers failed. Primary error: {str(primary_error)}"
+            )
+
+    async def chat_completion_with_tools(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        system_prompt: Optional[str] = None,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        tool_choice: str = "auto",
+    ) -> Dict[str, Any]:
+        """
+        Chat completion with tools and automatic fallback.
+
+        Args:
+            messages: List of message dicts
+            tools: List of tool definitions
+            system_prompt: Optional system prompt
+            max_tokens: Override max tokens
+            temperature: Override temperature
+            tool_choice: Tool choice strategy
+
+        Returns:
+            Dict with content, tool_calls, and metadata
+        """
+        # Try primary service (Vertex AI) with retries
+        try:
+            logger.info(
+                "Attempting chat_completion_with_tools with primary provider (Vertex AI)",
+                agent_type=self.agent_type,
+            )
+            # Vertex AI uses 'generate' method with tools parameter
+            if hasattr(self.primary_service, 'generate'):
+                result = await self._try_with_retry(
+                    self.primary_service,
+                    "generate",
+                    messages=messages,
+                    system_prompt=system_prompt,
+                    tools=tools,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                )
+                # Convert InferenceResult to standard dict format
+                return {
+                    "content": result.text,
+                    "tool_calls": [
+                        {
+                            "id": tc.call_id or "",
+                            "type": "function",
+                            "function": {
+                                "name": tc.name,
+                                "arguments": tc.args,
+                            },
+                        }
+                        for tc in result.tool_calls
+                    ],
+                    "model": getattr(self.primary_service, 'model', 'unknown'),
+                    "usage": {},
+                    "finish_reason": "tool_calls" if result.tool_calls else "stop",
+                }
+            else:
+                return await self._try_with_retry(
+                    self.primary_service,
+                    "chat_completion_with_tools",
+                    messages=messages,
+                    tools=tools,
+                    system_prompt=system_prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    tool_choice=tool_choice,
+                )
+        except Exception as primary_error:
+            logger.error(
+                "Primary provider (Vertex AI) failed after retries, falling back to secondary (Gemini)",
+                error=str(primary_error),
+                agent_type=self.agent_type,
+            )
+
+            # Try secondary service (Gemini)
+            try:
+                if self.secondary_service and hasattr(self.secondary_service, 'chat_completion_with_tools'):
+                    logger.info(
+                        "Attempting chat_completion_with_tools with secondary provider (Gemini)",
+                        agent_type=self.agent_type,
+                    )
+                    return await self.secondary_service.chat_completion_with_tools(
+                        messages=messages,
+                        tools=tools,
+                        system_prompt=system_prompt,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        tool_choice=tool_choice,
+                    )
+            except Exception as secondary_error:
+                logger.error(
+                    "Secondary provider (Gemini) also failed",
+                    error=str(secondary_error),
+                    agent_type=self.agent_type,
+                )
+
+            raise InferenceServiceError(
+                f"All providers failed. Primary error: {str(primary_error)}"
+            )
+
+    async def stream_chat_completion_with_thinking(
+        self,
+        messages: List[Dict[str, str]],
+        system_prompt: Optional[str] = None,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+    ) -> AsyncGenerator[Tuple[str, str], None]:
+        """
+        Stream chat completion with thinking detection and fallback.
+
+        Args:
+            messages: List of message dicts
+            system_prompt: Optional system prompt
+            max_tokens: Override max tokens
+            temperature: Override temperature
+
+        Yields:
+            Tuple of (type, content) where type is 'thinking' or 'response'
+        """
+        # Try primary service (Vertex AI) with retries
+        try:
+            logger.info(
+                "Attempting stream_chat_completion_with_thinking with primary provider (Vertex AI)",
+                agent_type=self.agent_type,
+            )
+            async for chunk in self.primary_service.stream_chat_completion_with_thinking(
+                messages=messages,
+                system_prompt=system_prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            ):
+                yield chunk
+            return
+        except Exception as primary_error:
+            logger.error(
+                "Primary provider (Vertex AI) failed after retries, falling back to secondary (Gemini)",
+                error=str(primary_error),
+                agent_type=self.agent_type,
+            )
+
+        # Try secondary service (Gemini)
+        try:
+            if self.secondary_service and hasattr(self.secondary_service, 'stream_chat_completion_with_thinking'):
+                logger.info(
+                    "Attempting stream_chat_completion_with_thinking with secondary provider (Gemini)",
+                    agent_type=self.agent_type,
+                )
+                async for chunk in self.secondary_service.stream_chat_completion_with_thinking(
+                    messages=messages,
+                    system_prompt=system_prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                ):
+                    yield chunk
+                return
+        except Exception as secondary_error:
+            logger.error(
+                "Secondary provider (Gemini) also failed",
+                error=str(secondary_error),
+                agent_type=self.agent_type,
+            )
+
+        raise InferenceServiceError(
+            f"All providers failed. Primary error: {str(primary_error)}"
+        )
+
+    async def stream_chat_completion_with_tools(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        system_prompt: Optional[str] = None,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        tool_choice: str = "auto",
+        on_thinking_token: Any = None,
+        on_response_token: Any = None,
+    ) -> Dict[str, Any]:
+        """
+        Streaming chat completion with tools and fallback.
+
+        Args:
+            messages: OpenAI-format messages list
+            tools: OpenAI-format tool definitions
+            system_prompt: Optional system prompt
+            max_tokens: Override default max_tokens
+            temperature: Override default temperature
+            tool_choice: "auto" | "none" | "required"
+            on_thinking_token: Callback for thinking tokens
+            on_response_token: Callback for response tokens
+
+        Returns:
+            Dict with content, tool_calls, and metadata
+        """
+        # Try primary service (Vertex AI) with retries
+        try:
+            logger.info(
+                "Attempting stream_chat_completion_with_tools with primary provider (Vertex AI)",
+                agent_type=self.agent_type,
+            )
+            return await self._try_with_retry(
+                self.primary_service,
+                "stream_chat_completion_with_tools",
+                messages=messages,
+                tools=tools,
+                system_prompt=system_prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                tool_choice=tool_choice,
+                on_thinking_token=on_thinking_token,
+                on_response_token=on_response_token,
+            )
+        except Exception as primary_error:
+            logger.error(
+                "Primary provider (Vertex AI) failed after retries, falling back to secondary (Gemini)",
+                error=str(primary_error),
+                agent_type=self.agent_type,
+            )
+
+        # Try secondary service (Gemini)
+        try:
+            if self.secondary_service and hasattr(self.secondary_service, 'stream_chat_completion_with_tools'):
+                logger.info(
+                    "Attempting stream_chat_completion_with_tools with secondary provider (Gemini)",
+                    agent_type=self.agent_type,
+                )
+                return await self.secondary_service.stream_chat_completion_with_tools(
+                    messages=messages,
+                    tools=tools,
+                    system_prompt=system_prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    tool_choice=tool_choice,
+                    on_thinking_token=on_thinking_token,
+                    on_response_token=on_response_token,
+                )
+        except Exception as secondary_error:
+            logger.error(
+                "Secondary provider (Gemini) also failed",
+                error=str(secondary_error),
+                agent_type=self.agent_type,
+            )
+
+        raise InferenceServiceError(
+            f"All providers failed. Primary error: {str(primary_error)}"
+        )
+
+
+def get_inference_service_with_fallback(agent_type: str = "default"):
+    """
+    Get inference service with automatic fallback enabled.
+
+    This is the recommended way to get inference services for all agents.
+    It provides automatic fallback from Vertex AI (primary) to Gemini (secondary)
+    with retry logic.
+
+    Args:
+        agent_type: Type of agent ("whatsapp_agent", "super_agent", or "default")
+
+    Returns:
+        FallbackInferenceService instance
+    """
+    logger.info(
+        "Getting inference service with fallback enabled",
+        agent_type=agent_type,
+    )
+    return FallbackInferenceService(agent_type=agent_type)
 
 
 def get_inference_service(agent_type: str = "default"):

@@ -54,7 +54,7 @@ from app.services.order_service import (
 )
 from app.services.realtime_event_bus import realtime_event_bus
 from app.services.tool_event_service import emit_tool_event, generate_trace_id
-from app.services.inference_service import get_inference_service
+from app.services.inference_service import get_inference_service_with_fallback
 
 logger = structlog.get_logger()
 
@@ -142,9 +142,9 @@ def _extract_json_object(raw_text: str) -> dict[str, Any] | None:
 
 
 async def _run_json_prompt(prompt: str, *, max_tokens: int = 180) -> dict[str, Any] | None:
-    from app.services.inference_service import get_inference_service
+    from app.services.inference_service import get_inference_service_with_fallback
 
-    inference_service = get_inference_service("whatsapp_agent")
+    inference_service = get_inference_service_with_fallback("whatsapp_agent")
     result = await inference_service.chat_completion(
         messages=[{"role": "user", "content": prompt}],
         max_tokens=max_tokens,
@@ -391,9 +391,9 @@ async def _execute_tool_call(
 
 
 def _is_nemotron_model() -> bool:
-    from app.services.inference_service import get_inference_service
+    from app.services.inference_service import get_inference_service_with_fallback
 
-    inference_service = get_inference_service("whatsapp_agent")
+    inference_service = get_inference_service_with_fallback("whatsapp_agent")
     runtime_model = (inference_service.model or "").strip().lower()
     return "nemotron" in runtime_model
 
@@ -729,7 +729,7 @@ async def classify_intent_node(state: AgentState) -> Dict[str, Any]:
     Nó 2: Classifica a intenção da mensagem do cliente.
     Usa o LLM para determinar a intenção.
     """
-    from app.services.inference_service import get_inference_service
+    from app.services.inference_service import get_inference_service_with_fallback
 
     current_message = state["current_message"]
     history_text = state.get("_history_text", "")
@@ -753,7 +753,7 @@ async def classify_intent_node(state: AgentState) -> Dict[str, Any]:
             pedido_atual=json.dumps(state.get("pedido_atual") or [], ensure_ascii=False),
         )
 
-        inference_service = get_inference_service("whatsapp_agent")
+        inference_service = get_inference_service_with_fallback("whatsapp_agent")
         result = await inference_service.chat_completion(
             messages=[{"role": "user", "content": prompt}],
             max_tokens=140,
@@ -1053,14 +1053,14 @@ async def generate_response_node(state: AgentState) -> Dict[str, Any]:
         node="generate_response"
     )
 
-    from app.services.inference_service import get_inference_service
+    from app.services.inference_service import get_inference_service_with_fallback
 
     logger.info(
         "Getting inference service for whatsapp_agent",
         correlation_id=correlation_id,
         conversation_id=conversation_id
     )
-    inference_service = get_inference_service("whatsapp_agent")
+    inference_service = get_inference_service_with_fallback("whatsapp_agent")
     logger.info(
         "Inference service obtained",
         correlation_id=correlation_id,

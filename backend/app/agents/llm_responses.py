@@ -10,7 +10,7 @@ import structlog
 from typing import Optional, Dict, Any, List
 import asyncio
 
-from app.services.inference_service import get_inference_service
+from app.services.inference_service import get_inference_service_with_fallback
 from app.agents.exceptions import (
     InferenceError,
     GeminiInferenceServiceError,
@@ -70,7 +70,7 @@ async def _try_llm_with_service(
 ) -> Optional[str]:
     """Tenta gerar resposta com um serviço LLM específico."""
     try:
-        inference_service = get_inference_service(service_name)
+        inference_service = get_inference_service_with_fallback(service_name)
         result = await inference_service.chat_completion(
             messages=[{"role": "user", "content": prompt}],
             max_tokens=max_tokens,

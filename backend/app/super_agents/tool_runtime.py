@@ -11,7 +11,7 @@ from typing import Any, Dict, Iterable, List, Optional
 import structlog
 
 from app.core.database import get_db
-from app.services.inference_service import get_inference_service
+from app.services.inference_service import get_inference_service_with_fallback
 from app.services.menu_catalog_service import normalize_text
 from app.super_agents.memory.knowledge_base import KnowledgeBase
 from app.super_agents.memory.session_memory import SessionMemory
@@ -39,7 +39,7 @@ from app.super_agents.tools.whatsapp_tool import (
 )
 
 logger = structlog.get_logger()
-inference_service = get_inference_service("super_agent")
+inference_service = get_inference_service_with_fallback("super_agent")
 
 CONFIRM_WORDS = {
     "sim",
