@@ -25,6 +25,7 @@ class SuperAgentExecutor:
         company_id: str,
         user_id: str,
         message: str,
+        document_content: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Process a user message through the Super Agent.
@@ -34,6 +35,7 @@ class SuperAgentExecutor:
             company_id: Company ID
             user_id: User ID
             message: User message
+            document_content: Optional PDF content to include in context
 
         Returns:
             Dict with response, thinking, intent, etc.
@@ -43,6 +45,7 @@ class SuperAgentExecutor:
             session_id=session_id,
             company_id=company_id,
             message_preview=message[:50],
+            has_document=bool(document_content),
         )
 
         try:
@@ -67,6 +70,7 @@ class SuperAgentExecutor:
                 company_id=company_id,
                 user_id=user_id,
                 message=message,
+                document_content=document_content,
             )
 
             response = result.get("response", "")

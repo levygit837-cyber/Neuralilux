@@ -45,7 +45,6 @@ class MessageType(str, enum.Enum):
 class AgentTypeEnum(str, enum.Enum):
     SALES = "sales"
     SAC = "sac"
-    SUPER_AGENT = "super_agent"
 
 
 class BusinessType(Base):
@@ -221,7 +220,7 @@ class Agent(Base):
     max_tokens = Column(Integer, default=1000)
     use_rag = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
-    agent_type = Column(String, default="sales", nullable=False)  # "sales", "sac", "super_agent"
+    agent_type = Column(String, default="sales", nullable=False)  # "sales", "sac"
     owner_id = Column(String, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -575,3 +574,27 @@ class PaymentRecord(Base):
     # Relationships
     order = relationship("CustomerOrder")
     conversation = relationship("Conversation")
+
+
+class RuleCategory(str, enum.Enum):
+    POLICY = "politica"
+    PROCEDURE = "procedimento"
+    FAQ = "faq"
+    COMPLIANCE = "compliance"
+    GENERAL = "general"
+
+
+class CompanyRule(Base):
+    __tablename__ = "company_rules"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    company_id = Column(String, ForeignKey("companies.id"), nullable=False, index=True)
+    title = Column(String(500), nullable=False)
+    content = Column(Text, nullable=False)
+    category = Column(String(50), nullable=False, default=RuleCategory.GENERAL.value)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    company = relationship("Company")

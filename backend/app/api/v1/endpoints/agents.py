@@ -32,6 +32,8 @@ class AgentChatRequest(BaseModel):
     company_id: Optional[str] = None
     user_id: Optional[str] = None
     session_id: Optional[str] = None
+    document_content: Optional[str] = None
+    document_filename: Optional[str] = None
 
 
 class AgentChatSessionRequest(BaseModel):
@@ -442,6 +444,7 @@ async def agent_chat(
         company_id=company_id,
         user_id=user_id,
         message=body.message,
+        document_content=body.document_content,
     )
 
     if result.get("error") and not result.get("response"):

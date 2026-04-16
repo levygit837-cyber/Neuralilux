@@ -66,6 +66,7 @@ class SuperAgentGraph:
         company_id: str,
         user_id: str,
         message: str,
+        document_content: str = None,
     ) -> Dict[str, Any]:
         """
         Execute the Super Agent graph with a message.
@@ -75,6 +76,7 @@ class SuperAgentGraph:
             company_id: Company ID
             user_id: User ID
             message: User message content
+            document_content: Optional PDF content to include in context
 
         Returns:
             Final state with agent response
@@ -93,7 +95,7 @@ class SuperAgentGraph:
             "whatsapp_target": None,
             "whatsapp_result": None,
             "document_type": None,
-            "document_content": None,
+            "document_content": document_content,
             "document_id": None,
             "thinking_content": None,
             "knowledge_query": None,
@@ -115,6 +117,7 @@ class SuperAgentGraph:
             "Running Super Agent graph",
             session_id=session_id,
             message_preview=message[:50],
+            has_document=bool(document_content),
         )
 
         try:

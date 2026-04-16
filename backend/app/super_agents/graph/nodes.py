@@ -61,11 +61,12 @@ def _truncate(text: str, limit: int = 240) -> str:
 # ---------------------------------------------------------------------------
 
 async def load_context_node(state: SuperAgentState) -> Dict[str, Any]:
-    """Load company context, session history, and build the system prompt."""
+    """Load company context, session history, RAG context, and build the system prompt."""
     try:
         from app.core.database import get_db
         from app.models.models import Company
         from app.super_agents.memory.session_memory import SessionMemory
+        from app.rag.retriever import get_rag_retriever
 
         db_gen = get_db()
         db = next(db_gen)
@@ -83,11 +84,33 @@ async def load_context_node(state: SuperAgentState) -> Dict[str, Any]:
                 elif msg["role"] == "assistant":
                     lc_messages.append(AIMessage(content=msg["content"] or ""))
 
-            system_prompt = SUPER_AGENT_SYSTEM_PROMPT.format(
+            base_system_prompt = SUPER_AGENT_SYSTEM_PROMPT.format(
                 company_name=company_name,
                 business_type=business_type,
                 company_id=state["company_id"],
             )
+
+            rag_context = ""
+            pdf_content = state.get("document_content")
+            current_message = state.get("current_message", "")
+
+            if current_message or pdf_content:
+                try:
+                    retriever = get_rag_retriever()
+                    rag_result = await retriever.retrieve(
+                        company_id=state["company_id"],
+                        message=current_message,
+                        pdf_content=pdf_content,
+                        limit=5,
+                    )
+                    rag_context = retriever.build_context_prompt(rag_result)
+                except Exception as rag_err:
+                    logger.warning("RAG retrieval failed", error=str(rag_err))
+
+            if rag_context:
+                system_prompt = f"{base_system_prompt}\n\n{rag_context}"
+            else:
+                system_prompt = base_system_prompt
 
             # Build agent_messages in OpenAI dict format for the tool-calling loop
             agent_msgs: List[Dict[str, Any]] = [{"role": "system", "content": system_prompt}]
@@ -97,12 +120,16 @@ async def load_context_node(state: SuperAgentState) -> Dict[str, Any]:
                 elif msg["role"] == "assistant":
                     agent_msgs.append({"role": "assistant", "content": msg["content"] or ""})
 
-            logger.info("Context loaded", session_id=state["session_id"], company=company_name, message_count=len(lc_messages))
+            thinking = f"Contexto carregado: Empresa '{company_name}', {len(lc_messages)} mensagens recentes."
+            if rag_context:
+                thinking += " Contexto RAG injetado."
+
+            logger.info("Context loaded", session_id=state["session_id"], company=company_name, message_count=len(lc_messages), rag_enabled=bool(rag_context))
 
             return {
                 "messages": [SystemMessage(content=system_prompt)] + lc_messages,
                 "agent_messages": agent_msgs,
-                "thinking_content": f"Contexto carregado: Empresa '{company_name}', {len(lc_messages)} mensagens recentes.",
+                "thinking_content": thinking,
             }
         finally:
             db.close()
