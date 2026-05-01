@@ -3,7 +3,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = 'add_company_rules'
-down_revision = 'add_ticket_and_payment_tables'
+down_revision = '2026_04_14_0004'
 branch_labels = None
 depends_on = None
 

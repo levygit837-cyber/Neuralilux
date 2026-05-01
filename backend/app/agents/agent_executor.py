@@ -161,7 +161,7 @@ class WhatsAppAgent:
                 conversation_id=conversation_id,
                 event="thinking_end",
                 data={
-                    "summary": f"Intenção: {intent}",
+                    "summary": "",  # No mock thinking, real thinking comes from LLM
                     "intent": intent,
                 },
             )

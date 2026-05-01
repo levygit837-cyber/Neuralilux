@@ -194,6 +194,9 @@ class Conversation(Base):
     last_message_preview = Column(Text)
     assigned_agent_id = Column(String, ForeignKey("agents.id"), nullable=True)
     active_agent_type = Column(String, default="sales", nullable=False)  # "sales", "sac"
+    human_in_loop = Column(Boolean, default=False, nullable=False)  # True when human took control
+    human_handoff_reason = Column(Text, nullable=True)  # Reason for human handoff
+    ticket_id = Column(String, ForeignKey("tickets.id"), nullable=True)  # Reference to ticket
     tags = Column(JSONB)  # Array of tags for categorization
     priority = Column(String(20), default="normal")  # low, normal, high, urgent
     rating = Column(Integer, nullable=True)  # Customer satisfaction score (1-5)
@@ -550,10 +553,10 @@ class Ticket(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
-    conversation = relationship("Conversation")
-    instance = relationship("Instance")
-    contact = relationship("Contact")
-    assigned_user = relationship("User")
+    conversation = relationship("Conversation", foreign_keys=[conversation_id])
+    instance = relationship("Instance", foreign_keys=[instance_id])
+    contact = relationship("Contact", foreign_keys=[contact_id])
+    assigned_user = relationship("User", foreign_keys=[assigned_to])
 
 
 class PaymentRecord(Base):
@@ -572,8 +575,8 @@ class PaymentRecord(Base):
     paid_at = Column(DateTime(timezone=True), nullable=True)
 
     # Relationships
-    order = relationship("CustomerOrder")
-    conversation = relationship("Conversation")
+    order = relationship("CustomerOrder", foreign_keys=[order_id])
+    conversation = relationship("Conversation", foreign_keys=[conversation_id])
 
 
 class RuleCategory(str, enum.Enum):

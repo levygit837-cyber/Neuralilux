@@ -5,6 +5,9 @@ This adapter converts OpenAI-format tool schemas to Vertex AI FunctionDeclaratio
 for native function calling support with Vertex AI models.
 """
 
+import warnings
+warnings.filterwarnings("ignore", message="Field name .* shadows an attribute in parent")
+
 from typing import List, Dict, Any, Optional
 from google.genai.types import FunctionDeclaration, Tool
 import structlog

@@ -74,6 +74,12 @@ def open_ticket_with_context(conversation_id: str, instance_id: str, contact_id:
         db.commit()
         db.refresh(ticket)
 
+        # Update conversation with human_in_loop state
+        conversation.human_in_loop = True
+        conversation.human_handoff_reason = reason
+        conversation.ticket_id = ticket.id
+        db.commit()
+
         # Formatar resposta
         response = f"""🎫 *TICKET CRIADO*
 

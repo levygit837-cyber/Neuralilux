@@ -205,12 +205,8 @@ def _empty_result(state: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _with_thinking(state: Dict[str, Any], extra: str) -> str:
-    return _join_lines(
-        [
-            (state.get("thinking_content") or "").strip(),
-            extra.strip(),
-        ]
-    )
+    # Return only real thinking content from state, no mock additions
+    return (state.get("thinking_content") or "").strip()
 
 
 def _contact_display_name(contact: Dict[str, Any]) -> str:
@@ -1022,7 +1018,7 @@ async def execute_tools_for_state(state: Dict[str, Any]) -> Dict[str, Any]:
         return {
             **_empty_result(state),
             "response": _format_knowledge_response(items),
-            "thinking_content": _with_thinking(state, "Busquei conhecimento já armazenado para complementar a resposta."),
+            "thinking_content": None,  # No mock thinking, real thinking comes from LLM
             "tool_calls": [
                 _tool_call(
                     name="knowledge_search_tool",

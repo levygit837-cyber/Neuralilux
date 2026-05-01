@@ -193,13 +193,11 @@ async def agent_loop_node(state: SuperAgentState) -> Dict[str, Any]:
         _track_event("thinking_start")
 
         for iteration in range(MAX_TOOL_ITERATIONS):
-            await _emit(
-                instance_name, conversation_id, "thinking_token",
-                {"token": f"🔄 Iteração {iteration + 1}...\n"},
-            )
 
             # Callback that streams each thinking token to the frontend
             async def _on_thinking_token(token: str) -> None:
+                nonlocal thinking_parts
+                thinking_parts.append(token)
                 await _emit(
                     instance_name, conversation_id, "thinking_token",
                     {"token": token},
@@ -213,7 +211,7 @@ async def agent_loop_node(state: SuperAgentState) -> Dict[str, Any]:
                 # If this is the first response token, emit start events
                 if not response_started:
                     thinking_content = "\n".join(thinking_parts)
-                    summary = thinking_content[:120] if thinking_content else "Resposta gerada com sucesso"
+                    summary = thinking_content[:120] if thinking_content else ""
                     await _emit(instance_name, conversation_id, "thinking_end", {"summary": summary})
                     _track_event("thinking_end", len(summary))
                     await _emit(instance_name, conversation_id, "response_start")
@@ -249,7 +247,7 @@ async def agent_loop_node(state: SuperAgentState) -> Dict[str, Any]:
                 if content and not response_started:
                     # Fallback: content arrived but wasn't streamed (shouldn't happen normally)
                     thinking_content = "\n".join(thinking_parts)
-                    summary = thinking_content[:120] if thinking_content else "Resposta gerada com sucesso"
+                    summary = thinking_content[:120] if thinking_content else ""
                     await _emit(instance_name, conversation_id, "thinking_end", {"summary": summary})
                     await _emit(instance_name, conversation_id, "response_start")
                     response_started = True
@@ -260,8 +258,6 @@ async def agent_loop_node(state: SuperAgentState) -> Dict[str, Any]:
 
                     response_text = content
 
-                if content:
-                    thinking_parts.append(f"Resposta final gerada (iteração {iteration + 1}).")
                 break
 
             # Model wants to call tools — build assistant message with tool_calls
@@ -340,20 +336,19 @@ async def agent_loop_node(state: SuperAgentState) -> Dict[str, Any]:
                     "finished_at": finished_at,
                 })
 
-                thinking_parts.append(f"Ferramenta {tool_name} executada.")
-
             # Flush pending tool events after each iteration
             await tool_tracker.flush()
 
         else:
             # Exceeded MAX_TOOL_ITERATIONS — generate final response anyway
-            thinking_parts.append(f"Limite de {MAX_TOOL_ITERATIONS} iterações atingido.")
+            # No mock thinking message, just proceed to final response
+            pass
 
         # If we didn't get a text response from the loop, do a final call without tools
         if not response_text:
-            await _emit(instance_name, conversation_id, "thinking_token", {"token": "\n💭 Gerando resposta final...\n"})
-
             async def _on_final_thinking(token: str) -> None:
+                nonlocal thinking_parts
+                thinking_parts.append(token)
                 await _emit(
                     instance_name, conversation_id, "thinking_token",
                     {"token": token},
@@ -366,7 +361,7 @@ async def agent_loop_node(state: SuperAgentState) -> Dict[str, Any]:
                 # If this is the first response token, emit start events
                 if not response_started:
                     thinking_content = "\n".join(thinking_parts)
-                    summary = thinking_content[:120] if thinking_content else "Resposta gerada com sucesso"
+                    summary = thinking_content[:120] if thinking_content else ""
                     await _emit(instance_name, conversation_id, "thinking_end", {"summary": summary})
                     await _emit(instance_name, conversation_id, "response_start")
                     response_started = True
@@ -403,7 +398,7 @@ async def agent_loop_node(state: SuperAgentState) -> Dict[str, Any]:
 
         # Build final thinking content for return
         thinking_content = "\n".join(thinking_parts)
-        summary = thinking_content[:120] if thinking_content else "Resposta gerada com sucesso"
+        summary = thinking_content[:120] if thinking_content else ""
 
         logger.info(
             "Agent loop completed",
@@ -429,7 +424,7 @@ async def agent_loop_node(state: SuperAgentState) -> Dict[str, Any]:
         logger.error("Agent loop failed", error=str(e), session_id=session_id, exc_info=True)
 
         # Ensure thinking is properly closed if it was started
-        thinking_content = "\n".join(thinking_parts) if thinking_parts else "Erro durante processamento"
+        thinking_content = "\n".join(thinking_parts) if thinking_parts else ""
         await _emit(instance_name, conversation_id, "thinking_end", {"summary": thinking_content[:120]})
 
         # Ensure response events are properly emitted

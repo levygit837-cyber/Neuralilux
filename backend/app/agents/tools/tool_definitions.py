@@ -324,6 +324,41 @@ SALES_AGENT_TOOLS: List[Dict[str, Any]] = [
                     },
                     "required": ["order_id"]
                 }
+            },
+            {
+                "name": "open_ticket_with_context",
+                "description": "Abre um ticket para chamar um atendente humano. Use quando o cliente precisar de atendimento humano ou quando não for possível resolver automaticamente (ex: dúvidas complexas, problemas técnicos, situações fora do escopo).",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "conversation_id": {
+                            "type": "STRING",
+                            "description": "ID da conversa"
+                        },
+                        "instance_id": {
+                            "type": "STRING",
+                            "description": "ID da instância WhatsApp"
+                        },
+                        "contact_id": {
+                            "type": "STRING",
+                            "description": "ID do contato"
+                        },
+                        "agent_type": {
+                            "type": "STRING",
+                            "enum": ["sales", "sac"],
+                            "description": "Tipo de agente que está criando o ticket"
+                        },
+                        "reason": {
+                            "type": "STRING",
+                            "description": "Motivo do ticket (ex: Dúvida complexa, Problema técnico, Reclamação, Situação especial)"
+                        },
+                        "content": {
+                            "type": "STRING",
+                            "description": "Conteúdo detalhado da mensagem ou situação do usuário"
+                        }
+                    },
+                    "required": ["conversation_id", "instance_id", "contact_id", "agent_type", "reason", "content"]
+                }
             }
         ]
     }

@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     VERTEX_MODEL: str = "gemini-3.1-flash-lite-preview"
     VERTEX_MAX_TOKENS: int = 2048
     VERTEX_TEMPERATURE: float = 0.7
-    VERTEX_TIMEOUT: float = 60.0
+    VERTEX_TIMEOUT: float = 30.0
 
     # Agent Configuration (Global defaults)
     AGENT_MAX_HISTORY_MESSAGES: int = 10

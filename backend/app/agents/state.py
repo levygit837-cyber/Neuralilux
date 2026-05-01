@@ -71,6 +71,11 @@ class AgentState(TypedDict):
     # Tipo de agente ativo
     active_agent_type: Optional[str]  # "sales", "sac"
 
+    # Human-in-the-Loop
+    human_in_loop: Optional[bool]  # True quando humano assumiu controle
+    human_handoff_reason: Optional[str]  # Motivo do handoff para humano
+    ticket_id: Optional[str]  # ID do ticket aberto para humano
+
     # Contexto do cardápio (preenchido pela tool)
     cardapio_context: Optional[str]
     cardapio_items: Optional[List[Dict[str, Any]]]

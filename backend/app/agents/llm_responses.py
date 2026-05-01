@@ -13,10 +13,6 @@ import asyncio
 from app.services.inference_service import get_inference_service_with_fallback
 from app.agents.exceptions import (
     InferenceError,
-    GeminiInferenceServiceError,
-    GeminiInferenceTimeoutError,
-    VertexInferenceServiceError,
-    VertexInferenceTimeoutError,
 )
 from app.agents.message_variations import (
     get_saudacao,

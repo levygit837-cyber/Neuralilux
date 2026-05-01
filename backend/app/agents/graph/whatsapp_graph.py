@@ -13,6 +13,7 @@ import structlog
 from app.core.config import settings
 from app.agents.state import AgentState
 from app.agents.graph.nodes import (
+    check_human_handoff_node,
     validate_message_node,
     load_context_node,
     classify_intent_node,
@@ -30,12 +31,13 @@ def create_whatsapp_graph() -> StateGraph:
     Cria e retorna o grafo LangGraph do agente WhatsApp.
 
     Fluxo:
-    0. validate_message: Valida se mensagem deve ser processada
-    1. load_context: Carrega contexto da conversa
-    2. classify_intent: Classifica intenção da mensagem
-    3. (condicional) execute_action: Executa tool se necessário
-    4. generate_response: Gera resposta com LLM
-    5. END: Finaliza
+    0. check_human_handoff: Verifica se conversa está sob controle humano
+    1. validate_message: Valida se mensagem deve ser processada
+    2. load_context: Carrega contexto da conversa
+    3. classify_intent: Classifica intenção da mensagem
+    4. (condicional) execute_action: Executa tool se necessário
+    5. generate_response: Gera resposta com LLM
+    6. END: Finaliza
 
     Returns:
         StateGraph compilado pronto para uso
@@ -43,6 +45,7 @@ def create_whatsapp_graph() -> StateGraph:
     workflow = StateGraph(AgentState)
 
     # Adicionar nós
+    workflow.add_node("check_human_handoff", check_human_handoff_node)
     workflow.add_node("validate_message", validate_message_node)
     workflow.add_node("load_context", load_context_node)
     workflow.add_node("classify_intent", classify_intent_node)
@@ -50,9 +53,10 @@ def create_whatsapp_graph() -> StateGraph:
     workflow.add_node("generate_response", generate_response_node)
 
     # Definir ponto de entrada
-    workflow.set_entry_point("validate_message")
+    workflow.set_entry_point("check_human_handoff")
 
     # Transições
+    workflow.add_edge("check_human_handoff", "validate_message")
     workflow.add_edge("validate_message", "load_context")
     workflow.add_edge("load_context", "classify_intent")
 
@@ -124,6 +128,9 @@ class WhatsAppAgentGraph:
             "intent_confidence": None,
             "flow_stage": None,
             "active_agent_type": None,
+            "human_in_loop": None,
+            "human_handoff_reason": None,
+            "ticket_id": None,
             "cardapio_context": None,
             "cardapio_items": None,
             "pedido_atual": None,

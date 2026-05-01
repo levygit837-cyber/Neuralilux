@@ -4,6 +4,9 @@ Uses google-genai SDK with API key authentication (no project ID required).
 Supports chat completion and native function calling (tools).
 """
 
+import warnings
+warnings.filterwarnings("ignore", message="Field name .* shadows an attribute in parent")
+
 from google import genai
 from google.genai.types import (
     FunctionDeclaration,
@@ -11,9 +14,10 @@ from google.genai.types import (
     Tool,
     Content,
     Part,
+    ThinkingConfig,
 )
 import structlog
-from typing import List, Optional, Dict, Any, AsyncGenerator
+from typing import List, Optional, Dict, Any, AsyncGenerator, Tuple
 from dataclasses import dataclass
 from app.core.config import settings
 
@@ -67,10 +71,10 @@ class VertexInferenceService:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model: str = "gemini-3.1-flash-lite-preview",
+        model: str = "gemini-3-flash-preview",
         max_tokens: int = 2048,
         temperature: float = 0.7,
-        timeout: float = 60.0,
+        timeout: float = 30.0,
         max_retries: int = 3,
     ):
         self.api_key = api_key or settings.VERTEX_API_KEY
@@ -374,6 +378,17 @@ class VertexInferenceService:
                 temperature=temperature or self.temperature,
             )
 
+            # Enable native thinking for Gemini 3 models
+            if "gemini-3" in self.model.lower() or "gemini-2.5" in self.model.lower():
+                config.thinking_config = ThinkingConfig(
+                    include_thoughts=True,
+                )
+                logger.debug(
+                    "Native thinking enabled with include_thoughts for Vertex AI",
+                    model=self.model,
+                    thinking_config=config.thinking_config,
+                )
+
             if vertex_tools and tool_choice != "none":
                 config.tools = vertex_tools
                 # Note: We handle tool calls manually, not using automatic function calling
@@ -479,8 +494,21 @@ class VertexInferenceService:
 
                     if candidate.content and candidate.content.parts:
                         for part in candidate.content.parts:
-                            if part.text:
-                                # Process text through thinking block detection
+                            # Handle native thinking field (Gemini 2.5+)
+                            # Note: part.thought is a boolean flag, actual content is in part.text
+                            if hasattr(part, 'thought') and part.thought:
+                                # This part contains thinking content, extract from text
+                                if part.text:
+                                    thinking_content = part.text
+                                    # Send thinking tokens via callback
+                                    if on_thinking_token is not None:
+                                        await on_thinking_token(thinking_content)
+                                    logger.debug(
+                                        "Native thinking token received from Vertex AI",
+                                        thinking_length=len(thinking_content),
+                                    )
+                            elif part.text:
+                                # Process text through thinking block detection (for compatibility)
                                 await _process_content_token(part.text)
                             elif part.function_call:
                                 # Capture tool call
@@ -539,6 +567,104 @@ class VertexInferenceService:
         except Exception as e:
             logger.error("Vertex AI streaming tool completion error", error=str(e))
             raise VertexInferenceServiceError(f"Streaming tool completion failed: {e}")
+
+    async def astream_chat_completion_with_thinking(
+        self,
+        messages: List[Dict[str, Any]],
+        system_prompt: Optional[str] = None,
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+    ) -> AsyncGenerator[Tuple[str, str], None]:
+        """
+        Stream chat completion from Vertex AI with thinking detection.
+
+        Yields typed tuples:
+        - ('thinking', token): Content inside native thinking blocks
+        - ('response', token): Content outside thinking blocks
+
+        This method is used by the WhatsApp agent graph to stream thinking tokens
+        to the frontend via socket events.
+
+        Args:
+            messages: List of message dicts
+            system_prompt: Optional system prompt
+            max_tokens: Override max tokens
+            temperature: Override temperature
+            tools: Optional tool definitions
+
+        Yields:
+            Tuple of (type, content) where type is 'thinking' or 'response'
+        """
+        # Convert tools to Vertex format
+        vertex_tools = self._convert_tools_to_vertex_format(tools) if tools else None
+
+        # Build config
+        config = GenerateContentConfig(
+            system_instruction=system_prompt,
+            max_output_tokens=max_tokens or self.max_tokens,
+            temperature=temperature or self.temperature,
+        )
+
+        # Enable native thinking for Gemini 3 models
+        if "gemini-3" in self.model.lower() or "gemini-2.5" in self.model.lower():
+            config.thinking_config = ThinkingConfig(
+                include_thoughts=True,
+            )
+            logger.debug(
+                "Native thinking enabled with include_thoughts for Vertex AI streaming",
+                model=self.model,
+                thinking_config=config.thinking_config,
+            )
+
+        if vertex_tools:
+            config.tools = vertex_tools
+
+        # Convert messages to Vertex format
+        contents = self._convert_messages_to_vertex_format(messages)
+
+        logger.debug(
+            "Starting Vertex AI streaming with thinking",
+            model=self.model,
+            message_count=len(contents),
+            has_tools=bool(vertex_tools),
+        )
+
+        try:
+            # Stream the response
+            for chunk in self.client.models.generate_content_stream(
+                model=self.model,
+                contents=contents,
+                config=config,
+            ):
+                if chunk.candidates:
+                    candidate = chunk.candidates[0]
+
+                    if candidate.content and candidate.content.parts:
+                        for part in candidate.content.parts:
+                            # Handle native thinking field (Gemini 2.5+)
+                            if hasattr(part, 'thought') and part.thought:
+                                # This part contains thinking content, extract from text
+                                if part.text:
+                                    yield ("thinking", part.text)
+                                    logger.debug(
+                                        "Thinking token yielded",
+                                        thinking_length=len(part.text),
+                                    )
+                            elif part.text:
+                                # Regular response content
+                                yield ("response", part.text)
+                            elif part.function_call:
+                                # Tool calls are handled separately in this streaming method
+                                # For now, we'll just log them
+                                logger.debug(
+                                    "Tool call encountered in streaming",
+                                    tool_name=part.function_call.name,
+                                )
+
+        except Exception as e:
+            logger.error("Vertex AI streaming with thinking error", error=str(e))
+            raise VertexInferenceServiceError(f"Streaming with thinking failed: {e}")
 
 
 # Global service instance (singleton pattern like other services)

@@ -366,15 +366,15 @@ async def _execute_tool_call(
     
     elif tool_name == "delivery_tool":
         from app.agents.tools.delivery_tool import delivery_tool, set_active_conversation
-        
+
         set_active_conversation(state["conversation_id"])
-        
+
         tool_input = {
             "acao": tool_arguments.get("acao", "listar_regioes"),
             "bairro": tool_arguments.get("bairro", "") if isinstance(tool_arguments.get("bairro", ""), str) else "",
             "valor_pedido": tool_arguments.get("valor_pedido", 0) if isinstance(tool_arguments.get("valor_pedido", 0), (int, float)) else 0,
         }
-        
+
         result, _ = await _run_tracked_whatsapp_tool(
             state,
             "delivery_tool",
@@ -384,7 +384,58 @@ async def _execute_tool_call(
         )
         state["cardapio_context"] = result
         return result
-    
+
+    elif tool_name == "open_ticket_with_context":
+        from app.agents.tools.open_ticket_tool import open_ticket_with_context
+
+        tool_input = {
+            "conversation_id": state.get("conversation_id"),
+            "instance_id": state.get("instance_id"),
+            "contact_id": state.get("remote_jid"),
+            "agent_type": state.get("active_agent_type", "sales"),
+            "reason": tool_arguments.get("reason", "Atendimento necessário"),
+            "content": tool_arguments.get("content", state.get("current_message", "")),
+        }
+
+        result, _ = await _run_tracked_whatsapp_tool(
+            state,
+            "open_ticket_with_context",
+            tool_input,
+            lambda: open_ticket_with_context.invoke(tool_input),
+            display_name="Abrir ticket para humano",
+        )
+
+        # Set human_in_loop state when ticket is opened
+        state["human_in_loop"] = True
+        state["human_handoff_reason"] = tool_arguments.get("reason", "Atendimento necessário")
+        state["cardapio_context"] = result
+
+        # Emit event for human notification
+        try:
+            from app.services.realtime_event_bus import realtime_event_bus
+            await realtime_event_bus.publish(
+                event_type="human_handoff_requested",
+                data={
+                    "conversation_id": state.get("conversation_id"),
+                    "instance_id": state.get("instance_id"),
+                    "contact_id": state.get("remote_jid"),
+                    "contact_name": state.get("contact_name"),
+                    "agent_type": state.get("active_agent_type"),
+                    "reason": tool_arguments.get("reason"),
+                    "content": tool_arguments.get("content"),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }
+            )
+            logger.info(
+                "Human handoff event published",
+                conversation_id=state.get("conversation_id"),
+                reason=tool_arguments.get("reason")
+            )
+        except Exception as e:
+            logger.warning("Failed to publish human handoff event", error=str(e))
+
+        return result
+
     else:
         logger.warning("Unknown tool called", tool_name=tool_name)
         return f"Ferramenta '{tool_name}' não encontrada."
@@ -526,9 +577,171 @@ def _compact_generation_prompt(
     )
 
 
+# Palavras-chave que devem forçar handoff para humano (problemas de pedido/empresa)
+HUMAN_HANDOFF_KEYWORDS = [
+    "gerente", "supervisor", "diretor", "dono", "proprietário",
+    "falar com dono", "falar com gerente", "falar com supervisor",
+    "problema com pedido", "pedido errado", "pedido não chegou",
+    "reclamação grave", "insatisfação", "muito insatisfeito",
+    "cancelei tudo", "quero meu dinheiro de volta", "reembolso",
+    "advogado", "procon", "denunciar", "processar",
+    "atendimento ruim", "péssimo atendimento",
+    "nunca mais compro", "jamais compro",
+    "empresa", "negócio", "propriedade", "dono da empresa"
+]
+
+
+def _should_trigger_human_handoff(message: str, intent: str, flow_stage: str) -> tuple[bool, str]:
+    """
+    Verifica se deve forçar handoff para humano baseado em palavras-chave e contexto.
+
+    Returns:
+        (should_handoff, reason)
+    """
+    message_lower = message.lower().strip()
+
+    # Verificar palavras-chave de handoff
+    for keyword in HUMAN_HANDOFF_KEYWORDS:
+        if keyword in message_lower:
+            return True, f"Palavra-chave de handoff detectada: '{keyword}'"
+
+    # Verificar contextos específicos de pedido que requerem humano
+    if intent == "suporte":
+        return True, "Intenção de suporte detectada - requer intervenção humana"
+
+    if intent == "status_pedido" and flow_stage == "pedido_finalizado":
+        # Se cliente está perguntando sobre pedido finalizado, pode ser problema
+        for problem_keyword in ["não chegou", "atraso", "errado", "problema"]:
+            if problem_keyword in message_lower:
+                return True, f"Problema com pedido finalizado: '{problem_keyword}'"
+
+    return False, ""
+
+
+async def check_human_handoff_node(state: AgentState) -> Dict[str, Any]:
+    """
+    Nó 0.5: Verifica se a conversa está sob controle humano ou se deve forçar handoff.
+
+    Se human_in_loop=True, retorna mensagem informando que humano está atendendo.
+    Se detectar necessidade de handoff, chama ferramenta open_ticket_with_context automaticamente.
+    """
+    conversation_id = state["conversation_id"]
+    correlation_id = state.get("correlation_id") or str(uuid.uuid4())
+    human_in_loop = state.get("human_in_loop", False)
+    current_message = state.get("current_message", "")
+    intent = state.get("intent", "")
+    flow_stage = state.get("flow_stage", "")
+
+    logger.info(
+        "Checking human handoff status",
+        correlation_id=correlation_id,
+        conversation_id=conversation_id,
+        human_in_loop=human_in_loop
+    )
+
+    # Se já está sob controle humano, não processar
+    if human_in_loop:
+        logger.info(
+            "Conversation under human control, skipping agent processing",
+            correlation_id=correlation_id,
+            conversation_id=conversation_id
+        )
+        return {
+            "should_respond": False,
+            "response": None,
+            "error": "Conversation under human control"
+        }
+
+    # Verificar se deve forçar handoff baseado em palavras-chave
+    should_handoff, handoff_reason = _should_trigger_human_handoff(current_message, intent, flow_stage)
+
+    if should_handoff:
+        logger.info(
+            "Auto-triggering human handoff",
+            correlation_id=correlation_id,
+            conversation_id=conversation_id,
+            reason=handoff_reason
+        )
+
+        # Chamar ferramenta open_ticket_with_context automaticamente
+        tool_input = {
+            "conversation_id": state.get("conversation_id"),
+            "instance_id": state.get("instance_id"),
+            "contact_id": state.get("remote_jid"),
+            "agent_type": state.get("active_agent_type", "sales"),
+            "reason": f"Auto-handoff: {handoff_reason}",
+            "content": current_message,
+        }
+
+        try:
+            from app.agents.tools.open_ticket_tool import open_ticket_with_context
+            result = await _run_tracked_whatsapp_tool(
+                state,
+                "open_ticket_with_context",
+                tool_input,
+                lambda: open_ticket_with_context.invoke(tool_input),
+                display_name="Auto-handoff para humano",
+            )
+
+            # Atualizar estado
+            state["human_in_loop"] = True
+            state["human_handoff_reason"] = handoff_reason
+            state["ticket_id"] = None  # Será definido pela ferramenta
+            state["cardapio_context"] = result[0]
+
+            # Emitir evento
+            try:
+                from app.services.realtime_event_bus import realtime_event_bus
+                await realtime_event_bus.publish(
+                    event_type="human_handoff_requested",
+                    data={
+                        "conversation_id": state.get("conversation_id"),
+                        "instance_id": state.get("instance_id"),
+                        "contact_id": state.get("remote_jid"),
+                        "contact_name": state.get("contact_name"),
+                        "agent_type": state.get("active_agent_type"),
+                        "reason": handoff_reason,
+                        "content": current_message,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "auto_triggered": True,
+                    }
+                )
+                logger.info(
+                    "Auto human handoff event published",
+                    conversation_id=state.get("conversation_id"),
+                    reason=handoff_reason
+                )
+            except Exception as e:
+                logger.warning("Failed to publish auto human handoff event", error=str(e))
+
+            # Retornar a resposta do ticket
+            return {
+                "should_respond": True,
+                "response": result[0],
+                "human_in_loop": True,
+                "human_handoff_reason": handoff_reason,
+            }
+
+        except Exception as e:
+            logger.error(
+                "Failed to auto-trigger human handoff",
+                correlation_id=correlation_id,
+                conversation_id=conversation_id,
+                error=str(e)
+            )
+            # Continuar processamento normal se handoff falhar
+            return {
+                "should_respond": True
+            }
+
+    return {
+        "should_respond": True
+    }
+
+
 async def validate_message_node(state: AgentState) -> Dict[str, Any]:
     """
-    Nó 0: Valida se a mensagem deve ser processada.
+    Nó 1: Valida se a mensagem deve ser processada.
 
     Verificações:
     - Mensagem não é do próprio bot
@@ -655,13 +868,22 @@ async def load_context_node(state: AgentState) -> Dict[str, Any]:
             order_state = _build_order_state_payload(active_order)
             _pedidos_ativos[conversation_id] = order_state.get("pedido_atual") or []
             
-            # Carregar conversa para obter tipo de agente
+            # Carregar conversa para obter tipo de agente e estado human_in_loop
             from app.models.models import Conversation
             conversation_db = db.query(Conversation).filter(
                 Conversation.id == conversation_id
             ).first()
-            
-            # Rotear agente baseado na mensagem atual
+
+            # Load human_in_loop state from database
+            human_in_loop = False
+            human_handoff_reason = None
+            ticket_id = None
+            if conversation_db:
+                human_in_loop = conversation_db.human_in_loop or False
+                human_handoff_reason = conversation_db.human_handoff_reason
+                ticket_id = conversation_db.ticket_id
+
+            # Rotear agente baseado na mensagem atual (apenas se não estiver em human_in_loop)
             from app.agents.agent_router import route_agent
             routing_result = route_agent(
                 conversation_id=conversation_id,
@@ -702,6 +924,9 @@ async def load_context_node(state: AgentState) -> Dict[str, Any]:
             "messages": [],
             "_history_text": history_text,
             "active_agent_type": active_agent_type,
+            "human_in_loop": human_in_loop,
+            "human_handoff_reason": human_handoff_reason,
+            "ticket_id": ticket_id,
             "cardapio_context": None,
             "cardapio_items": None,
             **order_state,
@@ -1221,7 +1446,7 @@ async def generate_response_node(state: AgentState) -> Dict[str, Any]:
                     text_token = token if isinstance(token, str) else str(token)
                     if not thinking_end_emitted:
                         interim_thinking = "".join(thinking_buffer).strip()
-                        interim_summary = interim_thinking[:120] if interim_thinking else f"Intenção: {intent}"
+                        interim_summary = interim_thinking[:120] if interim_thinking else ""
                         logger.info(
                             "Thinking phase ended",
                             conversation_id=conversation_id,
@@ -1332,7 +1557,7 @@ async def generate_response_node(state: AgentState) -> Dict[str, Any]:
 
         # Create summary from thinking content (first 120 chars)
         thinking_content = "".join(thinking_buffer)
-        summary = thinking_content[:120] if thinking_content else f"Intenção: {intent}"
+        summary = thinking_content[:120] if thinking_content else ""
 
         # Join response tokens into final response
         response = "".join(response_buffer).strip()
