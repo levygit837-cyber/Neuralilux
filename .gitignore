@@ -5,7 +5,6 @@ __pycache__/
 
 # C extensions
 *.so
-
 # Distribution / packaging
 .Python
 build/
@@ -23,68 +22,123 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-
 # Virtual environments
 venv/
 env/
 ENV/
 .venv
-
 # IDEs
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-
 # Environment variables
 .env
 .env.local
 .env.*.local
-
 # Database
 *.db
 *.sqlite3
 *.sql
-
 # Logs
 *.log
 logs/
-
 # OS
 .DS_Store
 Thumbs.db
-
 # Docker
 *.pid
 *.seed
 *.pid.lock
-
 # Node (for frontend)
 node_modules/
 .next/
 out/
-build/
-
 # Uploads and temporary files
 uploads/
 temp/
 tmp/
 *.tmp
-
 # Testing
 .pytest_cache/
 .coverage
 htmlcov/
 coverage/
 .mcp_data/
-
 # Evolution API data
 evolution-api/instances/
 evolution-api/store/
-
 # Backups
 *.bak
 *.backup
 .aidesigner/*
 !.aidesigner/.gitkeep
+# ============================
+# Portfolio protection rules
+# Logs e arquivos temporários
+*.txt
+!requirements.txt
+# Arquivos de IA / Assistants
+.aidesigner/
+.aider/
+.agents/
+.archive/
+.bg-shell/
+.claude/
+.clinerules/
+.codex/
+.factory/
+.kiro/
+.mcp.json
+.planning/
+.playwright-cli/
+.qwen/
+.windsurf/
+codedb.snapshot
+# Status / Temp docs
+ANALISE*.md
+ANALISE-*.md
+CORRECAO*.md
+CORRECAO-*.md
+DECISAO*.md
+IMPLEMENTACAO*.md
+IMPLEMENTATION_*.md
+RESUMO*.md
+RESUMO-*.md
+SOLUCAO*.md
+STREAMING_FIX*.md
+SUCESSO*.md
+TESTE*.md
+SELFCODE-REVIEW*.md
+CODE-REVIEW*.md
+LIGHTPANDA*.md
+PROJECT_STRUCTURE.md
+FRONTEND_CONECTADO.md
+PHASE-*-TEST-RESULTS.md
+blocked.txt
+pytest_output.txt
+pytest_fail_details.txt
+# Arquivos binários / Artefatos
+*.docx
+*.doc
+*.xlsx
+*.pdf
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+output/
+# IDE / Local
+# Secrets / Configs locais
+config.yaml
+config.local.yaml
+!.env.example
+# Dependências
+vendor/
+*.pyc
+*.pyo
+.gitkeep
+# Build / Dist
+*.tsbuildinfo
