@@ -1,6 +1,6 @@
 # Neuralilux — reviewer guide
 
-> **30-second summary:** Neuralilux is a product-oriented prototype for AI-assisted WhatsApp operations. It combines multi-tenant account and instance management, conversational agents, operational tools, company-scoped retrieval and a Next.js supervision dashboard.
+> **30-second summary:** Neuralilux is a product-oriented prototype for AI-assisted WhatsApp operations. It combines multi-tenant account and instance management, conversational agents, operational tools and a Next.js supervision dashboard. A company-scoped retrieval subsystem also exists, but it is used by a separate experimental `super_agents` flow rather than the primary Sales/SAC WhatsApp graph.
 
 ## Why this project is relevant
 
@@ -10,6 +10,8 @@ The repository demonstrates meaningful product and integration work, but the pub
 
 ## Product flow
 
+Primary WhatsApp flow:
+
 ```mermaid
 flowchart LR
     W[WhatsApp user] --> E[Evolution API]
@@ -18,11 +20,18 @@ flowchart LR
     R --> G[LangGraph workflow]
     G --> T[Catalog, order, schedule and delivery tools]
     G --> L[Model provider and fallback]
-    G --> K[Company documents and Qdrant retrieval]
     G --> D[PostgreSQL conversation state]
     D --> U[Next.js operations dashboard]
     G --> U
     U --> X[Human handoff and supervision]
+```
+
+Separate experimental retrieval flow:
+
+```mermaid
+flowchart LR
+    C[Company rules and documents] --> K[Qdrant retrieval]
+    K --> S[super_agents graph]
 ```
 
 ## What to inspect
@@ -30,10 +39,10 @@ flowchart LR
 | Surface | Starting point | Review value |
 |---|---|---|
 | Agent execution | `backend/app/agents/agent_executor.py` | Coordinates a WhatsApp message, graph execution, streaming state and response delivery |
-| Agent graph | `backend/app/agents/graph/whatsapp_graph.py` | Encodes handoff, validation, context, intent, tools and response generation |
+| Primary agent graph | `backend/app/agents/graph/whatsapp_graph.py` | Encodes handoff, validation, context, intent, tools and response generation without the Qdrant retrieval path |
 | Operational tools | `backend/app/agents/tools/` | Connects model decisions to menu, order, schedule and delivery operations |
 | Multi-tenant API | `backend/app/api/v1/` | Covers authentication, companies, instances, conversations and configuration |
-| Retrieval | `backend/app/rag/` | Ingests and retrieves company-scoped context through Qdrant |
+| Experimental retrieval | `backend/app/rag/` and `backend/app/super_agents/graph/nodes.py` | Ingests and retrieves company-scoped context for the separate super-agent flow |
 | Data evolution | `backend/alembic/versions/` | Shows progression from messaging to menus, orders, agents, tickets and payments |
 | Product interface | `frontend/src/` | Implements instances, conversations, agent settings, inventory and operations views |
 | Real-time updates | Socket.IO and event services | Connects backend activity to the supervision interface |
@@ -43,7 +52,7 @@ flowchart LR
 - The project has a concrete user and workflow rather than an abstract agent framework.
 - Agent tools are tied to operational data and actions, not only generic function-calling examples.
 - Human handoff is represented in the graph and data model.
-- Company rules, documents and vector retrieval acknowledge tenant-specific context needs.
+- A company-scoped document/retrieval subsystem exists as a separate experiment, making its integration boundary inspectable rather than implicit.
 - The frontend covers operational supervision, not merely a chat box.
 - Alembic history demonstrates iterative product/domain expansion.
 
@@ -53,6 +62,7 @@ flowchart LR
 - `start-backend.sh` references a missing `requirements.txt`, so a clean-clone setup is not reproducible.
 - The frontend references a non-versioned `authToken.ts` module.
 - There is no active GitHub Actions workflow or current reproducible test report.
+- Qdrant retrieval is not wired into the primary WhatsApp Sales/SAC graph.
 - Some RAG and ticket routes still require stronger tenant authorization guarantees.
 - Payment and ticket code does not currently prove a complete end-to-end production journey.
 - The frontend dependency set and development defaults require modernization before deployment.
@@ -66,15 +76,17 @@ Suggested sequence:
 1. Read `README.md` and this guide.
 2. Inspect `backend/app/agents/graph/whatsapp_graph.py`.
 3. Inspect `backend/app/agents/agent_executor.py` and tool modules.
-4. Inspect the Alembic migrations to understand the product domain.
-5. Inspect `frontend/src/app/` and `frontend/src/components/`.
-6. Treat old completion claims as historical until installation and tests are restored.
+4. Inspect `backend/app/super_agents/graph/nodes.py` separately to understand where retrieval is actually used.
+5. Inspect the Alembic migrations to understand the product domain.
+6. Inspect `frontend/src/app/` and `frontend/src/components/`.
+7. Treat old completion claims as historical until installation and tests are restored.
 
 ## Highest-value next milestones
 
 - Restore a locked Python dependency manifest and a minimal Compose environment.
 - Restore or replace the missing frontend auth-token module.
 - Add a clean-clone smoke test for login, instance connection and one agent conversation.
+- Decide whether retrieval belongs in the primary WhatsApp graph; if so, integrate it with explicit company scope, authorization and tests.
 - Enforce and test tenant boundaries in retrieval, tickets and tool execution.
 - Record one safe demo with synthetic data showing WhatsApp input, tool action, dashboard state and human handoff.
 
