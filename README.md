@@ -4,7 +4,7 @@
 
 **Protótipo técnico de atendimento assistido por IA para operações no WhatsApp.**
 
-*An AI-assisted WhatsApp operations prototype with agent tools, company-scoped retrieval and human supervision.*
+*An AI-assisted WhatsApp operations prototype with agent tools, human supervision and a separate experimental retrieval subsystem.*
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
@@ -33,13 +33,16 @@ O projeto é um protótipo técnico legado, não uma plataforma validada para pr
 - roteamento entre agentes de vendas e atendimento;
 - ferramentas ligadas ao fluxo principal para cardápio, pedido, horário e entrega;
 - configuração de provedores de inferência, fallback e eventos de streaming;
-- regras e documentos por empresa, ingestão de conteúdo e recuperação via Qdrant;
+- subsistema separado de regras/documentos, ingestão e recuperação via Qdrant usado pelo fluxo experimental `super_agents`;
 - dashboard Next.js para instâncias, conversas, agente, estoque e configurações.
 
 Há implementações isoladas de ticket e pagamento, mas elas não fecham hoje uma jornada completa pelo
-dispatcher principal. Alguns cartões de configuração da interface também permanecem demonstrativos.
+dispatcher principal. O RAG também não está ligado ao grafo principal Sales/SAC do WhatsApp. Alguns
+cartões de configuração da interface permanecem demonstrativos.
 
 ## Arquitetura
+
+Fluxo principal do WhatsApp:
 
 ```text
 WhatsApp / Evolution API
@@ -47,19 +50,28 @@ WhatsApp / Evolution API
           ▼
 FastAPI ── webhooks ── roteador Sales/SAC ── tools operacionais
    │                         │
-   ├── PostgreSQL            ├── provedores de inferência + fallback
-   ├── Redis / RabbitMQ      └── RAG por empresa / Qdrant
+   ├── PostgreSQL            └── provedores de inferência + fallback
+   ├── Redis / RabbitMQ
    │
    └── Socket.IO / REST ── dashboard Next.js
 ```
 
+Fluxo experimental separado:
+
+```text
+regras e documentos por empresa
+          │
+          ▼
+       RAG / Qdrant ── super_agents graph
+```
+
 ```text
 backend/app/
-├── agents/          # grafo, prompts, memória, outputs e tools
+├── agents/          # grafo principal, prompts, memória, outputs e tools
 ├── api/v1/          # autenticação, instâncias, conversas e configuração
 ├── rag/             # ingestão, recuperação e vector store
 ├── services/        # Evolution API, inferência, catálogo e tempo real
-└── super_agents/    # workspace experimental de agente e tool runtime
+└── super_agents/    # workspace experimental que consome o subsistema de retrieval
 
 frontend/src/
 ├── app/             # rotas do dashboard
@@ -88,6 +100,7 @@ manifestos e validar a instalação é uma pendência do projeto.
 
 - o snapshot público não contém manifesto de dependências do backend nem Compose da infraestrutura;
 - o frontend referencia `frontend/src/lib/authToken.ts`, mas esse arquivo não está versionado;
+- o retrieval/Qdrant pertence ao fluxo experimental `super_agents` e não fundamenta hoje o grafo principal Sales/SAC;
 - endpoints de RAG e tickets ainda exigem reforço de isolamento e autorização por empresa;
 - as suítes não foram reproduzidas em uma instalação limpa desta versão pública;
 - dependências frontend e defaults de desenvolvimento precisam de revisão antes de qualquer deploy;
