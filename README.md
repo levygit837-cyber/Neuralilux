@@ -4,6 +4,8 @@
 
 **Protótipo técnico de atendimento assistido por IA para operações no WhatsApp.**
 
+*An AI-assisted WhatsApp operations prototype with agent tools, company-scoped retrieval and human supervision.*
+
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Next.js](https://img.shields.io/badge/Next.js-14-000000?logo=nextdotjs&logoColor=white)](https://nextjs.org/)
@@ -13,7 +15,7 @@
 
 ## Navegação rápida
 
-[Problema](#o-problema) · [Implementação](#o-que-está-implementado) · [Arquitetura](#arquitetura) · [Execução](#rodar-localmente) · [Limites](#limites-atuais)
+[Problema](#o-problema) · [Implementação](#o-que-está-implementado) · [Arquitetura](#arquitetura) · [Execução](#rodar-localmente) · [Limites](#limites-atuais) · [Guia para avaliadores](docs/reviewer-guide.md)
 
 ## O problema
 
@@ -94,6 +96,7 @@ manifestos e validar a instalação é uma pendência do projeto.
 
 ## Documentação
 
+- [Guia para avaliadores](docs/reviewer-guide.md)
 - [Backend](backend/README.md)
 - [Frontend](frontend/README.md)
 
