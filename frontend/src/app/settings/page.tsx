@@ -7,6 +7,7 @@ import { AIAgentCard } from '@/components/settings/AIAgentCard'
 import { InferenceProviderCard } from '@/components/settings/InferenceProviderCard'
 import { WhatsAppConnectionCard } from '@/components/settings/WhatsAppConnectionCard'
 import { ThemeAppearanceCard } from '@/components/settings/ThemeAppearanceCard'
+import { GatewaysPanel } from '@/components/settings/GatewaysPanel'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 
 export default function SettingsPage() {
@@ -37,6 +38,9 @@ export default function SettingsPage() {
                 <WhatsAppConnectionCard />
               </div>
             )}
+
+            {/* Gateways Tab Content */}
+            {activeTab === 'gateways' && <GatewaysPanel />}
           </div>
         </div>
       </div>
