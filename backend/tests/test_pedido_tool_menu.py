@@ -5,9 +5,10 @@ pedido_tool_module = importlib.import_module("app.agents.tools.pedido_tool")
 menu_service_module = importlib.import_module("app.services.menu_catalog_service")
 
 
-def test_pedido_tool_adds_real_macedos_item_with_correct_price(db, monkeypatch):
+def test_pedido_tool_adds_real_macedos_item_with_correct_price(db, monkeypatch, conversation_factory):
     monkeypatch.setattr(pedido_tool_module, "SessionLocal", lambda: db)
     pedido_tool_module._pedidos_ativos.clear()
+    conversation_factory("conv-macedos")
     pedido_tool_module.set_active_conversation("conv-macedos")
     menu_service_module.sync_macedos_menu_from_json(db, menu_service_module.DEFAULT_MENU_JSON_PATH)
 
@@ -31,9 +32,10 @@ def test_pedido_tool_adds_real_macedos_item_with_correct_price(db, monkeypatch):
     assert pedido[0]["quantidade"] == 2
 
 
-def test_pedido_tool_uses_json_fallback_when_menu_not_synced(db, monkeypatch):
+def test_pedido_tool_uses_json_fallback_when_menu_not_synced(db, monkeypatch, conversation_factory):
     monkeypatch.setattr(pedido_tool_module, "SessionLocal", lambda: db)
     pedido_tool_module._pedidos_ativos.clear()
+    conversation_factory("conv-fallback")
     pedido_tool_module.set_active_conversation("conv-fallback")
 
     result = pedido_tool_module.pedido_tool.invoke(
@@ -52,10 +54,11 @@ def test_pedido_tool_uses_json_fallback_when_menu_not_synced(db, monkeypatch):
     assert pedido[0]["preco_unitario"] == 222.0
 
 
-def test_pedido_tool_adds_unavailable_item_by_default(db, monkeypatch):
+def test_pedido_tool_adds_unavailable_item_by_default(db, monkeypatch, conversation_factory):
     """Testa que itens marcados como indisponíveis são adicionados por padrão (sem verificação de estoque)."""
     monkeypatch.setattr(pedido_tool_module, "SessionLocal", lambda: db)
     pedido_tool_module._pedidos_ativos.clear()
+    conversation_factory("conv-indisponivel")
     pedido_tool_module.set_active_conversation("conv-indisponivel")
     menu_service_module.sync_macedos_menu_from_json(db, menu_service_module.DEFAULT_MENU_JSON_PATH)
 

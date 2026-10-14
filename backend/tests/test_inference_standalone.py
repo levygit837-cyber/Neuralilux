@@ -697,11 +697,13 @@ class TestInferenceService:
         assert captured_payload["messages"][0]["content"] == "Be helpful"
 
     @pytest.mark.asyncio
-    async def test_chat_completion_requests_disable_thinking_flag(self):
+    async def test_chat_completion_requests_disable_thinking_flag(self, monkeypatch):
         """Test that LM Studio requests attempt to disable thinking when configured."""
         from app.services.inference_service import InferenceService
 
         service = InferenceService()
+        # O .env local pode desligar a flag; o teste valida o comportamento com ela ligada.
+        monkeypatch.setattr("app.services.inference_service.settings.LM_STUDIO_DISABLE_THINKING", True)
 
         mock_response = MagicMock()
         mock_response.status_code = 200
