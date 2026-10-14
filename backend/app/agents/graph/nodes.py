@@ -1388,7 +1388,10 @@ async def generate_response_node(state: AgentState) -> Dict[str, Any]:
 
         token_count = {"thinking": 0, "response": 0}
         tools_enabled = (
-            inference_service.__class__.__name__ == "GeminiInferenceService"
+            (
+                inference_service.__class__.__name__ == "GeminiInferenceService"
+                or bool(getattr(inference_service, "uses_gateway", False))
+            )
             and not _is_nemotron_model()
             and not bool(state.get("tool_calls"))
             and not bool(state.get("output_data"))

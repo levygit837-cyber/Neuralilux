@@ -6,6 +6,7 @@ Provides chat completion and response generation capabilities.
 import httpx
 import json
 import asyncio
+import inspect
 from typing import List, Optional, Dict, Any, AsyncGenerator, Tuple
 from dataclasses import dataclass
 import structlog
@@ -990,9 +991,22 @@ class FallbackInferenceService:
         self.secondary_service = self._get_secondary_service()
         self.max_retries = 3
 
+    def _gateway_service(self):
+        """Modelo de gateway local atribuido a este tipo de agente (ou None)."""
+        from app.services import gateway_registry
+
+        return gateway_registry.get_assigned_service(self.agent_type)
+
+    @property
+    def uses_gateway(self) -> bool:
+        return self._gateway_service() is not None
+
     @property
     def model(self) -> Optional[str]:
-        """Model name of the primary provider (callers inspect the runtime model)."""
+        """Model name of the active provider (callers inspect the runtime model)."""
+        gateway = self._gateway_service()
+        if gateway is not None:
+            return gateway.model
         return getattr(self.primary_service, "model", None)
 
     def _get_primary_service(self):
@@ -1093,6 +1107,25 @@ class FallbackInferenceService:
         Returns:
             Dict with response content and metadata
         """
+        gateway = self._gateway_service()
+        if gateway is not None:
+            try:
+                return await self._try_with_retry(
+                    gateway,
+                    "chat_completion",
+                    messages=messages,
+                    system_prompt=system_prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                )
+            except Exception as gateway_error:
+                logger.error(
+                    "Gateway failed, falling back to default providers",
+                    gateway=gateway.gateway_name,
+                    error=str(gateway_error),
+                    agent_type=self.agent_type,
+                )
+
         # Try primary service (Vertex AI) with retries
         try:
             logger.info(
@@ -1191,6 +1224,27 @@ class FallbackInferenceService:
         Returns:
             Dict with content, tool_calls, and metadata
         """
+        gateway = self._gateway_service()
+        if gateway is not None:
+            try:
+                return await self._try_with_retry(
+                    gateway,
+                    "chat_completion_with_tools",
+                    messages=messages,
+                    tools=tools,
+                    system_prompt=system_prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    tool_choice=tool_choice,
+                )
+            except Exception as gateway_error:
+                logger.error(
+                    "Gateway failed, falling back to default providers",
+                    gateway=gateway.gateway_name,
+                    error=str(gateway_error),
+                    agent_type=self.agent_type,
+                )
+
         # Try primary service (Vertex AI) with retries
         try:
             logger.info(
@@ -1291,6 +1345,31 @@ class FallbackInferenceService:
         Yields:
             Tuple of (type, content) where type is 'thinking' or 'response'
         """
+        gateway = self._gateway_service()
+        if gateway is not None:
+            emitted = False
+            try:
+                async for chunk in gateway.astream_chat_completion_with_thinking(
+                    messages=messages,
+                    system_prompt=system_prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    tools=tools,
+                ):
+                    emitted = True
+                    yield chunk
+                return
+            except Exception as gateway_error:
+                if emitted:
+                    # Ja houve saida parcial: reiniciar em outro provedor duplicaria tokens.
+                    raise
+                logger.error(
+                    "Gateway failed before first token, falling back to default providers",
+                    gateway=gateway.gateway_name,
+                    error=str(gateway_error),
+                    agent_type=self.agent_type,
+                )
+
         # Try primary service (Vertex AI)
         try:
             logger.info(
@@ -1368,6 +1447,48 @@ class FallbackInferenceService:
         Returns:
             Dict with content, tool_calls, and metadata
         """
+        gateway = self._gateway_service()
+        if gateway is not None:
+            thinking_seen = False
+            response_seen = False
+
+            async def _track_thinking(token: str) -> None:
+                nonlocal thinking_seen
+                thinking_seen = True
+                if on_thinking_token is not None:
+                    result = on_thinking_token(token)
+                    if inspect.isawaitable(result):
+                        await result
+
+            async def _track_response(token: str) -> None:
+                nonlocal response_seen
+                response_seen = True
+                if on_response_token is not None:
+                    result = on_response_token(token)
+                    if inspect.isawaitable(result):
+                        await result
+
+            try:
+                return await gateway.stream_chat_completion_with_tools(
+                    messages=messages,
+                    tools=tools,
+                    system_prompt=system_prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    tool_choice=tool_choice,
+                    on_thinking_token=_track_thinking,
+                    on_response_token=_track_response,
+                )
+            except Exception as gateway_error:
+                if thinking_seen or response_seen:
+                    raise
+                logger.error(
+                    "Gateway failed before first token, falling back to default providers",
+                    gateway=gateway.gateway_name,
+                    error=str(gateway_error),
+                    agent_type=self.agent_type,
+                )
+
         # Try primary service (Vertex AI) with retries
         try:
             logger.info(
