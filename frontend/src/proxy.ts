@@ -8,7 +8,7 @@ const PROTECTED_ROUTES = ['/dashboard', '/chat', '/instances', '/qr', '/agent', 
 // Public routes that should redirect authenticated users
 const AUTH_ROUTES = ['/login']
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   // Get auth token from cookie (persisted by Zustand)

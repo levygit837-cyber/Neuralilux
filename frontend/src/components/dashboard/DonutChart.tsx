@@ -27,13 +27,16 @@ const CIRCUMFERENCE = 2 * Math.PI * RADIUS
 export function DonutChart({ data, isLoading, className }: DonutChartProps) {
   const total = data.resolved + data.pending + data.escalated || 1
 
-  const segments = SEGMENTS.map((seg) => ({
+  const percentages = SEGMENTS.map((seg) => Math.round((data[seg.key] / total) * 100))
+
+  const segments = SEGMENTS.map((seg, index) => ({
     ...seg,
     value: data[seg.key],
-    percentage: Math.round((data[seg.key] / total) * 100),
+    percentage: percentages[index],
+    offset: percentages
+      .slice(0, index)
+      .reduce((sum, percentage) => sum + (percentage / 100) * CIRCUMFERENCE, 0),
   }))
-
-  let currentOffset = 0
 
   return (
     <Card className={`flex flex-col h-[380px] animate-slide-up delay-500 ${className}`}>
@@ -53,28 +56,20 @@ export function DonutChart({ data, isLoading, className }: DonutChartProps) {
               <circle cx="50" cy="50" r={RADIUS} fill="none" stroke="#2D2447" strokeWidth="10" />
 
               {/* Segments */}
-              {segments.map((segment) => {
-                const segmentLength = (segment.percentage / 100) * CIRCUMFERENCE
-                const dashArray = `${segmentLength} ${CIRCUMFERENCE}`
-                const dashOffset = -currentOffset
-
-                currentOffset += segmentLength
-
-                return (
-                  <circle
-                    key={segment.label}
-                    cx="50"
-                    cy="50"
-                    r={RADIUS}
-                    fill="none"
-                    stroke={segment.color}
-                    strokeWidth="10"
-                    strokeDasharray={dashArray}
-                    strokeDashoffset={dashOffset}
-                    className="donut-segment"
-                  />
-                )
-              })}
+              {segments.map((segment) => (
+                <circle
+                  key={segment.label}
+                  cx="50"
+                  cy="50"
+                  r={RADIUS}
+                  fill="none"
+                  stroke={segment.color}
+                  strokeWidth="10"
+                  strokeDasharray={`${(segment.percentage / 100) * CIRCUMFERENCE} ${CIRCUMFERENCE}`}
+                  strokeDashoffset={-segment.offset}
+                  className="donut-segment"
+                />
+              ))}
             </svg>
 
             {/* Inner Content */}

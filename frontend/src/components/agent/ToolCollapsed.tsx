@@ -87,29 +87,29 @@ function buildToolPreview(toolEvent: AgentToolEvent): string {
   return truncateText(preview, 180)
 }
 
-function resolveToolIcon(toolName: string) {
+function ToolIcon({ toolName, className }: { toolName: string; className?: string }) {
   const normalized = toolName.toLowerCase()
 
   if (normalized.includes('send')) {
-    return Send
+    return <Send className={className} />
   }
   if (normalized.includes('contact')) {
-    return Users
+    return <Users className={className} />
   }
   if (normalized.includes('message') || normalized.includes('read')) {
-    return MessageSquareMore
+    return <MessageSquareMore className={className} />
   }
   if (normalized.includes('search')) {
-    return Search
+    return <Search className={className} />
   }
   if (normalized.includes('fetch') || normalized.includes('web')) {
-    return Globe
+    return <Globe className={className} />
   }
   if (normalized.includes('database') || normalized.includes('menu')) {
-    return Database
+    return <Database className={className} />
   }
 
-  return Wrench
+  return <Wrench className={className} />
 }
 
 export function ToolCollapsed({ toolEvent }: ToolCollapsedProps) {
@@ -117,7 +117,6 @@ export function ToolCollapsed({ toolEvent }: ToolCollapsedProps) {
   const label = toolEvent.displayName || toolEvent.toolName
   const phaseMeta = PHASE_META[toolEvent.phase]
   const PhaseIcon = phaseMeta.icon
-  const ToolIcon = resolveToolIcon(toolEvent.toolName)
   const preview = buildToolPreview(toolEvent)
   const startedAt = formatTimestamp(toolEvent.startedAt || toolEvent.persistedAt)
   const finishedAt = formatTimestamp(toolEvent.finishedAt)
@@ -125,7 +124,7 @@ export function ToolCollapsed({ toolEvent }: ToolCollapsedProps) {
   return (
     <div className="flex items-start gap-3 py-1">
       <div className="mt-1 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl border border-primary/30 bg-[radial-gradient(circle_at_top,_rgba(236,72,153,0.22),_transparent_55%),linear-gradient(135deg,_rgba(139,92,246,0.22),_rgba(17,12,37,0.92))] text-[#F5EBFF] shadow-[0_12px_24px_rgba(11,6,28,0.35)]">
-        <ToolIcon className="h-4 w-4" />
+        <ToolIcon toolName={toolEvent.toolName} className="h-4 w-4" />
       </div>
 
       <div className="w-full max-w-[78%] overflow-hidden rounded-[20px] border border-[#3A2C70] bg-[linear-gradient(180deg,_rgba(31,23,58,0.98)_0%,_rgba(18,13,36,0.98)_100%)] shadow-[0_14px_34px_rgba(11,6,28,0.28)]">
