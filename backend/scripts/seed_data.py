@@ -14,6 +14,7 @@ from app.core.database import SessionLocal, engine, Base
 from app.models.models import BusinessType, ProductType, Company, User, DeliveryZone
 from app.core.security import get_password_hash
 from app.services.menu_catalog_service import sync_macedos_menu_from_json
+from app.services.gateway_registry import ensure_default_gateway
 
 
 def create_business_types(db: Session):
@@ -226,6 +227,10 @@ def main():
             print(f"  Name: {user.full_name}")
             print(f"  Password: teste123")
             print(f"  Company: {target_company.name if target_company else catalog.company_id}")
+
+        print("\nRegistering default inference gateway (Kiro-backend)...")
+        gateway = ensure_default_gateway(db)
+        print("Gateway created: Kiro-backend (Sonnet 5.5, effort low)" if gateway else "Gateway already exists")
 
         print("\n✅ Database seed completed successfully!")
 

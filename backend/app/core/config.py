@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     VERTEX_TEMPERATURE: float = 0.7
     VERTEX_TIMEOUT: float = 30.0
 
+    # Gateway local "Kiro-backend" (semeado na primeira execucao; depois editavel pela API/UI)
+    KIRO_GATEWAY_URL: str = "http://localhost:5580/v1"
+    KIRO_GATEWAY_API_KEY: str | None = None
+
     # Agent Configuration (Global defaults)
     AGENT_MAX_HISTORY_MESSAGES: int = 10
     AGENT_TEMPERATURE: float = 0.2
