@@ -95,9 +95,9 @@ class RAGVectorStore:
         if category:
             filter_conditions.append(FieldCondition(key="category", match=MatchValue(value=category)))
 
-        results = self.client.search(
+        response = self.client.query_points(
             collection_name=COLLECTION_NAME,
-            query_vector=query_vector,
+            query=query_vector,
             query_filter=Filter(must=filter_conditions),
             limit=limit,
         )
@@ -110,7 +110,7 @@ class RAGVectorStore:
                 "category": r.payload.get("category"),
                 "score": r.score,
             }
-            for r in results
+            for r in response.points
         ]
 
     def delete_by_company(self, company_id: str):

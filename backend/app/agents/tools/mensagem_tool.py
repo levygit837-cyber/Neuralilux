@@ -6,6 +6,9 @@ from app.core.langchain_compat import patch_forward_ref_evaluate_for_python312
 
 patch_forward_ref_evaluate_for_python312()
 
+import asyncio
+import concurrent.futures
+
 from langchain_core.tools import tool
 import structlog
 
@@ -14,6 +17,18 @@ from app.core.database import SessionLocal
 from app.models.models import Instance
 
 logger = structlog.get_logger()
+
+
+def _run_async(coro):
+    """Executa uma coroutine a partir de código síncrono, com ou sem event loop ativo."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    # Já existe loop rodando nesta thread: executa em outra thread com loop próprio.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
 
 
 @tool
@@ -33,10 +48,13 @@ def mensagem_tool(instance_name: str, remote_jid: str, mensagem: str) -> str:
     try:
         evolution = EvolutionAPIService()
 
-        result = evolution.send_text_message(
-            instance_name=instance_name,
-            remote_jid=remote_jid,
-            text=mensagem
+        # send_text_message é async; sem executar a coroutine nada é enviado.
+        _run_async(
+            evolution.send_text_message(
+                instance_name=instance_name,
+                remote_jid=remote_jid,
+                text=mensagem,
+            )
         )
 
         logger.info(
