@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal, engine, Base
-from app.models.models import BusinessType, ProductType, Company, User
+from app.models.models import BusinessType, ProductType, Company, User, DeliveryZone
 from app.core.security import get_password_hash
 from app.services.menu_catalog_service import sync_macedos_menu_from_json
 
@@ -127,19 +127,6 @@ def create_test_company(db: Session):
         phone="(11) 98765-4321",
         email="contato@empresateste.com",
         whatsapp="5511987654321",
-        business_hours={
-            "monday": {"open": "08:00", "close": "18:00", "closed": False},
-            "tuesday": {"open": "08:00", "close": "18:00", "closed": False},
-            "wednesday": {"open": "08:00", "close": "18:00", "closed": False},
-            "thursday": {"open": "08:00", "close": "18:00", "closed": False},
-            "friday": {"open": "08:00", "close": "18:00", "closed": False},
-            "saturday": {"open": "09:00", "close": "14:00", "closed": False},
-            "sunday": {"open": "00:00", "close": "00:00", "closed": True}
-        },
-        ai_system_prompt="Você é um assistente virtual da Empresa Teste. Seja educado e prestativo.",
-        ai_model="gpt-4-turbo-preview",
-        ai_temperature=70,
-        ai_max_tokens=1000
     )
 
     db.add(company)
@@ -177,13 +164,25 @@ def create_or_update_test_user(db: Session, company_id: str):
     return user
 
 
+def create_delivery_zones(db: Session):
+    """Create sample delivery zones (antes inseridas por uma migration)."""
+    if db.query(DeliveryZone).count() > 0:
+        return []
+    zones = [
+        DeliveryZone(name="Centro", neighborhoods=["Centro", "Centro Histórico"], delivery_fee=5.00, minimum_order_value=30.00),
+        DeliveryZone(name="Zona Norte", neighborhoods=["Vila Nova", "Jardim das Flores", "Parque Industrial"], delivery_fee=8.00, minimum_order_value=30.00),
+        DeliveryZone(name="Zona Sul", neighborhoods=["Vila Maria", "Jardim América", "Parque das Nações"], delivery_fee=10.00, minimum_order_value=30.00),
+    ]
+    db.add_all(zones)
+    db.commit()
+    return [z.name for z in zones]
+
+
 def main():
     """Main function to seed database"""
     print("Starting database seed...")
 
-    # Create tables if they don't exist
-    print("Creating tables...")
-    Base.metadata.create_all(bind=engine)
+    # O schema vem exclusivamente do Alembic (alembic upgrade head)
 
     # Create session
     db = SessionLocal()
@@ -204,6 +203,10 @@ def main():
             print(f"Created: {', '.join(product_types)}")
         else:
             print("All product types already exist")
+
+        print("\nCreating delivery zones...")
+        zones = create_delivery_zones(db)
+        print(f"Created: {', '.join(zones)}" if zones else "Delivery zones already exist")
 
         # Create test company
         print("\nCreating test company...")
