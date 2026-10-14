@@ -27,23 +27,23 @@ backend/
 
 ## Setup Local
 
-```bash
-# Criar ambiente virtual
-python -m venv venv
-source venv/bin/activate
+Requer Python 3.11 ou 3.12 e a infra do `docker-compose.yml` no ar
+(`docker compose up -d postgres redis rabbitmq qdrant evolution-api`).
 
-# Instalar dependências
+```bash
+python3.12 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 
-# Configurar variáveis de ambiente
-cp .env.example .env
-nano .env
+cp .env.example .env   # ajuste EVOLUTION_API_KEY, SECRET_KEY e a chave do LLM
 
-# Executar migrações
+# Banco novo: aplicar migrations (baseline 0001) e popular dados
 alembic upgrade head
+python scripts/seed_data.py
 
-# Iniciar servidor
-uvicorn app.main:app --reload
+# API (entrypoint com Socket.IO) e worker
+uvicorn app.main:socket_app --host 0.0.0.0 --port 8000 --reload
+python scripts/run_worker.py
 ```
 
 ## Endpoints Principais
