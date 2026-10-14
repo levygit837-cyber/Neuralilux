@@ -56,15 +56,15 @@ const PHASE_CONFIG = {
   },
 } as const
 
-function resolveToolIcon(toolName: string) {
+function ToolIcon({ toolName, className }: { toolName: string; className?: string }) {
   const normalized = toolName.toLowerCase()
-  if (normalized.includes('send')) return Send
-  if (normalized.includes('contact')) return Users
-  if (normalized.includes('message') || normalized.includes('read')) return MessageSquareMore
-  if (normalized.includes('search')) return Search
-  if (normalized.includes('fetch') || normalized.includes('web')) return Globe
-  if (normalized.includes('database') || normalized.includes('menu')) return Database
-  return Wrench
+  if (normalized.includes('send')) return <Send className={className} />
+  if (normalized.includes('contact')) return <Users className={className} />
+  if (normalized.includes('message') || normalized.includes('read')) return <MessageSquareMore className={className} />
+  if (normalized.includes('search')) return <Search className={className} />
+  if (normalized.includes('fetch') || normalized.includes('web')) return <Globe className={className} />
+  if (normalized.includes('database') || normalized.includes('menu')) return <Database className={className} />
+  return <Wrench className={className} />
 }
 
 export function AgentToolCard({ toolEvent }: AgentToolCardProps) {
@@ -72,7 +72,6 @@ export function AgentToolCard({ toolEvent }: AgentToolCardProps) {
 
   const config = PHASE_CONFIG[toolEvent.phase]
   const { BadgeIcon } = config
-  const ToolIcon = resolveToolIcon(toolEvent.toolName)
   const displayName = toolEvent.displayName ?? toolEvent.toolName
   const isExecuting = toolEvent.phase === 'started' || toolEvent.phase === 'waiting_input'
 
@@ -89,7 +88,7 @@ export function AgentToolCard({ toolEvent }: AgentToolCardProps) {
       >
         <div className="flex items-center gap-3">
           <div className={`w-8 h-8 rounded flex items-center justify-center ${config.iconClass}`}>
-            <ToolIcon className="w-4 h-4" />
+            <ToolIcon toolName={toolEvent.toolName} className="w-4 h-4" />
           </div>
           <span className="text-[14px] font-mono text-text-gray">{displayName}</span>
         </div>

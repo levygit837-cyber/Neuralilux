@@ -14,6 +14,7 @@ downloads/
 eggs/
 .eggs/
 lib/
+!frontend/src/lib/
 lib64/
 parts/
 sdist/
@@ -143,10 +144,7 @@ vendor/
 # Build / Dist
 *.tsbuildinfo
 
-# Documentacoes tecnicas internas - nao commitar em repo publico
+# Documentacoes tecnicas internas e compose com credenciais de dev - nao commitar em repo publico
 docs/
 design/
 docker-compose.yml
-backend/Dockerfile
-frontend/Dockerfile
-backend/requirements.txt

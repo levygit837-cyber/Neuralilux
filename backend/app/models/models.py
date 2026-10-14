@@ -196,7 +196,7 @@ class Conversation(Base):
     active_agent_type = Column(String, default="sales", nullable=False)  # "sales", "sac"
     human_in_loop = Column(Boolean, default=False, nullable=False)  # True when human took control
     human_handoff_reason = Column(Text, nullable=True)  # Reason for human handoff
-    ticket_id = Column(String, ForeignKey("tickets.id"), nullable=True)  # Reference to ticket
+    ticket_id = Column(String, ForeignKey("tickets.id", use_alter=True, name="fk_conversations_ticket_id"), nullable=True)  # Reference to ticket
     tags = Column(JSONB)  # Array of tags for categorization
     priority = Column(String(20), default="normal")  # low, normal, high, urgent
     rating = Column(Integer, nullable=True)  # Customer satisfaction score (1-5)

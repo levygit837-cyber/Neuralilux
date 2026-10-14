@@ -76,7 +76,7 @@ fi
 echo "📦 Ativando ambiente virtual..."
 source "$VENV_DIR/bin/activate"
 
-current_requirements_hash="$(sha256sum requirements.txt | awk '{print $1}')"
+current_requirements_hash="$( (command -v sha256sum >/dev/null && sha256sum requirements.txt || shasum -a 256 requirements.txt) | awk '{print $1}')"
 stored_requirements_hash="$(cat "$requirements_hash_file" 2>/dev/null || true)"
 
 dependency_check_failed=0
@@ -99,7 +99,7 @@ if [ "$current_requirements_hash" != "$stored_requirements_hash" ] || [ "$depend
 fi
 
 # Configurar variáveis de ambiente
-export DATABASE_URL="postgresql://neuralilux:neuralilux_password@localhost:5434/neuralilux"
+export DATABASE_URL="postgresql+psycopg://neuralilux:neuralilux_password@localhost:5434/neuralilux"
 export REDIS_URL="redis://:redis_password@localhost:6380/0"
 export LM_STUDIO_URL="http://localhost:1234"
 export LM_STUDIO_MODEL="${LM_STUDIO_MODEL:-qwen3.5-4b-claude-4.6-opus-reasoning-distilled-v2}"

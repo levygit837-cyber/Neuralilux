@@ -1,6 +1,8 @@
 """
 Testes para a ferramenta de horário de funcionamento (horario_tool).
 """
+import importlib
+
 import pytest
 from unittest.mock import MagicMock, patch
 from app.agents.tools.horario_tool import horario_tool, _get_dia_semana, _calcular_tempo_para_abrir
@@ -8,15 +10,30 @@ from app.models.models import Company
 from datetime import datetime, timezone, timedelta
 
 
+horario_module = importlib.import_module("app.agents.tools.horario_tool")
+
+
+@pytest.fixture(autouse=True)
+def _horario_usa_sessao_de_teste(db, monkeypatch):
+    """horario_tool abre SessionLocal() próprio; redireciona para a sessão SQLite do teste.
+
+    close() vira no-op para a tool não destacar os objetos que o teste ainda vai apagar.
+    O módulo é obtido via importlib porque `app.agents.tools.horario_tool` como atributo
+    do pacote é a StructuredTool, não o módulo.
+    """
+    monkeypatch.setattr(db, "close", lambda: None)
+    monkeypatch.setattr(horario_module, "SessionLocal", lambda: db)
+
+
 class TestHorarioTool:
     """Testa a ferramenta de horário de funcionamento."""
 
     def test_horario_tool_without_company_id(self, db):
         """Testa consulta sem company_id (usa primeira empresa)."""
-        # Criar empresa de teste
         company = Company(
             name="Test Company",
-            address="Rua Teste, 123",
+            address_street="Rua Teste",
+            address_number="123",
             phone="5511999999999",
             is_active=True
         )
@@ -41,7 +58,11 @@ class TestHorarioTool:
         """Testa consulta com company_id específico."""
         company = Company(
             name="Specific Company",
-            address="Av. Specific, 456",
+            address_street="Av. Specific",
+            address_number="456",
+            address_neighborhood="Centro",
+            address_city="São Paulo",
+            address_state="SP",
             phone="5511888888888",
             is_active=True
         )
@@ -53,7 +74,7 @@ class TestHorarioTool:
 
         assert result is not None
         assert "Specific Company" in result
-        assert "Av. Specific, 456" in result
+        assert "Av. Specific, 456 - Centro - São Paulo/SP" in result
         assert "5511888888888" in result
 
         # Cleanup
@@ -151,7 +172,7 @@ class TestHorarioToolErrorHandling:
 
     def test_horario_tool_database_error(self, db):
         """Testa erro de banco de dados."""
-        with patch('app.agents.tools.horario_tool.SessionLocal') as mock_session:
+        with patch.object(horario_module, "SessionLocal") as mock_session:
             mock_session.side_effect = Exception("Database error")
             
             result = horario_tool.invoke({"company_id": ""})

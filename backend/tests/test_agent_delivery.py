@@ -72,4 +72,6 @@ def test_publish_webhook_event_serializes_bytes_payload():
 
 
 def test_worker_runtime_uses_real_evolution_api_key():
-    assert os.environ.get("EVOLUTION_API_KEY") not in {None, "", "change-me-in-production"}
+    from app.core.config import settings
+
+    assert settings.EVOLUTION_API_KEY not in {None, "", "change-me-in-production"}

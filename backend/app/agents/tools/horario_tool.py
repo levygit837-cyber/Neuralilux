@@ -30,8 +30,9 @@ def horario_tool(company_id: str = "") -> str:
     Returns:
         Informações sobre horário de funcionamento e status atual.
     """
-    db = SessionLocal()
+    db = None
     try:
+        db = SessionLocal()
         # Buscar empresa
         query = db.query(Company)
         if company_id:
@@ -79,8 +80,9 @@ def horario_tool(company_id: str = "") -> str:
         resultado += "\n━━━━━━━━━━━━━━━━━━━━"
 
         # Endereço
-        if empresa.address:
-            resultado += f"\n📍 Endereço: {empresa.address}"
+        endereco = _formatar_endereco(empresa)
+        if endereco:
+            resultado += f"\n📍 Endereço: {endereco}"
         if empresa.phone:
             resultado += f"\n📞 Telefone: {empresa.phone}"
 
@@ -89,7 +91,16 @@ def horario_tool(company_id: str = "") -> str:
     except Exception as e:
         return f"Erro ao consultar horário: {str(e)}"
     finally:
-        db.close()
+        if db is not None:
+            db.close()
+
+
+def _formatar_endereco(empresa: Company) -> str:
+    """Monta o endereço a partir dos campos estruturados da empresa."""
+    rua = ", ".join(p for p in (empresa.address_street, empresa.address_number) if p)
+    cidade = "/".join(p for p in (empresa.address_city, empresa.address_state) if p)
+    partes = [rua, empresa.address_complement, empresa.address_neighborhood, cidade]
+    return " - ".join(p for p in partes if p)
 
 
 def _get_dia_semana(weekday: int) -> str:

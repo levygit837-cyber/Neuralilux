@@ -19,24 +19,18 @@ Requirements:
 """
 
 import pytest
-import asyncio
+import pytest_asyncio
 
 from app.services.evolution_api import evolution_api, EvolutionAPIError
 
+# Fala com a Evolution API real (localhost:8081); roda só com RUN_E2E=1.
+pytestmark = pytest.mark.e2e
 
 # Test instance name for integration tests
 TEST_INSTANCE_NAME = "integration-test-instance"
 
 
-@pytest.fixture(scope="module")
-def event_loop():
-    """Create an event loop for the module."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest.fixture(scope="module")
+@pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def test_instance():
     """
     Create a test instance for integration tests.

@@ -14,17 +14,20 @@ logger = structlog.get_logger()
 # Palavras-chave que indicam necessidade de SAC
 SAC_KEYWORDS = [
     "reclamação", "reclamar", "problema", "erro", "erro no pedido",
-    "atraso", "demorou", "não chegou", "pedido errado", "item errado",
-    "cancelar pedido", "devolução", "reembolso", "insatisfeito",
+    "atraso", "atrasad", "atrasou", "demorou", "não chegou", "chegou errado",
+    "pedido errado", "item errado", "cancelar pedido", "cancelar meu pedido",
+    "cancelar o pedido", "devolução", "reembolso", "insatisfeito",
     "queixa", "denúncia", "suporte", "ajuda técnica", "defeito",
     "estragou", "estragado", "veio errado", "não veio", "faltou"
 ]
 
-# Palavras-chave que indicam retorno para Vendas
+# Palavras-chave que indicam retorno para Vendas.
+# Termos genéricos ("pedido", "quero", "gostaria") ficam de fora de propósito:
+# aparecem em reclamações ("meu pedido atrasou", "quero cancelar") e tirariam o cliente do SAC.
 SALES_KEYWORDS = [
-    "pedido", "quer pedir", "gostaria de pedir", "fazer pedido",
+    "novo pedido", "quer pedir", "quero pedir", "gostaria de pedir", "fazer pedido",
     "cardápio", "menu", "preço", "valor", "quanto custa",
-    "quero", "gostaria", "vou levar", "adicionar", "comprar"
+    "vou levar", "adicionar", "comprar"
 ]
 
 

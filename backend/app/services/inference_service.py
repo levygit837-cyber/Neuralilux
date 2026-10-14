@@ -215,11 +215,12 @@ class InferenceService:
                         content_buffer = ""
                         break
 
-                    # Yield tokens in small chunks for real-time streaming, but keep enough buffer to detect closing tag
-                    safe_len = max(1, len(content_buffer) - (len(THINK_CLOSE) - 1))
-                    if safe_len > 0:
-                        yield from _yield_segment("thinking", content_buffer[:safe_len])
-                        content_buffer = content_buffer[safe_len:]
+                    # Hold back enough chars to detect a closing tag split across chunks
+                    safe_len = len(content_buffer) - (len(THINK_CLOSE) - 1)
+                    if safe_len <= 0:
+                        break
+                    yield from _yield_segment("thinking", content_buffer[:safe_len])
+                    content_buffer = content_buffer[safe_len:]
                     continue
 
                 open_index = content_buffer.find(THINK_OPEN)
@@ -989,6 +990,11 @@ class FallbackInferenceService:
         self.secondary_service = self._get_secondary_service()
         self.max_retries = 3
 
+    @property
+    def model(self) -> Optional[str]:
+        """Model name of the primary provider (callers inspect the runtime model)."""
+        return getattr(self.primary_service, "model", None)
+
     def _get_primary_service(self):
         """Get Vertex AI service as primary provider."""
         from app.core.config import settings
@@ -1264,13 +1270,14 @@ class FallbackInferenceService:
                 f"All providers failed. Primary error: {str(primary_error)}"
             )
 
-    async def stream_chat_completion_with_thinking(
+    async def astream_chat_completion_with_thinking(
         self,
-        messages: List[Dict[str, str]],
+        messages: List[Dict[str, Any]],
         system_prompt: Optional[str] = None,
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
-    ) -> AsyncGenerator[Tuple[str, str], None]:
+        tools: Optional[List[Dict[str, Any]]] = None,
+    ) -> AsyncGenerator[Tuple[str, Any], None]:
         """
         Stream chat completion with thinking detection and fallback.
 
@@ -1279,21 +1286,23 @@ class FallbackInferenceService:
             system_prompt: Optional system prompt
             max_tokens: Override max tokens
             temperature: Override temperature
+            tools: Optional tool definitions
 
         Yields:
             Tuple of (type, content) where type is 'thinking' or 'response'
         """
-        # Try primary service (Vertex AI) with retries
+        # Try primary service (Vertex AI)
         try:
             logger.info(
-                "Attempting stream_chat_completion_with_thinking with primary provider (Vertex AI)",
+                "Attempting astream_chat_completion_with_thinking with primary provider (Vertex AI)",
                 agent_type=self.agent_type,
             )
-            async for chunk in self.primary_service.stream_chat_completion_with_thinking(
+            async for chunk in self.primary_service.astream_chat_completion_with_thinking(
                 messages=messages,
                 system_prompt=system_prompt,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                tools=tools,
             ):
                 yield chunk
             return
@@ -1303,19 +1312,21 @@ class FallbackInferenceService:
                 error=str(primary_error),
                 agent_type=self.agent_type,
             )
+            primary_error_message = str(primary_error)
 
         # Try secondary service (Gemini)
         try:
-            if self.secondary_service and hasattr(self.secondary_service, 'stream_chat_completion_with_thinking'):
+            if self.secondary_service and hasattr(self.secondary_service, 'astream_chat_completion_with_thinking'):
                 logger.info(
-                    "Attempting stream_chat_completion_with_thinking with secondary provider (Gemini)",
+                    "Attempting astream_chat_completion_with_thinking with secondary provider (Gemini)",
                     agent_type=self.agent_type,
                 )
-                async for chunk in self.secondary_service.stream_chat_completion_with_thinking(
+                async for chunk in self.secondary_service.astream_chat_completion_with_thinking(
                     messages=messages,
                     system_prompt=system_prompt,
                     max_tokens=max_tokens,
                     temperature=temperature,
+                    tools=tools,
                 ):
                     yield chunk
                 return
@@ -1327,7 +1338,7 @@ class FallbackInferenceService:
             )
 
         raise InferenceServiceError(
-            f"All providers failed. Primary error: {str(primary_error)}"
+            f"All providers failed. Primary error: {primary_error_message}"
         )
 
     async def stream_chat_completion_with_tools(
@@ -1381,6 +1392,7 @@ class FallbackInferenceService:
                 error=str(primary_error),
                 agent_type=self.agent_type,
             )
+            primary_error_message = str(primary_error)
 
         # Try secondary service (Gemini)
         try:
@@ -1407,7 +1419,7 @@ class FallbackInferenceService:
             )
 
         raise InferenceServiceError(
-            f"All providers failed. Primary error: {str(primary_error)}"
+            f"All providers failed. Primary error: {primary_error_message}"
         )
 
 

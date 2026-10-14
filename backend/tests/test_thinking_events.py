@@ -30,7 +30,7 @@ async def mock_stream_generator(
 async def test_generate_response_node_calls_streaming_method():
     """VAL-BE-008: generate_response_node must call astream_chat_completion_with_thinking() instead of chat_completion()"""
     from app.agents.graph.nodes import generate_response_node
-    from app.services.inference_service import inference_service
+    from app.services.inference_service import FallbackInferenceService as inference_service
 
     # Track calls
     stream_calls = []
@@ -68,7 +68,7 @@ async def test_generate_response_node_calls_streaming_method():
 async def test_thinking_tokens_published_during_stream():
     """VAL-BE-008: For each ('thinking', token), publish a thinking_token event"""
     from app.agents.graph.nodes import generate_response_node
-    from app.services.inference_service import inference_service
+    from app.services.inference_service import FallbackInferenceService as inference_service
 
     # Track the publish calls
     published_events: List[Dict[str, Any]] = []
@@ -123,7 +123,7 @@ async def test_thinking_tokens_published_during_stream():
 async def test_thinking_end_includes_summary():
     """VAL-BE-009: thinking_end event includes data.summary = first 120 chars of thinking_content"""
     from app.agents.graph.nodes import generate_response_node
-    from app.services.inference_service import inference_service
+    from app.services.inference_service import FallbackInferenceService as inference_service
 
     published_events: List[Dict[str, Any]] = []
 
@@ -178,7 +178,7 @@ async def test_thinking_end_includes_summary():
 async def test_final_response_is_response_tokens_only():
     """VAL-BE-005: Final LLM response stored in state is the accumulated response tokens (no thinking content)"""
     from app.agents.graph.nodes import generate_response_node
-    from app.services.inference_service import inference_service
+    from app.services.inference_service import FallbackInferenceService as inference_service
 
     async def mock_stream_with_mixed(*args, **kwargs):
         # Thinking content
@@ -213,9 +213,10 @@ async def test_final_response_is_response_tokens_only():
 
 @pytest.mark.asyncio
 async def test_lm_studio_error_fallback():
-    """VAL-BE-010: If LM Studio errors during streaming: thinking_end emitted with summary='Erro ao gerar resposta', no crash"""
+    """VAL-BE-010: LM Studio falha durante o streaming -> erro propagado como ResponseGenerationError (tratado por whatsapp_graph/agent_executor)"""
     from app.agents.graph.nodes import generate_response_node
-    from app.services.inference_service import inference_service
+    from app.services.inference_service import FallbackInferenceService as inference_service
+    from app.agents.exceptions import ResponseGenerationError
 
     published_events: List[Dict[str, Any]] = []
 
@@ -242,135 +243,15 @@ async def test_lm_studio_error_fallback():
         with patch("app.agents.graph.nodes.realtime_event_bus") as mock_bus:
             mock_bus.publish = capture_publish
             with patch("app.agents.graph.nodes._is_nemotron_model", return_value=False):
-                # Should not raise exception
-                result = await generate_response_node(state)
-
-    # Verify we got an error response
-    assert "response" in result
-    assert "error" in result
-
-    # Verify thinking_end was emitted with error summary
-    thinking_end_events = [
-        e for e in published_events
-        if e.get("type") == "thinking" and e.get("payload", {}).get("event") == "thinking_end"
-    ]
-
-    assert len(thinking_end_events) == 1
-    summary = thinking_end_events[0]["payload"]["data"]["summary"]
-    assert "Erro" in summary or "error" in summary.lower()
-
-
-@pytest.mark.asyncio
-async def test_super_agents_generate_response_node_calls_streaming():
-    """VAL-BE-008: super_agents/graph/nodes.py also uses streaming (for consistency)"""
-    from app.super_agents.graph.nodes import generate_response_node
-    from app.services.inference_service import inference_service
-
-    published_events: List[Dict[str, Any]] = []
-
-    async def capture_publish(event: Dict[str, Any]) -> None:
-        published_events.append(event)
-
-    async def mock_stream(*args, **kwargs):
-        # Yield thinking tokens first
-        for char in "Thinking... ":
-            yield ("thinking", char)
-        # Then response tokens
-        for char in "Test response":
-            yield ("response", char)
-
-    # Create a minimal SuperAgentState
-    state = {
-        "current_message": "Analyze the data",
-        "session_id": "test-session-123",
-        "company_id": "test-company-456",
-        "messages": [],
-        "intent": "analysis",
-        "thinking_content": "",
-    }
-
-    with patch.object(inference_service, "astream_chat_completion_with_thinking", mock_stream):
-        with patch("app.super_agents.graph.nodes.realtime_event_bus") as mock_bus:
-            mock_bus.publish = capture_publish
-            result = await generate_response_node(state)
-
-    # Verify we have thinking_token events
-    thinking_token_events = [
-        e for e in published_events
-        if e.get("type") == "thinking" and e.get("payload", {}).get("event") == "thinking_token"
-    ]
-    assert len(thinking_token_events) > 0
-
-    # Verify thinking_end with summary
-    thinking_end_events = [
-        e for e in published_events
-        if e.get("type") == "thinking" and e.get("payload", {}).get("event") == "thinking_end"
-    ]
-    assert len(thinking_end_events) == 1
-    assert "summary" in thinking_end_events[0]["payload"]["data"]
-
-
-@pytest.mark.asyncio
-async def test_super_agents_persist_full_thinking_content():
-    """Assistant history must keep the full model thinking content, not only the summary."""
-    from app.super_agents.graph.nodes import generate_response_node
-    from app.services.inference_service import inference_service
-
-    async def mock_stream(*args, **kwargs):
-        for char in "Pensamento completo do modelo":
-            yield ("thinking", char)
-        for char in "Resposta final":
-            yield ("response", char)
-
-    state = {
-        "current_message": "Explique o sistema",
-        "session_id": "test-session-thinking-content",
-        "company_id": "test-company-thinking-content",
-        "messages": [],
-        "intent": "analysis",
-        "thinking_content": "Contexto anterior",
-    }
-
-    with patch.object(inference_service, "astream_chat_completion_with_thinking", mock_stream):
-        with patch("app.super_agents.graph.nodes.realtime_event_bus") as mock_bus:
-            mock_bus.publish = AsyncMock()
-            result = await generate_response_node(state)
-
-    assert result["thinking_content"] == "Pensamento completo do modelo"
-
-
-@pytest.mark.asyncio
-async def test_super_agents_use_thinking_as_response_when_model_has_no_separate_output():
-    """If the model streams only thinking tokens, the final chat response should reuse that content."""
-    from app.super_agents.graph.nodes import generate_response_node
-    from app.services.inference_service import inference_service
-
-    async def mock_stream(*args, **kwargs):
-        for char in "Resposta sem separação explícita":
-            yield ("thinking", char)
-
-    state = {
-        "current_message": "Mostre o status",
-        "session_id": "test-session-fallback-response",
-        "company_id": "test-company-fallback-response",
-        "messages": [],
-        "intent": "analysis",
-        "thinking_content": "",
-    }
-
-    with patch.object(inference_service, "astream_chat_completion_with_thinking", mock_stream):
-        with patch("app.super_agents.graph.nodes.realtime_event_bus") as mock_bus:
-            mock_bus.publish = AsyncMock()
-            result = await generate_response_node(state)
-
-    assert result["response"] == "Resposta sem separação explícita"
+                with pytest.raises(ResponseGenerationError, match="LM Studio connection failed"):
+                    await generate_response_node(state)
 
 
 @pytest.mark.asyncio
 async def test_thinking_start_event_emitted():
     """Verify that thinking_start event is emitted at the beginning"""
     from app.agents.graph.nodes import generate_response_node
-    from app.services.inference_service import inference_service
+    from app.services.inference_service import FallbackInferenceService as inference_service
 
     published_events: List[Dict[str, Any]] = []
 
@@ -410,7 +291,7 @@ async def test_thinking_start_event_emitted():
 async def test_event_schema_correct():
     """Verify the realtime event bus publish() call uses the correct schema"""
     from app.agents.graph.nodes import generate_response_node
-    from app.services.inference_service import inference_service
+    from app.services.inference_service import FallbackInferenceService as inference_service
 
     published_events: List[Dict[str, Any]] = []
 

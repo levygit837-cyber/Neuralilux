@@ -101,11 +101,11 @@ class TestSalesSACPrompts:
         assert "horario_tool" in SALES_AGENT_PROMPT
 
     def test_sac_prompt_lists_correct_tools(self):
-        """Testa que prompt de SAC lista as ferramentas corretas."""
-        assert "cardapio_tool" in SAC_AGENT_PROMPT
-        assert "pedido_tool" in SAC_AGENT_PROMPT
-        assert "delivery_tool" in SAC_AGENT_PROMPT
+        """SAC lista só as tools de pós-venda (as mesmas de SAC_AGENT_TOOLS)."""
+        assert "open_ticket_with_context" in SAC_AGENT_PROMPT
+        assert "order_status_tool" in SAC_AGENT_PROMPT
         assert "horario_tool" in SAC_AGENT_PROMPT
+        assert "cardapio_tool" not in SAC_AGENT_PROMPT
 
 
 class TestSalesSACCache:

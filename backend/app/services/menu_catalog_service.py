@@ -181,7 +181,6 @@ def _ensure_macedos_company(db: Session, payload: dict[str, Any]) -> Company:
         description=store.get("name") or MACEDOS_COMPANY_DISPLAY_NAME,
         whatsapp=str(store.get("whatsapp") or "") or None,
         phone=str(store.get("phone") or "") or None,
-        website=store.get("website") or None,
         is_active=True,
     )
     db.add(company)
