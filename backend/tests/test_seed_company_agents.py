@@ -32,6 +32,7 @@ def _instance(db, evolution_id: str, company: Company | None) -> Instance:
         name=evolution_id,
         evolution_instance_id=evolution_id,
         company_id=company.id if company else None,
+        agent_enabled=False,  # como `instances.py` cria: o Agent só liga depois de atribuído
     )
     db.add(instance)
     db.flush()
@@ -50,6 +51,7 @@ def test_each_company_gets_one_agent_and_its_instances_are_bound_to_it(db, seed)
     assert agent_a.id != agent_b.id
     assert agent_a.is_active is True
     assert (a1.agent_id, a2.agent_id, b1.agent_id) == (agent_a.id, agent_a.id, agent_b.id)
+    assert (a1.agent_enabled, a2.agent_enabled, b1.agent_enabled) == (True, True, True)  # seed novo já responde
 
 
 def test_running_twice_does_not_duplicate_agents(db, seed):
@@ -69,6 +71,7 @@ def test_instance_without_company_stays_unbound(db, seed):
     seed.create_company_agents(db)
 
     assert orphan.agent_id is None
+    assert not orphan.agent_enabled
 
 
 def test_existing_binding_to_another_agent_is_kept(db, seed):
@@ -83,6 +86,18 @@ def test_existing_binding_to_another_agent_is_kept(db, seed):
 
     assert bound.agent_id == custom.id
     assert db.query(Agent).filter(Agent.company_id == company.id).count() == 1
+
+
+def test_rerunning_the_seed_does_not_reenable_an_instance_the_operator_disabled(db, seed):
+    company = _company(db, "Empresa F")
+    instance = _instance(db, "evo-f1", company)
+    seed.create_company_agents(db)
+    instance.agent_enabled = False
+    db.commit()
+
+    seed.create_company_agents(db)
+
+    assert instance.agent_enabled is False
 
 
 def test_agent_is_owned_by_a_user_of_the_company_when_there_is_one(db, seed):

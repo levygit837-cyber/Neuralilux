@@ -173,6 +173,9 @@ def create_or_update_test_user(db: Session, company_id: str):
 def create_company_agents(db: Session):
     """Um Agent por Company, ligado às Instances da Company que ainda não têm Agent (idempotente).
 
+    Instance ligada aqui sai com `agent_enabled=True`, para que um seed novo já responda. Quem já tinha Agent
+    não é tocado: reexecutar o seed nunca religa uma Instance que o operador desligou.
+
     O comportamento vem do núcleo e do Pack do Business Type; `system_prompt` é só o registro
     exigido pela coluna. Instance sem Company e Instance já ligada a outro Agent ficam como estão.
     """
@@ -194,7 +197,7 @@ def create_company_agents(db: Session):
             created.append(company.name)
         db.query(Instance).filter(
             Instance.company_id == company.id, Instance.agent_id.is_(None)
-        ).update({Instance.agent_id: agent.id}, synchronize_session="fetch")
+        ).update({Instance.agent_id: agent.id, Instance.agent_enabled: True}, synchronize_session="fetch")
     db.commit()
     return created
 
