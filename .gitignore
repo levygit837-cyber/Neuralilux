@@ -144,7 +144,6 @@ vendor/
 # Build / Dist
 *.tsbuildinfo
 
-# Documentacoes tecnicas internas e compose com credenciais de dev - nao commitar em repo publico
-docs/
+# Rascunhos internos e compose com credenciais de dev - nao commitar em repo publico
 design/
 docker-compose.yml
