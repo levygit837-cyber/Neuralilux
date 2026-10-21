@@ -2,7 +2,6 @@
 
 import { useEffect, useRef } from 'react'
 import { CaretDown } from '@phosphor-icons/react'
-import { renderStructuredAgentContent } from '@/components/agent/renderStructuredAgentContent'
 
 interface ThinkingBubbleProps {
   tokens: string[]
@@ -55,8 +54,8 @@ export function ThinkingBubble({ tokens, onCollapse, isLive = true }: ThinkingBu
           className="flex max-h-[200px] flex-col gap-2 overflow-y-auto"
         >
           {fullText ? (
-            <div className="space-y-3 text-[#D5CAE9]">
-              {renderStructuredAgentContent(fullText, { variant: 'compact' })}
+            <div className="space-y-3 text-sm text-[#D5CAE9]">
+              <p className="whitespace-pre-wrap break-words">{fullText}</p>
               {isLive && (
                 <span className="ml-0.5 inline-block h-4 w-[2px] animate-pulse bg-primary align-middle" />
               )}

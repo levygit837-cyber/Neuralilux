@@ -80,3 +80,8 @@ export interface ThinkingEvent {
 }
 
 export type ContactFilter = 'all' | 'unread' | 'groups' | 'ai-active'
+export interface AgentListItem {
+  id: string
+  name: string
+  description?: string | null
+}

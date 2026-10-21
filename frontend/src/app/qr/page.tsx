@@ -1,14 +1,16 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import QRCode from 'react-qr-code'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { Header } from '@/components/layout/Header'
 import { Button } from '@/components/ui/Button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card'
-import { useInstanceStore, SelectedInstance } from '@/stores/useInstanceStore'
-import { instanceService, EvolutionInstance } from '@/services/instanceService'
+import { useInstanceStore } from '@/stores/useInstanceStore'
+import { useResolvedInstance } from '@/hooks/useResolvedInstance'
+import { instanceService } from '@/services/instanceService'
 import { ROUTES } from '@/lib/constants'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 
@@ -37,7 +39,8 @@ const STATUS_CONFIG: Record<
 
 export default function QrPage() {
   const router = useRouter()
-  const { selectedInstance, setSelectedInstance, clearInstance } = useInstanceStore()
+  const { clearInstance } = useInstanceStore()
+  const { resolvedInstance, isResolvingInstance } = useResolvedInstance()
 
   const [status, setStatus] = useState<InstanceStatus>('disconnected')
   const [qrCode, setQrCode] = useState<string | null>(null)
@@ -45,58 +48,8 @@ export default function QrPage() {
   const [error, setError] = useState<string | null>(null)
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const qrRefreshIntervalRef = useRef<NodeJS.Timeout | null>(null)
-  const [resolvedInstance, setResolvedInstance] = useState<SelectedInstance | null>(
-    selectedInstance
-  )
-  const [isResolvingInstance, setIsResolvingInstance] = useState(true)
 
   const instanceName = resolvedInstance?.instanceName
-
-  const mapToSelectedInstance = useCallback((instance: EvolutionInstance): SelectedInstance => ({
-    instanceName: instance.instance.instanceName,
-    instanceId: instance.instance.instanceId,
-    status: instance.instance.state || instance.socket?.state || 'close',
-  }), [])
-
-  const resolveInstance = useCallback(async () => {
-    setIsResolvingInstance(true)
-
-    try {
-      const instances = await instanceService.fetchInstances()
-      const availableInstances = instances.map(mapToSelectedInstance)
-
-      if (availableInstances.length === 0) {
-        setResolvedInstance(null)
-        return
-      }
-
-      const normalizedSelectedName = selectedInstance?.instanceName?.toLowerCase()
-      const matchingInstance =
-        availableInstances.find(
-          (instance) =>
-            instance.instanceId === selectedInstance?.instanceId ||
-            instance.instanceName.toLowerCase() === normalizedSelectedName
-        ) ||
-        availableInstances.find((instance) => instance.status === 'open') ||
-        availableInstances[0]
-
-      setResolvedInstance(matchingInstance)
-
-      if (
-        !selectedInstance ||
-        matchingInstance.instanceId !== selectedInstance.instanceId ||
-        matchingInstance.instanceName !== selectedInstance.instanceName ||
-        matchingInstance.status !== selectedInstance.status
-      ) {
-        setSelectedInstance(matchingInstance)
-      }
-    } catch (resolveError) {
-      console.error('Failed to resolve active instance for QR:', resolveError)
-      setResolvedInstance(selectedInstance ?? null)
-    } finally {
-      setIsResolvingInstance(false)
-    }
-  }, [mapToSelectedInstance, selectedInstance, setSelectedInstance])
 
   const stopPolling = useCallback(() => {
     if (pollingIntervalRef.current) {
@@ -171,10 +124,6 @@ export default function QrPage() {
   }, [checkStatus, requestQrCode, stopQrRefresh])
 
   useEffect(() => {
-    void resolveInstance()
-  }, [resolveInstance])
-
-  useEffect(() => {
     if (!instanceName) {
       return undefined
     }
@@ -211,12 +160,6 @@ export default function QrPage() {
       stopQrRefresh()
     }
   }, [instanceName, checkStatus, requestQrCode, startPolling, startQrRefresh, stopPolling, stopQrRefresh])
-
-  useEffect(() => {
-    if (!isResolvingInstance && !resolvedInstance) {
-      router.push(ROUTES.HOME)
-    }
-  }, [isResolvingInstance, resolvedInstance, router])
 
   useEffect(() => {
     if (status === 'connected') {
@@ -332,9 +275,12 @@ export default function QrPage() {
                 {status === 'connecting' && qrCode ? (
                   <div className="rounded-xl bg-white p-4">
                     {qrCode.startsWith('data:') || qrCode.startsWith('http') ? (
-                      <img
+                      <Image
                         src={qrCode.startsWith('data:') ? qrCode : `data:image/png;base64,${qrCode}`}
                         alt="QR Code do WhatsApp"
+                        width={256}
+                        height={256}
+                        unoptimized
                         className="h-64 w-64"
                       />
                     ) : (

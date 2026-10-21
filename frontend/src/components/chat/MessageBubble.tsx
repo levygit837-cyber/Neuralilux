@@ -3,6 +3,7 @@ import type { Message } from '@/types/chat'
 import { cn } from '@/lib/utils'
 import { Check } from '@phosphor-icons/react'
 import { useState } from 'react'
+import { AvatarImage } from '@/components/ui/AvatarImage'
 
 interface MessageBubbleProps {
   message: Message
@@ -40,12 +41,13 @@ export function MessageBubble({ message }: MessageBubbleProps) {
       )}
     >
       {!message.isOutgoing && message.sender && (
-        <div className="w-8 h-8 rounded-full border border-brand-border mt-auto overflow-hidden">
+        <div className="relative w-8 h-8 rounded-full border border-brand-border mt-auto overflow-hidden">
           {message.sender.avatar && !imageError ? (
-            <img
+            <AvatarImage
               src={message.sender.avatar}
               alt={message.sender.name}
-              className="w-full h-full object-cover"
+              sizes="32px"
+              className="object-cover"
               onError={() => setImageError(true)}
             />
           ) : (

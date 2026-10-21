@@ -99,11 +99,17 @@ export default function EstoquePage() {
   const token = useAuthStore((state) => state.token)
   const hasHydrated = useAuthStore((state) => state.hasHydrated)
 
-  const [menu, setMenu] = useState<MenuManagementPayload | null>(null)
+  const [fetchedMenu, setFetchedMenu] = useState<MenuManagementPayload | null>(null)
+  // Sem token o cardápio buscado antes não vale mais: deriva no render em vez de limpar no effect.
+  const menu = token ? fetchedMenu : null
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Sem token não há fetch: o estado deriva de hasHydrated/token em vez de ser setado no effect.
+  const isLoggedOut = hasHydrated && !token
+  const displayedError = isLoggedOut ? 'Faça login para acessar o estoque.' : error
+  const showSkeleton = isLoading && !isLoggedOut
 
   const [categoryForm, setCategoryForm] = useState<CategoryFormState | null>(null)
   const [itemForm, setItemForm] = useState<ItemFormState | null>(null)
@@ -118,47 +124,47 @@ export default function EstoquePage() {
     [menu?.items, selectedCategoryId]
   )
 
+  // Única rota de carga do cardápio, usada pelo effect e pelos handlers de mutação.
+  // `isCancelled` evita aplicar resposta de um token/montagem anterior.
   const loadMenu = useCallback(
-    async (preferredCategoryId?: string | null) => {
-      if (!hasHydrated) {
-        return
+    (preferredCategoryId?: string | null, isCancelled: () => boolean = () => false): Promise<void> => {
+      if (!hasHydrated || !token) {
+        return Promise.resolve()
       }
 
-      if (!token) {
-        setMenu(null)
-        setError('Faça login para acessar o estoque.')
-        setIsLoading(false)
-        return
-      }
-
-      try {
-        const payload = await menuService.getMenu(token)
-        setMenu(payload)
-        setSelectedCategoryId((current) => {
-          const nextSelection = preferredCategoryId ?? current
-          if (nextSelection && payload.categories.some((category) => category.id === nextSelection)) {
-            return nextSelection
-          }
-          return payload.categories[0]?.id ?? null
+      return menuService
+        .getMenu(token)
+        .then((payload) => {
+          if (isCancelled()) return
+          setFetchedMenu(payload)
+          setSelectedCategoryId((current) => {
+            const nextSelection = preferredCategoryId ?? current
+            if (nextSelection && payload.categories.some((category) => category.id === nextSelection)) {
+              return nextSelection
+            }
+            return payload.categories[0]?.id ?? null
+          })
+          setError(null)
         })
-        setError(null)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Não foi possível carregar o estoque.')
-      } finally {
-        setIsLoading(false)
-      }
+        .catch((err: unknown) => {
+          if (isCancelled()) return
+          setError(err instanceof Error ? err.message : 'Não foi possível carregar o estoque.')
+        })
+        .finally(() => {
+          if (!isCancelled()) setIsLoading(false)
+        })
     },
     [hasHydrated, token]
   )
 
   useEffect(() => {
-    if (!hasHydrated) {
-      return
-    }
+    let cancelled = false
+    void loadMenu(null, () => cancelled)
 
-    setIsLoading(true)
-    void loadMenu()
-  }, [hasHydrated, loadMenu])
+    return () => {
+      cancelled = true
+    }
+  }, [loadMenu])
 
   const openNewCategoryModal = () => {
     setCategoryForm({
@@ -350,13 +356,13 @@ export default function EstoquePage() {
               </div>
             </section>
 
-            {error && (
+            {displayedError && (
               <div className="rounded-2xl border border-error/30 bg-error/10 px-4 py-3 text-sm text-error">
-                {error}
+                {displayedError}
               </div>
             )}
 
-            {isLoading ? (
+            {showSkeleton ? (
               <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
                 <div className="h-[520px] animate-pulse rounded-3xl bg-card" />
                 <div className="h-[520px] animate-pulse rounded-3xl bg-card" />
