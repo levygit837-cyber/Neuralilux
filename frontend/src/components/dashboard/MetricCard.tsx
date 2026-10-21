@@ -8,6 +8,7 @@ import {
   StarHalf,
   ArrowUpRight
 } from '@phosphor-icons/react'
+import type { IconWeight } from '@phosphor-icons/react'
 import { Card } from '@/components/ui/Card'
 import type { Metric } from '@/types/dashboard'
 
@@ -16,20 +17,18 @@ interface MetricCardProps {
   index?: number
 }
 
+function MetricIcon({ label, weight, className }: { label: string; weight: IconWeight; className?: string }) {
+  const normalized = label.toLowerCase()
+  if (normalized.includes('conversa')) return <Chats weight={weight} className={className} />
+  if (normalized.includes('mensagem')) return <PaperPlaneRight weight={weight} className={className} />
+  if (normalized.includes('sucesso') || normalized.includes('resposta')) return <CheckCircle weight={weight} className={className} />
+  return <Star weight={weight} className={className} />
+}
+
 export function MetricCard({ metric, index = 0 }: MetricCardProps) {
   const isPositive = metric.trend === 'up'
   const Icon = isPositive ? TrendUp : TrendDown
   
-  // Map metric labels to icons
-  const getIconForLabel = (label: string) => {
-    if (label.toLowerCase().includes('conversa')) return Chats
-    if (label.toLowerCase().includes('mensagem')) return PaperPlaneRight
-    if (label.toLowerCase().includes('sucesso') || label.toLowerCase().includes('resposta')) return CheckCircle
-    if (label.toLowerCase().includes('satisfação')) return Star
-    return Star
-  }
-  
-  const MetricIcon = getIconForLabel(metric.label)
   const delayClass = `delay-${(index % 5) * 100}` as const
   
   const isSatisfaction = metric.label.toLowerCase().includes('satisfação')
@@ -42,7 +41,7 @@ export function MetricCard({ metric, index = 0 }: MetricCardProps) {
     <Card className={`relative overflow-hidden group hover:border-primary/40 transition-colors animate-slide-up ${delayClass}`}>
       {/* Decorative background icon */}
       <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-        <MetricIcon weight="fill" className="text-6xl text-primary" />
+        <MetricIcon label={metric.label} weight="fill" className="text-6xl text-primary" />
       </div>
       
       {/* Neon glow for success rate */}
@@ -51,7 +50,7 @@ export function MetricCard({ metric, index = 0 }: MetricCardProps) {
       )}
       
       <h3 className="text-text-muted text-sm font-medium mb-4 flex items-center gap-2">
-        <MetricIcon weight="regular" className="text-primary" />
+        <MetricIcon label={metric.label} weight="regular" className="text-primary" />
         {metric.label}
       </h3>
       

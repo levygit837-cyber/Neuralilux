@@ -7,7 +7,7 @@ Dashboard e interface de chat em Next.js + TypeScript.
 ```
 frontend/
 ├── src/
-│   ├── app/              # App Router (Next.js 14)
+│   ├── app/              # App Router (Next.js 16)
 │   │   ├── dashboard/
 │   │   ├── chat/
 │   │   └── layout.tsx
@@ -46,7 +46,7 @@ npm run type-check   # Verificar tipos
 
 ## Tecnologias
 
-- **Framework**: Next.js 14 (App Router)
+- **Framework**: Next.js 16 (App Router)
 - **Linguagem**: TypeScript
 - **Styling**: TailwindCSS
 - **State**: Zustand + React Query

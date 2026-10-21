@@ -1,3 +1,4 @@
+import json
 import asyncio
 
 from app.models.models import Company
@@ -162,7 +163,7 @@ def test_create_agent_chat_session_uses_authenticated_user_company(client, db):
     assert session["company_id"] == company_id
 
 
-def test_agent_chat_returns_direct_menu_response_without_server_error(client, db, monkeypatch):
+def test_agent_chat_menu_lookup_goes_through_tool_loop(client, db, monkeypatch):
     def override_get_db():
         yield db
 
@@ -170,6 +171,27 @@ def test_agent_chat_returns_direct_menu_response_without_server_error(client, db
     monkeypatch.setattr("app.super_agents.tool_runtime.get_db", override_get_db)
     monkeypatch.setattr("app.super_agents.tools.menu_tool.get_db", override_get_db)
     monkeypatch.setattr("app.super_agents.tools.whatsapp_tool.get_db", override_get_db)
+
+    # LLM falso: 1º turno pede a tool menu_lookup; 2º turno escreve a resposta com o que a tool devolveu.
+    llm_calls = []
+
+    async def fake_stream_with_tools(self, messages, tools, **kwargs):
+        llm_calls.append([dict(m) for m in messages])
+        if len(llm_calls) == 1:
+            return {
+                "content": "",
+                "tool_calls": [
+                    {"id": "call_1", "function": {"name": "menu_lookup", "arguments": {"limit": 3}}}
+                ],
+            }
+        tool_output = json.loads(next(m for m in messages if m.get("role") == "tool")["content"])
+        names = ", ".join(c["name"] for c in tool_output["categories"])
+        return {"content": f"Categorias disponíveis: {names}", "tool_calls": []}
+
+    monkeypatch.setattr(
+        "app.services.inference_service.FallbackInferenceService.stream_chat_completion_with_tools",
+        fake_stream_with_tools,
+    )
 
     company = Company(name="Macedos", is_active=True)
     db.add(company)
@@ -203,4 +225,9 @@ def test_agent_chat_returns_direct_menu_response_without_server_error(client, db
     assert response.status_code == 200
     payload = response.json()
     assert payload["session_id"]
+    # A resposta final veio do segundo turno do LLM, montada a partir do resultado real da tool.
     assert "Categorias disponíveis" in payload["response"]
+    assert "Sopas" in payload["response"]
+    assert len(llm_calls) == 2
+    tool_message = next(m for m in llm_calls[1] if m.get("role") == "tool")
+    assert "Sopas" in tool_message["content"]

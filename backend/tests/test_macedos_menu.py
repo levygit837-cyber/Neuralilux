@@ -7,6 +7,8 @@ from app.models.models import Company, MenuCategory, MenuItem
 from app.services.menu_catalog_service import DEFAULT_MENU_JSON_PATH, sync_macedos_menu_from_json
 
 cardapio_tool_module = importlib.import_module("app.agents.tools.cardapio_tool")
+from app.agents.message_variations import FALLBACK_GENERICO_SEM_HISTORICO, SAUDACOES_PRIMEIRA_MENSAGEM
+
 nodes_module = importlib.import_module("app.agents.graph.nodes")
 pedido_tool_module = importlib.import_module("app.agents.tools.pedido_tool")
 menu_service_module = importlib.import_module("app.services.menu_catalog_service")
@@ -59,7 +61,7 @@ async def test_classify_intent_node_uses_llm_json_output(monkeypatch):
     async def fake_chat_completion(*args, **kwargs):
         return {"content": '{"intent":"cardapio","flow_stage":"explorando_cardapio"}'}
 
-    monkeypatch.setattr("app.services.inference_service.inference_service.chat_completion", fake_chat_completion)
+    monkeypatch.setattr("app.services.inference_service.FallbackInferenceService.chat_completion", fake_chat_completion)
 
     result = await nodes_module.classify_intent_node(
         {
@@ -140,23 +142,24 @@ async def test_generate_response_returns_direct_greeting():
 
     result = await nodes_module.generate_response_node(state)
 
-    assert "cardápio" in result["response"].lower() or "categorias" in result["response"].lower()
+    assert result["response"] in SAUDACOES_PRIMEIRA_MENSAGEM
     assert "aguarde" not in result["response"].lower()
 
 
 def test_is_nemotron_model_uses_runtime_inference_model(monkeypatch):
-    monkeypatch.setattr("app.services.inference_service.inference_service.model", "local-model")
+    monkeypatch.setattr("app.services.inference_service.FallbackInferenceService.model", "local-model")
     assert nodes_module._is_nemotron_model() is False
 
-    monkeypatch.setattr("app.services.inference_service.inference_service.model", "nvidia/nemotron-3-nano-4b")
+    monkeypatch.setattr("app.services.inference_service.FallbackInferenceService.model", "nvidia/nemotron-3-nano-4b")
     assert nodes_module._is_nemotron_model() is True
 
 
 @pytest.mark.asyncio
-async def test_execute_action_handles_order_request_via_llm_plan(db, monkeypatch):
+async def test_execute_action_handles_order_request_via_llm_plan(db, monkeypatch, conversation_factory):
     monkeypatch.setattr(pedido_tool_module, "SessionLocal", lambda: db)
     monkeypatch.setattr(nodes_module, "SessionLocal", lambda: db)
     pedido_tool_module._pedidos_ativos.clear()
+    conversation_factory("conv-pedido-direto")
     pedido_tool_module.set_active_conversation("conv-pedido-direto")
     menu_service_module.sync_macedos_menu_from_json(db, menu_service_module.DEFAULT_MENU_JSON_PATH)
 
@@ -212,7 +215,10 @@ async def test_generate_response_uses_direct_fallback_when_model_returns_blank(m
             yield "response", ""
 
     monkeypatch.setattr(nodes_module, "_emit_thinking_event", fake_emit)
-    monkeypatch.setattr("app.services.inference_service.inference_service.astream_chat_completion_with_thinking", fake_stream)
+    monkeypatch.setattr(
+        "app.services.inference_service.FallbackInferenceService.astream_chat_completion_with_thinking",
+        fake_stream,
+    )
 
     state = {
         "conversation_id": "conv-3",
@@ -242,4 +248,4 @@ async def test_generate_response_uses_direct_fallback_when_model_returns_blank(m
 
     result = await nodes_module.generate_response_node(state)
 
-    assert "cardápio" in result["response"].lower()
+    assert result["response"] in FALLBACK_GENERICO_SEM_HISTORICO

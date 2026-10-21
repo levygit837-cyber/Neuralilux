@@ -110,13 +110,13 @@ class TestCreateDocumentToolIntegration:
     def test_database_operations_called(self, mock_db_dependencies):
         """Testa se operações do banco são chamadas."""
         from app.super_agents.tools.document_tool import create_document_tool
-        from app.core.database import get_db
+        # get_db é importado dentro da tool a partir de app.core.database
         
         mock_db, mock_doc = mock_db_dependencies
         
         # Patch get_db to return our mock
-        with patch.object(get_db, '__call__', return_value=iter([mock_db])):
-            with patch('app.super_agents.tools.document_tool.SuperAgentDocument') as MockDoc:
+        with patch('app.core.database.get_db', return_value=iter([mock_db])):
+            with patch('app.models.models.SuperAgentDocument') as MockDoc:
                 MockDoc.return_value = mock_doc
                 
                 payload = {
@@ -148,7 +148,7 @@ class TestCreateDocumentToolIntegration:
         content = "Conteúdo de teste para verificação"
         
         with patch('app.core.database.get_db', return_value=iter([mock_db])):
-            with patch('app.super_agents.tools.document_tool.SuperAgentDocument') as MockDoc:
+            with patch('app.models.models.SuperAgentDocument') as MockDoc:
                 MockDoc.return_value = mock_doc
                 
                 payload = {

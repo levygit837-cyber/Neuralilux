@@ -1,0 +1,86 @@
+# FastAPI
+fastapi==0.143.1
+uvicorn[standard]==0.54.0
+pydantic==2.14.1
+pydantic-settings==2.16.0
+starlette==1.8.0
+
+# Database
+sqlalchemy==2.1.4
+alembic==1.20.0
+psycopg2-binary==2.9.13
+psycopg[binary]==3.3.6
+asyncpg==0.32.0
+
+# Redis
+redis==8.1.0
+hiredis==3.4.2
+
+# RabbitMQ
+pika==1.4.4
+
+# Authentication
+python-jose[cryptography]==3.5.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.32
+
+# LangChain & AI
+langchain==1.4.6
+langchain-openai==1.7.2
+langchain-anthropic==1.7.6
+langchain-community==0.4.2
+langgraph==1.2.15
+openai==3.31.0
+anthropic==1.14.0
+
+# Vertex AI Express Mode (Google GenAI SDK)
+google-genai==2.30.1
+
+# Document Generation
+fpdf2==2.8.9
+
+# Vector Store
+qdrant-client==1.19.1
+sentence-transformers==6.1.0
+
+# PDF Processing
+pypdf==6.20.1
+
+# HTTP Client
+httpx==0.28.1
+aiohttp==3.14.5
+
+# RabbitMQ
+aio-pika==10.1.1
+
+# WebSocket
+websockets==16.1.1
+python-socketio==5.17.0
+
+# Utilities
+python-dotenv==1.2.4
+structlog==26.1.0
+tenacity==9.1.4
+
+# Validation
+email-validator==2.3.0
+phonenumbers==9.0.41
+
+# Rate Limiting
+slowapi==0.1.10
+
+# Monitoring
+prometheus-client==0.26.0
+
+# Testing
+pytest==9.1.1
+pytest-asyncio==1.4.0
+pytest-cov==7.1.0
+pytest-mock==3.16.0
+respx==0.23.1
+
+# Development
+black==26.10.1
+isort==9.0.2
+flake8==7.4.1
+mypy==2.4.0

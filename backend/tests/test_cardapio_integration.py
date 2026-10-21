@@ -5,6 +5,8 @@ Testa se o modelo está usando as ferramentas corretamente.
 import pytest
 from app.agents.graph.whatsapp_graph import WhatsAppAgentGraph
 
+# Chama o LLM real (WhatsAppAgentGraph); roda só com RUN_E2E=1 e credenciais válidas.
+pytestmark = pytest.mark.e2e
 
 @pytest.mark.asyncio
 async def test_agent_uses_cardapio_tool_on_menu_request():

@@ -31,21 +31,21 @@ interface DocumentOutput {
   error?: string
 }
 
-function getFileIcon(fileType?: string) {
+function FileIcon({ fileType, className }: { fileType?: string; className?: string }) {
   const type = fileType?.toLowerCase()
-  
+
   switch (type) {
     case 'pdf':
-      return File
+      return <File className={className} />
     case 'json':
-      return FileJson
+      return <FileJson className={className} />
     case 'markdown':
     case 'md':
-      return FileCode
+      return <FileCode className={className} />
     case 'txt':
-      return FileText
+      return <FileText className={className} />
     default:
-      return FileType
+      return <FileType className={className} />
   }
 }
 
@@ -211,7 +211,6 @@ export function DocumentToolCard({ toolEvent }: DocumentToolCardProps) {
     error 
   } = output
   
-  const FileIcon = getFileIcon(file_type)
   const fileColor = getFileColor(file_type)
   const canDownload = !!content_base64 && success
   
@@ -259,7 +258,7 @@ export function DocumentToolCard({ toolEvent }: DocumentToolCardProps) {
           file_type === 'txt' && "border-gray-500/30 bg-gray-500/10",
           !['pdf', 'json', 'markdown', 'md', 'txt'].includes(file_type || '') && "border-primary/30 bg-primary/10"
         )}>
-          <FileIcon className={cn("h-6 w-6", fileColor)} />
+          <FileIcon fileType={file_type} className={cn("h-6 w-6", fileColor)} />
         </div>
         
         {/* File Info */}

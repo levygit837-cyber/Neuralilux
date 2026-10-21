@@ -599,9 +599,12 @@ class VertexInferenceService:
         # Convert tools to Vertex format
         vertex_tools = self._convert_tools_to_vertex_format(tools) if tools else None
 
+        # Convert messages to Vertex format (system messages become system_instruction)
+        system_instruction, contents = self._build_contents(messages, system_prompt)
+
         # Build config
         config = GenerateContentConfig(
-            system_instruction=system_prompt,
+            system_instruction=system_instruction,
             max_output_tokens=max_tokens or self.max_tokens,
             temperature=temperature or self.temperature,
         )
@@ -619,9 +622,6 @@ class VertexInferenceService:
 
         if vertex_tools:
             config.tools = vertex_tools
-
-        # Convert messages to Vertex format
-        contents = self._convert_messages_to_vertex_format(messages)
 
         logger.debug(
             "Starting Vertex AI streaming with thinking",
