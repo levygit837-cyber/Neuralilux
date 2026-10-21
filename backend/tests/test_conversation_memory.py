@@ -286,7 +286,7 @@ def test_search_history_limits_results_and_truncates_snippets(db, conversation_f
 
     assert len(hits) == 8  # limit padrão
     assert all(len(h["snippet"]) <= 300 for h in hits)
-    assert hits[0]["snippet"].startswith("pedido 12 ")  # mais recente primeiro
+    assert hits[0]["snippet"].startswith("pedido 12 ")  # mais recente primeiro (match no início)
     assert len(memory.search_history(db, conversation.contact_id, conversation.instance_id, "pedido", limit=3)) == 3
 
 
@@ -295,3 +295,90 @@ def test_search_history_with_blank_query_returns_nothing(db, conversation_factor
     add_message(conversation, 1, "user", "oi")
 
     assert memory.search_history(db, conversation.contact_id, conversation.instance_id, "   ") == []
+
+
+def test_search_history_snippet_is_centered_on_the_first_match(db, conversation_factory, add_message):
+    conversation = conversation_factory("conv-search-center")
+    add_message(conversation, 1, "user", "a" * 400 + " toscana " + "b" * 400)
+
+    hits = memory.search_history(db, conversation.contact_id, conversation.instance_id, "toscana")
+
+    snippet = hits[0]["snippet"]
+    assert len(snippet) <= 300
+    assert "toscana" in snippet  # content[:300] perderia o termo
+    assert snippet.startswith("a") and snippet.endswith("b")  # janela em volta, não só o fim
+
+
+def test_search_history_snippet_uses_the_earliest_of_any_term(db, conversation_factory, add_message):
+    conversation = conversation_factory("conv-search-earliest")
+    add_message(conversation, 1, "user", "x" * 500 + " calabresa e depois queijo")
+
+    hits = memory.search_history(db, conversation.contact_id, conversation.instance_id, "calabresa")
+
+    assert "calabresa" in hits[0]["snippet"]
+
+
+@pytest.mark.asyncio
+async def test_summary_batch_is_capped_at_the_100_oldest_pending_messages(
+    db, conversation_factory, add_message
+):
+    conversation = conversation_factory("conv-sum-cap-batch")
+    _fill(conversation, add_message, 170)  # 150 fora da janela de 20
+    client = FakeClient(text="Lote 1.")
+
+    await memory.maybe_refresh_summary(db, client, "modelo-x", conversation)
+
+    prompt = client.requests[0].messages[0]["content"]
+    assert "Cliente: msg 1" in prompt.splitlines()
+    assert "msg 100" in prompt
+    assert "msg 101" not in prompt  # 101 em diante fica para o próximo lote
+    from app.models.models import ConversationMemorySummary
+
+    row = db.get(ConversationMemorySummary, conversation.id)
+    assert row.message_count == 100
+
+    client.text = "Lote 2."
+    await memory.maybe_refresh_summary(db, client, "modelo-x", conversation)
+
+    # restam 50 pendentes fora da janela (>= 20): o resumo avança pelo mesmo critério
+    second = client.requests[1].messages[0]["content"]
+    assert "Lote 1." in second
+    assert "msg 101" in second and "msg 150" in second
+    assert "msg 151" not in second
+    assert memory.build_context(db, conversation)[0] == "Lote 2."
+    assert db.get(ConversationMemorySummary, conversation.id).message_count == 150
+
+
+@pytest.mark.asyncio
+async def test_summary_refresh_follows_the_window_it_is_given(db, conversation_factory, add_message):
+    conversation = conversation_factory("conv-sum-window")
+    _fill(conversation, add_message, 30)  # com janela 10, 20 ficam fora
+    client = FakeClient()
+
+    await memory.maybe_refresh_summary(db, client, "modelo-x", conversation, window=10)
+
+    assert len(client.requests) == 1
+    assert "msg 20" in client.requests[0].messages[0]["content"]
+    assert "msg 21" not in client.requests[0].messages[0]["content"]
+    _, history = memory.build_context(db, conversation, window=10)
+    assert history[0]["content"] == "msg 21"
+
+
+def test_memory_parameters_come_from_settings():
+    from app.core.config import settings
+
+    assert (settings.MEMORY_WINDOW, settings.SUMMARY_EVERY, settings.HISTORY_SEARCH_LIMIT) == (20, 20, 8)
+
+
+def test_fts_index_is_declared_on_the_model_for_postgres_only():
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.schema import CreateIndex
+
+    from app.models.models import Message
+
+    index = next(i for i in Message.__table__.indexes if i.name == "ix_messages_content_fts")
+
+    ddl = str(CreateIndex(index).compile(dialect=postgresql.dialect()))
+    assert "USING gin" in ddl
+    assert "to_tsvector('portuguese', coalesce(content,''))" in ddl
+    assert index.dialect_options["postgresql"]["using"] == "gin"

@@ -8,12 +8,12 @@ from sqlalchemy import func, literal_column, tuple_
 from sqlalchemy.orm import Query, Session
 
 from app.agent.contracts import ChatMessage, MessagesClient, MessagesRequest
-from app.models.models import Conversation, ConversationSummary, Message
+from app.core.config import settings
+from app.models.models import Conversation, ConversationMemorySummary, Message
 
 logger = logging.getLogger(__name__)
 
-RECENT_WINDOW = 20
-SUMMARY_TRIGGER = 20  # Messages fora da janela e ainda não resumidas
+SUMMARY_BATCH_MAX = 100  # Messages por Summary: o resumo avança em lotes e nunca estoura o contexto
 SUMMARY_MAX_CHARS = 1200
 SUMMARY_MAX_TOKENS = 600
 SEARCH_SNIPPET_CHARS = 300
@@ -48,7 +48,7 @@ def _oldest_first(query: Query) -> Query:
 
 
 def build_context(
-    db: Session, conversation: Conversation, window: int = RECENT_WINDOW
+    db: Session, conversation: Conversation, window: int = settings.MEMORY_WINDOW
 ) -> tuple[str | None, list[ChatMessage]]:
     """Summary (se houver) e Recent Window da Conversation, prontos para o prompt.
 
@@ -66,20 +66,30 @@ def build_context(
         elif history or role == "user":
             history.append({"role": role, "content": message.content})
 
-    row = db.get(ConversationSummary, conversation.id)
+    row = db.get(ConversationMemorySummary, conversation.id)
     return (row.summary if row else None), history
 
 
 async def maybe_refresh_summary(
-    db: Session, client: MessagesClient, model: str, conversation: Conversation
+    db: Session,
+    client: MessagesClient,
+    model: str,
+    conversation: Conversation,
+    window: int = settings.MEMORY_WINDOW,
 ) -> None:
-    """Atualiza o Summary quando há `SUMMARY_TRIGGER` Messages fora da janela ainda não resumidas.
+    """Atualiza o Summary quando há `settings.SUMMARY_EVERY` Messages fora da janela ainda não resumidas.
+
+    `window` tem de ser o mesmo usado em `build_context`; por isso ambos partem de `settings.MEMORY_WINDOW`.
+    Cada chamada resume no máximo as `SUMMARY_BATCH_MAX` Messages pendentes mais antigas; o que sobra
+    entra no próximo refresh.
 
     Chamar depois que a resposta já foi enviada (ex.: `asyncio.create_task`), para não atrasar o
-    Contact. Qualquer falha só é logada: o próximo Turn tenta de novo.
+    Contact. O chamador TEM de passar a sua própria `Session`, nunca a do Turn: esta função roda
+    concorrente ao Turn, faz `commit`/`rollback` e uma `Session` não é segura entre tarefas.
+    Qualquer falha só é logada: o próximo Turn tenta de novo.
     """
     try:
-        await _refresh_summary(db, client, model, conversation)
+        await _refresh_summary(db, client, model, conversation, window)
     except Exception:
         db.rollback()
         logger.warning(
@@ -88,10 +98,10 @@ async def maybe_refresh_summary(
 
 
 async def _refresh_summary(
-    db: Session, client: MessagesClient, model: str, conversation: Conversation
+    db: Session, client: MessagesClient, model: str, conversation: Conversation, window: int
 ) -> None:
     outside = _text_messages(db, conversation.id)
-    window_start = _newest_first(outside).offset(RECENT_WINDOW).first()
+    window_start = _newest_first(outside).offset(window).first()
     if window_start is None:
         return
     # `window_start` é a Message mais recente fora da janela; tudo até ela ainda pode ser resumido.
@@ -99,15 +109,15 @@ async def _refresh_summary(
         tuple_(Message.timestamp, Message.id) <= (window_start.timestamp, window_start.id)
     )
 
-    previous = db.get(ConversationSummary, conversation.id)
+    previous = db.get(ConversationMemorySummary, conversation.id)
     if previous is not None:
         covered = db.get(Message, previous.covered_until_message_id)
         outside = outside.filter(
             tuple_(Message.timestamp, Message.id) > (covered.timestamp, covered.id)
         )
 
-    pending = _oldest_first(outside).all()
-    if len(pending) < SUMMARY_TRIGGER:
+    pending = _oldest_first(outside).limit(SUMMARY_BATCH_MAX).all()
+    if len(pending) < settings.SUMMARY_EVERY:
         return
 
     transcript = "\n".join(
@@ -133,7 +143,7 @@ async def _refresh_summary(
 
     if previous is None:
         db.add(
-            ConversationSummary(
+            ConversationMemorySummary(
                 conversation_id=conversation.id,
                 summary=text,
                 covered_until_message_id=pending[-1].id,
@@ -147,8 +157,29 @@ async def _refresh_summary(
     db.commit()
 
 
+def _snippet(content: str, terms: list[str]) -> str:
+    """Até `SEARCH_SNIPPET_CHARS` caracteres em volta da primeira ocorrência de qualquer termo."""
+    lowered = content.lower()
+    positions = [
+        i
+        for term in terms
+        if not term.startswith("-") and term.lower() != "or"
+        for i in [lowered.find(term.strip('"').lower())]
+        if i >= 0
+    ]
+    if len(content) <= SEARCH_SNIPPET_CHARS or not positions:
+        return content[:SEARCH_SNIPPET_CHARS]
+    start = max(0, min(positions) - SEARCH_SNIPPET_CHARS // 2)
+    start = min(start, len(content) - SEARCH_SNIPPET_CHARS)
+    return content[start : start + SEARCH_SNIPPET_CHARS]
+
+
 def search_history(
-    db: Session, contact_id: str, instance_id: str, query: str, limit: int = 8
+    db: Session,
+    contact_id: str,
+    instance_id: str,
+    query: str,
+    limit: int = settings.HISTORY_SEARCH_LIMIT,
 ) -> list[dict[str, str]]:
     """History Search: busca textual nas Messages de todas as Conversations de um Contact.
 
@@ -194,7 +225,7 @@ def search_history(
         {
             "date": m.timestamp.isoformat(),
             "role": _role(m),
-            "snippet": m.content[:SEARCH_SNIPPET_CHARS],
+            "snippet": _snippet(m.content, terms),
         }
         for m in rows
     ]
