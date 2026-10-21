@@ -42,11 +42,6 @@ class MessageType(str, enum.Enum):
     STICKER = "sticker"
 
 
-class AgentTypeEnum(str, enum.Enum):
-    SALES = "sales"
-    SAC = "sac"
-
-
 class BusinessType(Base):
     __tablename__ = "business_types"
 

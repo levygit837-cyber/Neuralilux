@@ -65,7 +65,7 @@ frontend/src/
 
 ## Rodar localmente
 
-Pré-requisitos: Docker, Python 3.11 ou 3.12, Node 20.9+ (exigência do Next 16) e uma chave de LLM (Gemini por padrão).
+Pré-requisitos: Docker, Python 3.11 ou 3.12, Node 20.9+ (exigência do Next 16) e um Gateway que fale o protocolo Anthropic Messages (cadastrado depois em **Configurações > Gateways**).
 
 ```bash
 # 1. Infra: PostgreSQL, Redis, RabbitMQ e Evolution API
@@ -73,7 +73,7 @@ docker compose up -d postgres redis rabbitmq evolution-api
 
 # 2. Backend
 cd backend
-cp .env.example .env        # ajuste EVOLUTION_API_KEY, SECRET_KEY e GEMINI_API_KEY
+cp .env.example .env        # ajuste EVOLUTION_API_KEY e SECRET_KEY
 python3.12 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:socket_app --host 0.0.0.0 --port 8000 --reload
