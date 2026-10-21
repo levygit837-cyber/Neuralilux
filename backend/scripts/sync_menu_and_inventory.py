@@ -11,7 +11,7 @@ sys.path.insert(0, str(backend_dir))
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
 from app.models import Product, ProductType, Company, MenuItem, MenuCatalog
-from app.services.menu_catalog_service import sync_macedos_menu_from_json
+from app.services.menu.sync import sync_macedos_menu_from_json
 
 def ensure_product_types(db: Session) -> dict[str, str]:
     types = {

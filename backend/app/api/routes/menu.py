@@ -12,14 +12,12 @@ from app.schemas.menu import (
     MenuItemUpdate,
     MenuManagementResponse,
 )
-from app.services.menu_management_service import (
+from app.services.menu.items import create_menu_item, delete_menu_item, update_menu_item
+from app.services.menu.management import (
     create_menu_category,
-    create_menu_item,
     delete_menu_category,
-    delete_menu_item,
     get_menu_management_snapshot,
     update_menu_category,
-    update_menu_item,
 )
 
 

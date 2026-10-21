@@ -1,5 +1,5 @@
 from app.models import Company, MenuCatalog, MenuCategory, MenuItem
-from app.services.menu_management_service import (
+from app.services.menu.inventory import (
     get_menu_item,
     get_menu_items_by_company,
     list_menu_items,

@@ -1,6 +1,6 @@
 # DEPRECATED: Use MenuItem/MenuCategory instead for inventory management
 # This service is maintained for backward compatibility only.
-# New code should use menu_management_service.py
+# New code should use services/menu/
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from app.models import Product
