@@ -514,3 +514,15 @@ class GatewayAssignment(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     gateway_model = relationship("GatewayModel")
+
+
+class ConversationSummary(Base):
+    """Summary acumulado das Messages que já saíram da Recent Window (ADR 0003)."""
+    __tablename__ = "conversation_summaries"
+
+    conversation_id = Column(String, ForeignKey("conversations.id"), primary_key=True)
+    summary = Column(Text, nullable=False)
+    # Última Message coberta pelo Summary; só o que vem depois conta para o próximo refresh.
+    covered_until_message_id = Column(String, ForeignKey("messages.id"), nullable=False)
+    message_count = Column(Integer, nullable=False)  # Messages cobertas até agora
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
