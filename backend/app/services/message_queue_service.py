@@ -136,7 +136,8 @@ class MessageQueueService:
     ) -> None:
         """Entrega uma mensagem ao callback e a resolve no broker.
 
-        JSON inválido é descartado sem requeue; erro do callback devolve a mensagem à fila.
+        JSON inválido é descartado sem requeue. Erro do callback devolve a mensagem à fila uma única vez: se ela já
+        foi reentregue (`redelivered`), é descartada, senão uma mensagem venenosa giraria em loop quente.
         """
         task = asyncio.current_task()
         if task is not None:
@@ -151,8 +152,16 @@ class MessageQueueService:
             try:
                 await callback(payload)
             except Exception:
-                logger.exception("Processing error", queue=message.routing_key)
-                await message.nack(requeue=True)
+                requeue = not message.redelivered
+                if requeue:
+                    logger.exception("Processing error, requeueing once", queue=message.routing_key)
+                else:
+                    logger.exception(
+                        "Processing error on redelivery, message dropped",
+                        queue=message.routing_key,
+                        message_id=message.message_id,
+                    )
+                await message.nack(requeue=requeue)
                 return
             await message.ack()
         finally:

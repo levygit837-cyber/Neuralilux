@@ -3,7 +3,7 @@
 Ordem: gate de Handoff lido do banco, contexto (Summary + Recent Window), Gateway
 do `whatsapp_agent`, loop com as Tools dos Packs da Company, formatação para o
 WhatsApp e nova leitura do Handoff antes de devolver a resposta. Quem chama envia
-`reply_text` (se houver) e depois aguarda `refresh_summary`.
+`reply_text` (se houver) e depois agenda `refresh_summary` fora do caminho da resposta.
 """
 
 from __future__ import annotations
@@ -145,8 +145,8 @@ def _with_incoming(history: list[ChatMessage], text: str) -> list[ChatMessage]:
 async def refresh_summary(conversation_id: str) -> None:
     """Atualiza o Summary da Conversation, depois que a resposta já foi enviada.
 
-    Abre a própria Session, separada da do Turn. Quem chama aguarda esta função dentro do
-    mesmo callback: o worker fecha o event loop ao fim de cada mensagem. Falhas só vão para o log.
+    Abre a própria Session, separada da do Turn. O worker roda num event loop persistente e agenda esta
+    função como task de fundo, rastreada e aguardada no shutdown. Falhas só vão para o log.
     """
     db = database.SessionLocal()
     try:

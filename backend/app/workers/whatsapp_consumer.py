@@ -31,6 +31,9 @@ MEDIA_REPLY = "Por enquanto só consigo ler mensagens de texto. Pode me escrever
 # queda ou reconexão): ficam gravadas, mas o Agent não responde.
 STALE_AFTER = timedelta(minutes=5)
 
+# Tempo máximo que o shutdown espera os Summaries pendentes antes de cancelá-los.
+DRAIN_TIMEOUT = 10.0
+
 # Chaves de `message` que só embrulham outra mensagem.
 _WRAPPERS = ("ephemeralMessage", "viewOnceMessage", "viewOnceMessageV2", "documentWithCaptionMessage")
 _MEDIA = {
@@ -63,7 +66,7 @@ def parse_content(message_data: Dict[str, Any]) -> ParsedContent:
         text = message_data["conversation"] or ""
         return ParsedContent("text", text, text)
     if "extendedTextMessage" in message_data:
-        text = message_data["extendedTextMessage"].get("text") or ""
+        text = (message_data["extendedTextMessage"] or {}).get("text") or ""
         return ParsedContent("text", text, text)
     for key, (message_type, placeholder) in _MEDIA.items():
         if key in message_data:
@@ -112,7 +115,6 @@ class WhatsAppMessageConsumer:
 
     def __init__(self):
         self.mq = message_queue_service
-        self._running = False
         self._started_at = datetime.now(timezone.utc)
         self._locks: Dict[str, list] = {}  # chave da Conversation -> [Lock, quantos a usam]
         self._background: set[asyncio.Task] = set()
@@ -326,7 +328,7 @@ class WhatsAppMessageConsumer:
         from_me: bool,
     ) -> None:
         name = contact.name or contact.phone_number
-        await realtime_event_bus.publish(
+        event = (
             {
                 "type": "incoming_message",
                 "instance_name": instance_name,
@@ -353,6 +355,11 @@ class WhatsAppMessageConsumer:
                 },
             }
         )
+        try:
+            await realtime_event_bus.publish(event)
+        except Exception:
+            # Realtime é só a UI ao vivo: uma falha no Redis não pode impedir o Agent nem a resposta.
+            logger.exception("Failed to publish message to realtime", message_id=message_id)
 
     async def _update_message_status(self, db: Session, data: Dict[str, Any]) -> None:
         """Update message status in database"""
@@ -608,7 +615,6 @@ class WhatsAppMessageConsumer:
     async def start(self) -> None:
         """Consome até `stop()`."""
         logger.info("Starting WhatsApp message consumer")
-        self._running = True
         self._started_at = datetime.now(timezone.utc)
         self.register_consumers()
         await self.mq.start_consuming()
@@ -616,9 +622,17 @@ class WhatsAppMessageConsumer:
     async def stop(self) -> None:
         """Para de consumir, espera as entregas em voo e os Summaries pendentes."""
         logger.info("Stopping WhatsApp message consumer")
-        self._running = False
         await self.mq.stop_consuming()
-        await self.drain()
+        pending = tuple(self._background)
+        if pending:
+            _, unfinished = await asyncio.wait(pending, timeout=DRAIN_TIMEOUT)
+            for task in unfinished:
+                task.cancel()
+            if unfinished:
+                logger.error(
+                    "Summaries cancelled: shutdown drain timed out", pending=len(unfinished), timeout=DRAIN_TIMEOUT
+                )
+                await asyncio.gather(*unfinished, return_exceptions=True)
 
     async def drain(self) -> None:
         """Espera as tasks de fundo (Summaries) que ainda estão em andamento."""

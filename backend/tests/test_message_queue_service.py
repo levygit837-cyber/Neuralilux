@@ -10,9 +10,11 @@ from app.services.message_queue_service import MessageQueueService
 class FakeIncoming:
     """Mensagem entregue pelo aio-pika; registra como foi resolvida."""
 
-    def __init__(self, body: bytes, routing_key: str = "webhooks.evolution"):
+    def __init__(self, body: bytes, routing_key: str = "webhooks.evolution", redelivered: bool = False):
         self.body = body
         self.routing_key = routing_key
+        self.redelivered = redelivered
+        self.message_id = "msg-1"
         self.resolution = None
 
     async def ack(self):
@@ -57,7 +59,7 @@ async def test_invalid_json_is_rejected_without_requeue_and_never_reaches_the_ca
 
 
 @pytest.mark.asyncio
-async def test_failing_callback_requeues_the_message():
+async def test_first_failure_requeues_the_message():
     async def callback(_payload):
         raise RuntimeError("banco fora do ar")
 
@@ -66,6 +68,30 @@ async def test_failing_callback_requeues_the_message():
     await MessageQueueService()._on_message(callback, message)
 
     assert message.resolution == "nack(requeue=True)"
+
+
+@pytest.mark.asyncio
+async def test_failure_on_redelivery_drops_the_message_instead_of_looping():
+    async def callback(_payload):
+        raise RuntimeError("mensagem venenosa")
+
+    message = FakeIncoming(_body({"event": "x"}), redelivered=True)
+
+    await MessageQueueService()._on_message(callback, message)
+
+    assert message.resolution == "nack(requeue=False)"
+
+
+@pytest.mark.asyncio
+async def test_redelivered_message_that_succeeds_is_acked():
+    async def callback(_payload):
+        return None
+
+    message = FakeIncoming(_body({"event": "x"}), redelivered=True)
+
+    await MessageQueueService()._on_message(callback, message)
+
+    assert message.resolution == "ack"
 
 
 @pytest.mark.asyncio
