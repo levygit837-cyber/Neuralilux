@@ -55,8 +55,28 @@ def upgrade() -> None:
             {"company_id": restaurant_ids[0]},
         )
 
+    # Um Pix por Order. O fluxo antigo (create_payment_tool) não deduplicava; as duplicatas existentes
+    # são preservadas como `pix_duplicate` cancelado (só a mais antiga de cada Order continua `pix`).
+    bind.execute(
+        sa.text(
+            "UPDATE payment_records SET payment_method = 'pix_duplicate', status = 'cancelled' "
+            "WHERE id IN (SELECT id FROM ("
+            "  SELECT id, ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY created_at, id) AS position "
+            "  FROM payment_records WHERE payment_method = 'pix'"
+            ") ranked WHERE position > 1)"
+        )
+    )
+    op.create_index(
+        'uq_payment_records_order_pix',
+        'payment_records',
+        ['order_id'],
+        unique=True,
+        postgresql_where=sa.text("payment_method = 'pix'"),
+    )
+
 
 def downgrade() -> None:
+    op.drop_index('uq_payment_records_order_pix', table_name='payment_records')
     op.drop_column('customer_orders', 'change_for')
     op.drop_column('customer_orders', 'delivery_fee')
     op.drop_column('customer_orders', 'delivery_type')

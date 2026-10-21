@@ -180,7 +180,8 @@ def configure_company_operations(db: Session, company: Company):
     """Horários, fuso, pedido mínimo e uma zona de entrega de exemplo para a Company (idempotente)."""
     if not company.business_hours:
         company.business_hours = MACEDOS_BUSINESS_HOURS
-    company.timezone = "America/Fortaleza"
+    if not company.timezone or company.timezone == "America/Sao_Paulo":
+        company.timezone = "America/Fortaleza"  # o default da coluna não conta como configuração
     if company.minimum_order is None:
         company.minimum_order = 30.00
 

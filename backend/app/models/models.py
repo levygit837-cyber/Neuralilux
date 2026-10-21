@@ -472,6 +472,17 @@ class PaymentRecord(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     paid_at = Column(DateTime(timezone=True), nullable=True)
 
+    # Um Pix por Order: o dedup de `catalog_orders.pix.ensure_payment_record` se apoia neste índice.
+    __table_args__ = (
+        Index(
+            "uq_payment_records_order_pix",
+            "order_id",
+            unique=True,
+            postgresql_where=text("payment_method = 'pix'"),
+            sqlite_where=text("payment_method = 'pix'"),
+        ),
+    )
+
     # Relationships
     order = relationship("CustomerOrder", foreign_keys=[order_id])
     conversation = relationship("Conversation", foreign_keys=[conversation_id])

@@ -6,14 +6,19 @@ import re
 import unicodedata
 from decimal import Decimal
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.models import Company, CustomerOrder, PaymentRecord
 
 
+class PixError(ValueError):
+    """Não dá para gerar o Pix com os dados da Company/Order (ex: chave ausente ou longa demais)."""
+
+
 def _tlv(tag: str, value: str) -> str:
     if len(value) > 99:
-        raise ValueError(f"EMV tag {tag} excede 99 caracteres")
+        raise PixError(f"campo EMV {tag} com {len(value)} caracteres; o máximo é 99")
     return f"{tag}{len(value):02d}{value}"
 
 
@@ -55,25 +60,33 @@ def build_emv(*, key: str, amount: Decimal, txid: str, merchant_name: str, merch
     return body + crc16(body)
 
 
-def ensure_payment_record(db: Session, order: CustomerOrder, company: Company) -> PaymentRecord:
-    """Devolve o Payment Record Pix do Order, criando-o só na primeira vez (dedup por `order_id`).
-
-    O valor é o `total_amount` real do Order e a chave é a da Company dona dele.
-    """
-    existing = (
+def _existing_record(db: Session, order_id: str) -> PaymentRecord | None:
+    return (
         db.query(PaymentRecord)
-        .filter(PaymentRecord.order_id == order.id, PaymentRecord.payment_method == "pix")
+        .filter(PaymentRecord.order_id == order_id, PaymentRecord.payment_method == "pix")
         .order_by(PaymentRecord.created_at, PaymentRecord.id)
         .first()
     )
+
+
+def ensure_payment_record(db: Session, order: CustomerOrder, company: Company) -> PaymentRecord:
+    """Devolve o Payment Record Pix do Order, criando-o só na primeira vez.
+
+    O valor é o `total_amount` real do Order e a chave é a da Company dona dele. O dedup tem duas
+    camadas: a leitura prévia e o índice único parcial `uq_payment_records_order_pix`. Se duas
+    chamadas concorrentes passarem pela leitura, a segunda perde no índice, faz rollback e relê o
+    registro vencedor. Levanta `PixError` quando o Pix não pode ser gerado.
+    """
+    order_id = order.id
+    existing = _existing_record(db, order_id)
     if existing:
         return existing
     if not company.pix_key:
-        raise ValueError("Company sem chave Pix")
+        raise PixError("a empresa não tem chave Pix cadastrada")
 
     amount = Decimal(order.total_amount).quantize(Decimal("0.01"))
     record = PaymentRecord(
-        order_id=order.id,
+        order_id=order_id,
         conversation_id=order.conversation_id,
         amount=amount,
         pix_key=company.pix_key,
@@ -88,5 +101,12 @@ def ensure_payment_record(db: Session, order: CustomerOrder, company: Company) -
         payment_method="pix",
     )
     db.add(record)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        winner = _existing_record(db, order_id)
+        if winner is None:
+            raise
+        return winner
     return record
