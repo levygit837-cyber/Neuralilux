@@ -237,10 +237,17 @@ def update_gateway(
     new_url = changes.get("base_url")
     if new_url is not None and _origin(new_url) != _origin(gateway.base_url) and "api_key" not in changes:
         # A chave salva seguiria para outra origem: exige informar a chave de novo (ou "" para apagar).
+        # Mesmo formato dos erros de validacao do FastAPI: o frontend mostra a mensagem junto ao campo `api_key`.
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "Alterar a origem (esquema, host ou porta) do base_url exige informar api_key novamente "
-            "(use string vazia para remover a chave salva)",
+            [
+                {
+                    "type": "value_error",
+                    "loc": ["body", "api_key"],
+                    "msg": "Alterar a origem (esquema, host ou porta) do base_url exige informar api_key "
+                    "novamente (use string vazia para remover a chave salva)",
+                }
+            ],
         )
     if "api_key" in changes:
         key = changes.pop("api_key")

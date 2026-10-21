@@ -1,13 +1,17 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Network, Plus, Trash2, Pencil, Play, Download, KeyRound } from 'lucide-react'
+import { Network, Plus, Trash2, Pencil, Play, Download, KeyRound, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
-import { gatewayService } from '@/services/gatewayService'
+import { authService } from '@/services/authService'
+import { GatewayApiError, gatewayService } from '@/services/gatewayService'
+import { useAuthStore } from '@/stores/useAuthStore'
 import {
   AGENT_LABELS,
   AGENT_TYPES,
+  DEFAULT_GATEWAY_TIMEOUT_SECONDS,
+  originChanged,
   type Gateway,
   type GatewayAssignment,
   type GatewayModel,
@@ -27,10 +31,26 @@ const fieldLabel = 'mb-1.5 block text-xs font-medium text-text-gray'
 const selectClass =
   'h-12 w-full rounded-md border border-border-color bg-dark px-3 text-sm text-text-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
 
+const READ_ONLY_MESSAGE = 'Somente administradores podem alterar Gateways'
+const ORIGIN_KEY_MESSAGE =
+  'Você mudou a origem (esquema, host ou porta). A chave salva não é enviada para outro endereço: ' +
+  'informe a chave deste endereço ou marque a opção abaixo.'
+
+function FieldError({ id, message }: { id: string; message?: string }) {
+  if (!message) return null
+  return (
+    <p id={id} role="alert" className="mt-1.5 text-xs text-red-300">
+      {message}
+    </p>
+  )
+}
+
 interface GatewayDraft {
   id?: string
   name: string
   base_url: string
+  /** URL salva ao abrir a edição; base para detectar a troca de origem. */
+  originalBaseUrl?: string
   api_key: string
   hasStoredKey: boolean
   clearKey: boolean
@@ -43,6 +63,11 @@ interface ModelDraft extends GatewayModelInput {
   gateway_id: string
 }
 
+/** Edição que mudou a origem sem decisão explícita sobre a chave (informar uma nova ou marcar que não há chave). */
+function needsKeyForNewOrigin(draft: GatewayDraft): boolean {
+  return Boolean(draft.id) && !draft.api_key && !draft.clearKey && originChanged(draft.base_url, draft.originalBaseUrl)
+}
+
 export function GatewaysPanel() {
   const [gateways, setGateways] = useState<Gateway[]>([])
   const [assignments, setAssignments] = useState<GatewayAssignment[]>([])
@@ -53,6 +78,13 @@ export function GatewaysPanel() {
   const [remoteModels, setRemoteModels] = useState<Record<string, string[]>>({})
   const [probes, setProbes] = useState<Record<string, ProbeResult | 'running'>>({})
   const [saving, setSaving] = useState(false)
+  const token = useAuthStore((state) => state.token)
+  const [isSuperuser, setIsSuperuser] = useState<boolean | null>(null)
+  const [forbidden, setForbidden] = useState(false)
+  const [gatewayErrors, setGatewayErrors] = useState<Record<string, string>>({})
+  const [modelErrors, setModelErrors] = useState<Record<string, string>>({})
+  // `is_superuser` desconhecido (null): a trava fica por conta do 403 do backend.
+  const readOnly = isSuperuser === false || forbidden
 
   const reload = useCallback(async () => {
     try {
@@ -71,7 +103,39 @@ export function GatewaysPanel() {
     reload()
   }, [reload])
 
-  const run = async (action: () => Promise<unknown>) => {
+  useEffect(() => {
+    if (!token) return
+    let cancelled = false
+    authService
+      .getCurrentUser(token)
+      .then((me) => {
+        if (!cancelled) setIsSuperuser(me.is_superuser)
+      })
+      .catch(() => {
+        /* sem o perfil, vale o 403 do backend */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [token])
+
+  /** Mostra o erro no banner. 403 vira modo somente leitura (a mensagem fica no aviso fixo). */
+  const reportError = (e: unknown, fallback: string) => {
+    if (e instanceof GatewayApiError && e.status === 403) {
+      setForbidden(true)
+      setGatewayDraft(null)
+      setModelDraft(null)
+      setError(null)
+      return
+    }
+    setError(e instanceof Error ? e.message : fallback)
+  }
+
+  /** Executa uma mutação. Um 422 com campo vai para `onFieldErrors` (erro junto ao campo), não para o banner. */
+  const run = async (
+    action: () => Promise<unknown>,
+    onFieldErrors?: (errors: Record<string, string>) => void
+  ) => {
     setSaving(true)
     setError(null)
     try {
@@ -79,32 +143,50 @@ export function GatewaysPanel() {
       await reload()
       return true
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Falha na operação')
+      if (e instanceof GatewayApiError && e.status === 422 && onFieldErrors && Object.keys(e.fieldErrors).length > 0) {
+        onFieldErrors(e.fieldErrors)
+      } else {
+        reportError(e, 'Falha na operação')
+      }
       return false
     } finally {
       setSaving(false)
     }
   }
 
+  const patchGateway = (patch: Partial<GatewayDraft>) => {
+    setGatewayDraft((draft) => (draft ? { ...draft, ...patch } : draft))
+    setGatewayErrors((prev) => Object.fromEntries(Object.entries(prev).filter(([field]) => !(field in patch))))
+  }
+
+  const patchModel = (patch: Partial<ModelDraft>) => {
+    setModelDraft((draft) => (draft ? { ...draft, ...patch } : draft))
+    setModelErrors((prev) => Object.fromEntries(Object.entries(prev).filter(([field]) => !(field in patch))))
+  }
+
   const saveGateway = async () => {
-    if (!gatewayDraft) return
+    if (!gatewayDraft || needsKeyForNewOrigin(gatewayDraft)) return
     const { id, name, base_url, api_key, clearKey, timeout_seconds, is_active } = gatewayDraft
+    setGatewayErrors({})
     const ok = await run(() => {
       if (!id) {
         return gatewayService.create({ name, base_url, api_key: api_key || undefined, timeout_seconds, is_active })
       }
-      // undefined mantém a chave salva; '' remove; texto substitui.
+      // undefined mantém a chave salva; '' remove; texto substitui. Mudar a origem exige uma das duas últimas
+      // (needsKeyForNewOrigin), então a chave salva nunca segue para outro endereço.
       const key = api_key ? api_key : clearKey ? '' : undefined
       return gatewayService.update(id, { name, base_url, api_key: key, timeout_seconds, is_active })
-    })
+    }, setGatewayErrors)
     if (ok) setGatewayDraft(null)
   }
 
   const saveModel = async () => {
     if (!modelDraft) return
     const { id, gateway_id, ...data } = modelDraft
-    const ok = await run(() =>
-      id ? gatewayService.updateModel(id, data) : gatewayService.createModel(gateway_id, data)
+    setModelErrors({})
+    const ok = await run(
+      () => (id ? gatewayService.updateModel(id, data) : gatewayService.createModel(gateway_id, data)),
+      setModelErrors
     )
     if (ok) setModelDraft(null)
   }
@@ -124,7 +206,7 @@ export function GatewaysPanel() {
       const { models } = await gatewayService.remoteModels(g.id)
       setRemoteModels((prev) => ({ ...prev, [g.id]: models }))
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Falha ao consultar modelos do gateway')
+      reportError(e, 'Falha ao consultar modelos do gateway')
     }
   }
 
@@ -134,6 +216,11 @@ export function GatewaysPanel() {
       const result = await gatewayService.testModel(m.id)
       setProbes((prev) => ({ ...prev, [m.id]: result }))
     } catch (e) {
+      if (e instanceof GatewayApiError && e.status === 403) {
+        setProbes((prev) => Object.fromEntries(Object.entries(prev).filter(([id]) => id !== m.id)))
+        reportError(e, 'Falha')
+        return
+      }
       setProbes((prev) => ({ ...prev, [m.id]: { ok: false, error: e instanceof Error ? e.message : 'Falha' } }))
     }
   }
@@ -142,12 +229,25 @@ export function GatewaysPanel() {
     .filter((g) => g.is_active)
     .flatMap((g) => g.models.filter((m) => m.is_active).map((m) => ({ ...m, gatewayName: g.name })))
 
+  const keyRequired = gatewayDraft ? needsKeyForNewOrigin(gatewayDraft) : false
+  const originMoved = gatewayDraft?.id ? originChanged(gatewayDraft.base_url, gatewayDraft.originalBaseUrl) : false
+
   return (
     <div className="space-y-6">
       {error && (
         <div role="alert" className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-300">
           {error}
         </div>
+      )}
+
+      {readOnly && (
+        <p
+          role="status"
+          className="flex items-center gap-2 rounded-xl border border-border-color bg-hover px-4 py-3 text-sm text-text-gray"
+        >
+          <Lock className="h-4 w-4 shrink-0" aria-hidden />
+          {READ_ONLY_MESSAGE}. Você pode consultar, mas não editar nem testar.
+        </p>
       )}
 
       {/* Atribuição por agente */}
@@ -173,7 +273,7 @@ export function GatewaysPanel() {
               <select
                 id={`assign-${agent}`}
                 className={selectClass}
-                disabled={saving || loading}
+                disabled={saving || loading || readOnly}
                 value={assignments.find((a) => a.agent_type === agent)?.gateway_model_id ?? ''}
                 onChange={(e) =>
                   run(() =>
@@ -200,17 +300,19 @@ export function GatewaysPanel() {
         <h2 className="text-lg font-semibold text-text-light">Gateways</h2>
         <Button
           size="sm"
-          onClick={() =>
+          disabled={readOnly}
+          onClick={() => {
+            setGatewayErrors({})
             setGatewayDraft({
               name: '',
               base_url: '',
               api_key: '',
               hasStoredKey: false,
               clearKey: false,
-              timeout_seconds: 120,
+              timeout_seconds: DEFAULT_GATEWAY_TIMEOUT_SECONDS,
               is_active: true,
             })
-          }
+          }}
         >
           <Plus className="h-4 w-4" aria-hidden /> Novo gateway
         </Button>
@@ -243,23 +345,32 @@ export function GatewaysPanel() {
               <Button
                 variant="secondary"
                 size="sm"
+                disabled={readOnly}
                 aria-label={`Editar gateway ${g.name}`}
-                onClick={() =>
+                onClick={() => {
+                  setGatewayErrors({})
                   setGatewayDraft({
                     id: g.id,
                     name: g.name,
                     base_url: g.base_url,
+                    originalBaseUrl: g.base_url,
                     api_key: '',
                     hasStoredKey: g.has_api_key,
                     clearKey: false,
                     timeout_seconds: g.timeout_seconds,
                     is_active: g.is_active,
                   })
-                }
+                }}
               >
                 <Pencil className="h-4 w-4" aria-hidden />
               </Button>
-              <Button variant="secondary" size="sm" aria-label={`Remover gateway ${g.name}`} onClick={() => removeGateway(g)}>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={readOnly}
+                aria-label={`Remover gateway ${g.name}`}
+                onClick={() => removeGateway(g)}
+              >
                 <Trash2 className="h-4 w-4" aria-hidden />
               </Button>
             </div>
@@ -294,18 +405,34 @@ export function GatewaysPanel() {
                     )}
                   </div>
                   <div className="flex gap-2">
-                    <Button variant="secondary" size="sm" aria-label={`Testar ${m.name}`} onClick={() => probe(m)}>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={readOnly}
+                      aria-label={`Testar ${m.name}`}
+                      onClick={() => probe(m)}
+                    >
                       <Play className="h-4 w-4" aria-hidden />
                     </Button>
                     <Button
                       variant="secondary"
                       size="sm"
+                      disabled={readOnly}
                       aria-label={`Editar ${m.name}`}
-                      onClick={() => setModelDraft({ ...m })}
+                      onClick={() => {
+                        setModelErrors({})
+                        setModelDraft({ ...m })
+                      }}
                     >
                       <Pencil className="h-4 w-4" aria-hidden />
                     </Button>
-                    <Button variant="secondary" size="sm" aria-label={`Remover ${m.name}`} onClick={() => removeModel(m)}>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={readOnly}
+                      aria-label={`Remover ${m.name}`}
+                      onClick={() => removeModel(m)}
+                    >
                       <Trash2 className="h-4 w-4" aria-hidden />
                     </Button>
                   </div>
@@ -318,7 +445,9 @@ export function GatewaysPanel() {
             <Button
               variant="secondary"
               size="sm"
-              onClick={() =>
+              disabled={readOnly}
+              onClick={() => {
+                setModelErrors({})
                 setModelDraft({
                   gateway_id: g.id,
                   name: '',
@@ -329,11 +458,11 @@ export function GatewaysPanel() {
                   supports_tools: true,
                   is_active: true,
                 })
-              }
+              }}
             >
               <Plus className="h-4 w-4" aria-hidden /> Adicionar modelo
             </Button>
-            <Button variant="secondary" size="sm" onClick={() => loadRemote(g)}>
+            <Button variant="secondary" size="sm" disabled={readOnly} onClick={() => loadRemote(g)}>
               <Download className="h-4 w-4" aria-hidden /> Buscar modelos do gateway
             </Button>
           </div>
@@ -361,23 +490,42 @@ export function GatewaysPanel() {
           <div>
             <label className={fieldLabel} htmlFor="gw-name">Nome</label>
             <Input id="gw-name" required value={gatewayDraft.name} placeholder="Kiro-backend"
-              onChange={(e) => setGatewayDraft({ ...gatewayDraft, name: e.target.value })} />
+              aria-invalid={Boolean(gatewayErrors.name)}
+              aria-describedby={gatewayErrors.name ? 'gw-name-error' : undefined}
+              onChange={(e) => patchGateway({ name: e.target.value })} />
+            <FieldError id="gw-name-error" message={gatewayErrors.name} />
           </div>
           <div>
-            <label className={fieldLabel} htmlFor="gw-url">URL base (termina em /v1)</label>
-            <Input id="gw-url" required type="url" value={gatewayDraft.base_url} placeholder="http://localhost:5580/v1"
-              onChange={(e) => setGatewayDraft({ ...gatewayDraft, base_url: e.target.value })} />
+            <label className={fieldLabel} htmlFor="gw-url">URL base (raiz, sem /v1)</label>
+            <Input id="gw-url" required type="url" value={gatewayDraft.base_url} placeholder="http://localhost:5580"
+              aria-invalid={Boolean(gatewayErrors.base_url)}
+              aria-describedby={gatewayErrors.base_url ? 'gw-url-hint gw-url-error' : 'gw-url-hint'}
+              onChange={(e) => patchGateway({ base_url: e.target.value })} />
+            <p id="gw-url-hint" className="mt-1.5 text-xs text-text-muted">
+              O cliente acrescenta /v1/messages a esta URL.
+            </p>
+            <FieldError id="gw-url-error" message={gatewayErrors.base_url} />
           </div>
           <div>
             <label className={fieldLabel} htmlFor="gw-key">Chave de API (opcional)</label>
             <Input id="gw-key" type="password" autoComplete="off" value={gatewayDraft.api_key}
               placeholder={gatewayDraft.hasStoredKey ? 'Salva. Digite para substituir' : 'sk-…'}
-              onChange={(e) => setGatewayDraft({ ...gatewayDraft, api_key: e.target.value })} />
-            {gatewayDraft.hasStoredKey && (
+              aria-invalid={keyRequired || Boolean(gatewayErrors.api_key)}
+              aria-describedby={
+                keyRequired ? 'gw-key-reason' : gatewayErrors.api_key ? 'gw-key-error' : undefined
+              }
+              onChange={(e) => patchGateway({ api_key: e.target.value })} />
+            {keyRequired && (
+              <p id="gw-key-reason" role="alert" className="mt-1.5 text-xs text-red-300">
+                {ORIGIN_KEY_MESSAGE}
+              </p>
+            )}
+            <FieldError id="gw-key-error" message={gatewayErrors.api_key} />
+            {(gatewayDraft.hasStoredKey || originMoved) && (
               <label className="mt-2 flex items-center gap-2 text-xs text-text-gray">
                 <input type="checkbox" checked={gatewayDraft.clearKey}
-                  onChange={(e) => setGatewayDraft({ ...gatewayDraft, clearKey: e.target.checked })} />
-                Remover a chave salva
+                  onChange={(e) => patchGateway({ clearKey: e.target.checked })} />
+                {gatewayDraft.hasStoredKey ? 'Remover a chave salva' : 'Este endereço não usa chave de API'}
               </label>
             )}
           </div>
@@ -385,16 +533,27 @@ export function GatewaysPanel() {
             <div>
               <label className={fieldLabel} htmlFor="gw-timeout">Timeout (segundos)</label>
               <Input id="gw-timeout" type="number" min={1} max={900} value={gatewayDraft.timeout_seconds}
-                onChange={(e) => setGatewayDraft({ ...gatewayDraft, timeout_seconds: Number(e.target.value) || 120 })} />
+                aria-invalid={Boolean(gatewayErrors.timeout_seconds)}
+                aria-describedby={gatewayErrors.timeout_seconds ? 'gw-timeout-error' : undefined}
+                onChange={(e) =>
+                  patchGateway({ timeout_seconds: Number(e.target.value) || DEFAULT_GATEWAY_TIMEOUT_SECONDS })
+                } />
+              <FieldError id="gw-timeout-error" message={gatewayErrors.timeout_seconds} />
             </div>
             <label className="flex items-center gap-2 self-end pb-3 text-sm text-text-light">
               <input type="checkbox" checked={gatewayDraft.is_active}
-                onChange={(e) => setGatewayDraft({ ...gatewayDraft, is_active: e.target.checked })} />
+                onChange={(e) => patchGateway({ is_active: e.target.checked })} />
               Ativo
             </label>
           </div>
           <div className="flex gap-3">
-            <Button type="submit" disabled={saving}>Salvar</Button>
+            <Button
+              type="submit"
+              disabled={saving || keyRequired}
+              aria-describedby={keyRequired ? 'gw-key-reason' : undefined}
+            >
+              Salvar
+            </Button>
             <Button type="button" variant="secondary" onClick={() => setGatewayDraft(null)}>Cancelar</Button>
           </div>
         </form>
@@ -417,50 +576,65 @@ export function GatewaysPanel() {
             <div>
               <label className={fieldLabel} htmlFor="gm-name">Nome na lista</label>
               <Input id="gm-name" required value={modelDraft.name} placeholder="Sonnet 5.5 (low)"
-                onChange={(e) => setModelDraft({ ...modelDraft, name: e.target.value })} />
+                aria-invalid={Boolean(modelErrors.name)}
+                aria-describedby={modelErrors.name ? 'gm-name-error' : undefined}
+                onChange={(e) => patchModel({ name: e.target.value })} />
+              <FieldError id="gm-name-error" message={modelErrors.name} />
             </div>
             <div>
               <label className={fieldLabel} htmlFor="gm-id">ID do modelo no gateway</label>
               <Input id="gm-id" required list="gm-remote" value={modelDraft.model_id} placeholder="claude-sonnet-5.5"
-                onChange={(e) => setModelDraft({ ...modelDraft, model_id: e.target.value })} />
+                aria-invalid={Boolean(modelErrors.model_id)}
+                aria-describedby={modelErrors.model_id ? 'gm-id-error' : undefined}
+                onChange={(e) => patchModel({ model_id: e.target.value })} />
               <datalist id="gm-remote">
                 {(remoteModels[modelDraft.gateway_id] ?? []).map((id) => (
                   <option key={id} value={id} />
                 ))}
               </datalist>
+              <FieldError id="gm-id-error" message={modelErrors.model_id} />
             </div>
             <div>
               <label className={fieldLabel} htmlFor="gm-effort">Esforço de raciocínio</label>
               <select id="gm-effort" className={selectClass} value={modelDraft.reasoning_effort ?? ''}
-                onChange={(e) => setModelDraft({ ...modelDraft, reasoning_effort: (e.target.value || null) as ReasoningEffort | null })}>
+                aria-invalid={Boolean(modelErrors.reasoning_effort)}
+                aria-describedby={modelErrors.reasoning_effort ? 'gm-effort-error' : undefined}
+                onChange={(e) => patchModel({ reasoning_effort: (e.target.value || null) as ReasoningEffort | null })}>
                 {EFFORTS.map((o) => (
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>
+              <FieldError id="gm-effort-error" message={modelErrors.reasoning_effort} />
             </div>
             <div>
               <label className={fieldLabel} htmlFor="gm-max">Máx. de tokens (vazio = padrão)</label>
               <Input id="gm-max" type="number" min={1} value={modelDraft.max_tokens ?? ''}
+                aria-invalid={Boolean(modelErrors.max_tokens)}
+                aria-describedby={modelErrors.max_tokens ? 'gm-max-error' : undefined}
                 onChange={(e) =>
-                  setModelDraft({ ...modelDraft, max_tokens: e.target.value.trim() === '' ? null : Number(e.target.value) })
+                  patchModel({ max_tokens: e.target.value.trim() === '' ? null : Number(e.target.value) })
                 } />
+              <FieldError id="gm-max-error" message={modelErrors.max_tokens} />
             </div>
             <div>
               <label className={fieldLabel} htmlFor="gm-temp">Temperatura (vazio = padrão)</label>
               <Input id="gm-temp" type="number" min={0} max={2} step={0.1} value={modelDraft.temperature ?? ''}
+                aria-invalid={Boolean(modelErrors.temperature)}
+                aria-describedby={modelErrors.temperature ? 'gm-temp-error' : undefined}
                 onChange={(e) =>
-                  setModelDraft({ ...modelDraft, temperature: e.target.value.trim() === '' ? null : Number(e.target.value) })
+                  patchModel({ temperature: e.target.value.trim() === '' ? null : Number(e.target.value) })
                 } />
+              <FieldError id="gm-temp-error" message={modelErrors.temperature} />
             </div>
             <div className="flex flex-col justify-end gap-2 pb-3 text-sm text-text-light">
               <label className="flex items-center gap-2">
                 <input type="checkbox" checked={modelDraft.supports_tools}
-                  onChange={(e) => setModelDraft({ ...modelDraft, supports_tools: e.target.checked })} />
+                  onChange={(e) => patchModel({ supports_tools: e.target.checked })} />
                 Aceita ferramentas (function calling)
               </label>
               <label className="flex items-center gap-2">
                 <input type="checkbox" checked={modelDraft.is_active}
-                  onChange={(e) => setModelDraft({ ...modelDraft, is_active: e.target.checked })} />
+                  onChange={(e) => patchModel({ is_active: e.target.checked })} />
                 Ativo
               </label>
             </div>

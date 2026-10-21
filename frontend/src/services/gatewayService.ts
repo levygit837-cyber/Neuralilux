@@ -11,6 +11,49 @@ import type {
 
 const BASE = `${API_BASE_URL}/api/v1/gateways`
 
+/** Erro de uma chamada ao backend. `fieldErrors` traz os erros 422 do FastAPI por campo do corpo. */
+export class GatewayApiError extends Error {
+  readonly status: number
+  readonly fieldErrors: Record<string, string>
+
+  constructor(status: number, message: string, fieldErrors: Record<string, string> = {}) {
+    super(message)
+    this.name = 'GatewayApiError'
+    this.status = status
+    this.fieldErrors = fieldErrors
+  }
+}
+
+interface ValidationItem {
+  loc?: unknown[]
+  msg?: string
+}
+
+async function toApiError(response: Response): Promise<GatewayApiError> {
+  let message = `Erro ${response.status}`
+  const fieldErrors: Record<string, string> = {}
+  try {
+    const body = await response.json()
+    if (typeof body.detail === 'string') {
+      message = body.detail
+    } else if (Array.isArray(body.detail)) {
+      const messages: string[] = []
+      for (const item of body.detail as ValidationItem[]) {
+        if (!item.msg) continue
+        // O pydantic prefixa erros de validators próprios com "Value error, ".
+        const text = item.msg.replace(/^Value error, /, '')
+        messages.push(text)
+        const field = item.loc?.[item.loc.length - 1]
+        if (typeof field === 'string' && !(field in fieldErrors)) fieldErrors[field] = text
+      }
+      if (messages.length > 0) message = messages.join('; ')
+    }
+  } catch {
+    /* corpo sem JSON */
+  }
+  return new GatewayApiError(response.status, message, fieldErrors)
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem('token')
   const response = await fetch(`${BASE}${path}`, {
@@ -20,17 +63,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
   })
-  if (!response.ok) {
-    let detail = `Erro ${response.status}`
-    try {
-      const body = await response.json()
-      if (typeof body.detail === 'string') detail = body.detail
-      else if (Array.isArray(body.detail)) detail = body.detail.map((d: { msg: string }) => d.msg).join('; ')
-    } catch {
-      /* corpo sem JSON */
-    }
-    throw new Error(detail)
-  }
+  if (!response.ok) throw await toApiError(response)
   return response.status === 204 ? (undefined as T) : response.json()
 }
 

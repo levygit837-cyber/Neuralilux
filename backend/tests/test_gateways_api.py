@@ -200,6 +200,9 @@ def test_changing_base_url_without_new_api_key_is_rejected(client, auth_headers,
     response = client.patch(f"{BASE}/{gateway_id}", json={"base_url": "http://evil.test"}, headers=auth_headers)
 
     assert response.status_code == 422
+    # Mesmo formato dos erros de validacao do FastAPI: o frontend mostra a mensagem no campo `api_key`.
+    detail = response.json()["detail"]
+    assert detail[0]["loc"] == ["body", "api_key"] and "api_key" in detail[0]["msg"]
     db.expire_all()
     gateway = db.query(InferenceGateway).one()
     assert gateway.base_url == "http://localhost:5580/v1" and gateway.api_key_encrypted == before
