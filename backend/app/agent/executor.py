@@ -12,10 +12,11 @@ import uuid
 import structlog
 from sqlalchemy.orm import Session
 
-from app.agent.contracts import ChatMessage, MessagesClient, Pack, ToolContext
+from app.agent.contracts import MessagesClient, Pack, ToolContext
 from app.agent.events import TurnEvents
 from app.agent.formatting import to_whatsapp
 from app.agent.loop import TurnResult, run_turn
+from app.agent.memory import build_context
 from app.agent.prompts import build_system_prompt
 from app.agent.tools import ToolRegistry
 from app.models.models import Company, Contact, Conversation, Instance
@@ -30,12 +31,6 @@ def resolve_gateway(agent_type: str) -> tuple[MessagesClient, str, str | None]:
     from app.llm.registry import resolve  # T2
 
     return resolve(agent_type)
-
-
-def build_context(db: Session, conversation: Conversation) -> tuple[str | None, list[ChatMessage]]:
-    from app.agent.memory import build_context as memory_build_context  # T4
-
-    return memory_build_context(db, conversation)
 
 
 def packs_for(db: Session, company: Company) -> list[Pack]:
