@@ -37,7 +37,7 @@ O `docker-compose.yml` é **local e ignorado pelo git**, porque pode conter cred
 ```bash
 cp docker-compose.example.yml docker-compose.yml
 docker compose --env-file backend/.env up -d
-docker compose ps    # postgres, redis e rabbitmq "healthy"; a Evolution leva alguns segundos para subir
+docker compose --env-file backend/.env ps    # postgres, redis e rabbitmq "healthy"; a Evolution leva alguns segundos para subir
 ```
 
 O PostgreSQL cria o banco `neuralilux` e, pelo script [`scripts/init-multiple-databases.sh`](../scripts/init-multiple-databases.sh), o banco e o usuário da Evolution. O script só roda na **primeira** criação do volume `postgres_data`.
@@ -111,7 +111,7 @@ python scripts/run_worker.py
 curl -s http://localhost:8000/health
 ```
 
-Documentação interativa da API: `http://localhost:8000/docs`.
+Documentação interativa da API: `http://localhost:8000/docs`. Ela só existe com `ENVIRONMENT=development`; fora disso `/docs` e `/redoc` respondem 404 (o `/openapi.json` continua disponível).
 
 ## 4. Frontend
 
@@ -132,13 +132,16 @@ Para testar a conexão, use **Testar** no modelo ou `POST /api/v1/gateways/model
 
 ## 6. Conectar o WhatsApp (QR code)
 
+A ordem importa: ligue a Instance à Company **antes** de ler o QR code. O evento `connection.update` de uma Instance sem linha no banco é descartado (`Connection update for unknown instance discarded`), e o status nunca chega a `connected`.
+
 1. No dashboard, vá em **Instâncias** e crie uma Instance. O frontend chama a Evolution e a API; por REST, o equivalente é `POST /api/v1/instances/{nome}` (autenticado), que cria a Instance na Evolution e devolve o QR code em `qr_code`.
-2. No celular: WhatsApp > Aparelhos conectados > Conectar um aparelho, e leia o QR code. O QR vem em `qr_code_update` pelo Socket.IO e em `GET /api/v1/whatsapp/qr?instance_id=...`.
-3. O estado passa a `connected` pelo evento `connection.update` do webhook.
+2. Ligue a Instance à Company e ao Agent (seção abaixo).
+3. No celular: WhatsApp > Aparelhos conectados > Conectar um aparelho, e leia o QR code. O QR vem em `qr_code_update` pelo Socket.IO e em `GET /api/v1/whatsapp/qr?instance_id=...`.
+4. O estado passa a `connected` pelo evento `connection.update` do webhook.
 
 ### Ligar a Instance à Company e ao Agent
 
-A Instance só responde quando tem Company, Agent e a resposta automática ligada. Hoje **nenhuma rota da API grava `Instance.company_id`**; sem ele o worker loga `Instance has no Company, Agent cannot run` e não responde. Faça uma vez por Instance:
+A Instance só responde quando tem Company, Agent e a resposta automática ligada. Hoje **nenhuma rota da API grava `Instance.company_id`**; sem ele o worker loga `Instance has no Company, Agent cannot run` e não responde. Faça uma vez por Instance, antes de ler o QR code:
 
 ```bash
 # 1. garante a linha da Instance no banco (cria se não existir; precisa do token do login)
@@ -146,15 +149,15 @@ TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
   -d 'username=usuario@teste.com' -d 'password=teste123' | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
 curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/v1/instances/minha-instancia/agent-status
 
-# 2. liga a Instance à Company
-docker compose exec postgres psql -U neuralilux -d neuralilux -c \
+# 2. liga a Instance à Company (rode na raiz do repositório)
+docker compose --env-file backend/.env exec postgres psql -U neuralilux -d neuralilux -c \
   "UPDATE instances SET company_id = (SELECT id FROM companies WHERE name = 'Macedos') WHERE name = 'minha-instancia';"
 
 # 3. o seed liga o Agent da Company à Instance e ativa a resposta automática (idempotente)
 cd backend && python scripts/seed_data.py
 ```
 
-Reexecutar o seed não religa uma Instance que o operador desligou. O Agent da Instance também pode ser trocado por `PATCH /api/v1/instances/{nome}/agent-binding` e a resposta automática ligada ou desligada por `PATCH /api/v1/instances/{nome}/agent-status`.
+Reexecutar o seed não religa uma Instance que o administrador desligou. O Agent da Instance também pode ser trocado por `PATCH /api/v1/instances/{nome}/agent-binding` e a resposta automática ligada ou desligada por `PATCH /api/v1/instances/{nome}/agent-status`.
 
 ## 7. Conferir de ponta a ponta
 

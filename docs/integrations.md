@@ -11,7 +11,7 @@ Há dois sentidos de integração. Em um, o sistema de gestão (ERP, PDV, agenda
 
 ## Via API REST
 
-Base: `http://<host>:8000/api/v1`. A documentação interativa e os schemas completos estão em `/docs`.
+Base: `http://<host>:8000/api/v1`. A documentação interativa (`/docs` e `/redoc`) só existe com `ENVIRONMENT=development`; fora disso responde 404. O schema completo continua em `/openapi.json`.
 
 ### Autenticação
 
@@ -24,7 +24,7 @@ curl -s -X POST http://localhost:8000/api/v1/auth/login \
 ```
 
 - O token expira em `ACCESS_TOKEN_EXPIRE_MINUTES` (padrão 30). Uma integração de servidor tem de refazer o login ao receber 401.
-- **Não há chave de API para máquinas.** A integração usa um usuário comum da Company (`POST /auth/register` com `company_id`, ou criado pelo operador). Use um usuário dedicado, com senha forte guardada no cofre do sistema de gestão, nunca a conta de uma pessoa.
+- **Não há chave de API para máquinas.** A integração usa um usuário comum da Company (`POST /auth/register` com `company_id`, ou criado pelo administrador). Use um usuário dedicado, com senha forte guardada no cofre do sistema de gestão, nunca a conta de uma pessoa.
 - O escopo da Company vem do usuário: as rotas de `/menu` operam sobre `current_user.company_id`.
 
 ### Rotas úteis
@@ -64,7 +64,9 @@ O endpoint `/webhooks/evolution` é exclusivo da Evolution ([ADR 0006](adr/0006-
 
 ### Limites atuais
 
-- Falta isolamento por Company em parte das rotas. `GET /tickets` lista os Tickets de todas as Companies para qualquer usuário autenticado, e `GET /instances/` não exige login. Não exponha a API a terceiros sem uma camada de rede e revisão desses pontos.
+- Falta isolamento por Company em parte das rotas. `GET /tickets` lista os Tickets de todas as Companies para qualquer usuário autenticado, e as rotas `/instances` (por exemplo `GET /instances/`) não exigem login ([#25](https://github.com/levygit837-cyber/Neuralilux/issues/25)). Não exponha a API a terceiros sem uma camada de rede e revisão desses pontos.
+- `POST /auth/register` é público e aceita `company_id`: quem conhece o id de uma Company cria usuário nela ([#25](https://github.com/levygit837-cyber/Neuralilux/issues/25)).
+- O dashboard embute `NEXT_PUBLIC_EVOLUTION_API_KEY` no bundle do navegador ([#26](https://github.com/levygit837-cyber/Neuralilux/issues/26)).
 - Não há rate limit por integração nem chave de API revogável.
 
 ## Via Tools de Pack
@@ -134,7 +136,7 @@ Regras para Tools que chamam sistemas externos:
 
 - **Timeout curto e explícito.** O Turn inteiro tem `max_steps` chamadas ao modelo e o Contact está esperando; 5 s por chamada externa é um teto razoável.
 - **Sem retry dentro da Tool.** Uma falha vira `ToolResult(is_error=True)` com orientação. O prompt base já manda o Agent não repetir a mesma chamada e oferecer um atendente.
-- **Escopo pela Company.** Se o sistema externo atende várias Companies, escolha credencial e tenant por `ctx.company_id`, nunca por um valor que o modelo informou.
+- **Escopo pela Company.** Se o sistema externo atende várias Companies, escolha credencial e Company por `ctx.company_id`, nunca por um valor que o modelo informou.
 - **Segredos fora do código.** Credenciais do sistema externo entram por `Settings`/variável de ambiente; se forem por Company, guarde criptografadas como as chaves de Gateway (`app/core/crypto.py`).
 - **Ações que gravam** (pedido, agendamento) devem validar tudo antes de enviar e ser idempotentes no sistema externo: o modelo pode chamar a Tool de novo após um erro.
 - **Não devolva dados em excesso.** O resultado entra no contexto do modelo; filtre e resuma no handler.

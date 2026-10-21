@@ -19,7 +19,7 @@ Hoje existe um Pack, "catálogo & pedidos" (restaurantes): cardápio, pedido e P
 
 ## Para quem
 
-- **Operadores e donos de negócio** que atendem pelo WhatsApp e querem automatizar o atendimento com passagem para um humano.
+- **Donos de negócio e administradores** que atendem pelo WhatsApp e querem automatizar o atendimento com passagem para um humano.
 - **Desenvolvedores** que querem rodar, estender com Packs ou integrar o sistema de gestão de uma Company.
 
 É um projeto em evolução, sem garantias de produção: veja [Limites atuais](#limites-atuais).
@@ -70,7 +70,9 @@ Conectar o WhatsApp por QR code, ligar a Instance à Company e conferir a primei
 
 ## Limites atuais
 
-- Os endpoints de Tickets e a listagem de Instances ainda precisam de isolamento e autorização por Company (veja [operations.md](docs/operations.md#limites-conhecidos)).
+- Os endpoints de Tickets não filtram por Company e as rotas `/instances` não exigem login ([#25](https://github.com/levygit837-cyber/Neuralilux/issues/25); detalhes em [operations.md](docs/operations.md#limites-conhecidos)).
+- `POST /auth/register` é público e aceita `company_id`: quem conhece o id de uma Company cria usuário nela ([#25](https://github.com/levygit837-cyber/Neuralilux/issues/25)).
+- `NEXT_PUBLIC_EVOLUTION_API_KEY` vai para o bundle do navegador, expondo a chave da Evolution a quem abrir o dashboard ([#26](https://github.com/levygit837-cyber/Neuralilux/issues/26)).
 - Os defaults de desenvolvimento (senhas do compose, `usuario@teste.com`) não servem para produção; a app recusa `SECRET_KEY` e `EVOLUTION_WEBHOOK_TOKEN` de exemplo fora de `ENVIRONMENT=development`.
 - Só existe o Pack de catálogo & pedidos.
 - A navegação móvel e a acessibilidade do dashboard não passaram por validação completa.

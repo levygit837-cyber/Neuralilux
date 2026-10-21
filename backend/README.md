@@ -64,18 +64,8 @@ Os testes rodam em SQLite (`tests/conftest.py` força `DATABASE_URL=sqlite:///./
 
 ## Gateways de inferência
 
-Todo modelo é acessado por um Gateway que fala o protocolo Anthropic Messages (`POST {base_url}/v1/messages`, [ADR 0002](../docs/adr/0002-anthropic-messages-via-gateways.md)). Cadastre-o em **Configurações > Gateways** ou em `/api/v1/gateways`; `base_url` é a raiz, sem `/v1` (`http://localhost:5580`). Cada Gateway tem modelos nomeados (id no Gateway, `reasoning_effort`, `max_tokens`, `temperature`) e cada tipo de agente (`default`, `whatsapp_agent`) aponta para um modelo. Sem atribuição própria vale `default`; sem `default` a inferência falha com `LLMNotConfiguredError`.
-
-- `seed_data.py` cadastra o Gateway `Kiro-backend` (`claude-sonnet-5.5`, effort `low`) e o atribui a `default`.
-- Cliente (`app/llm/client.py`): `effort` vai em `output_config.effort`; timeout de 60 s por padrão; retry (3 tentativas, backoff exponencial) em 429, 5xx e timeout. Resposta fora do formato vira `LLMProviderError`.
-- Probe (`POST /gateways/models/{id}/test`, `max_tokens: 8`) e `GET /gateways/{id}/remote-models` (`GET {base_url}/v1/models`; 404 devolve os modelos cadastrados) usam tentativa única e timeout de 15 s.
-- Criar, editar, apagar, atribuir e testar Gateways exige **superuser** (`base_url` é alvo de SSRF); leitura exige só login. `base_url` aceita apenas `http`/`https`, sem usuário/senha. Mudar a origem (esquema, host ou porta) exige informar `api_key` de novo (`""` apaga a salva).
-- A chave de API é criptografada com Fernet derivada de `SECRET_KEY` via HKDF (`info=b"neuralilux-gateway-secrets"`). Trocar `SECRET_KEY` exige regravar as chaves. A app recusa subir com a `SECRET_KEY` de exemplo quando `ENVIRONMENT != development`.
+Todo modelo é acessado por um Gateway que fala o protocolo Anthropic Messages ([ADR 0002](../docs/adr/0002-anthropic-messages-via-gateways.md)). Cadastro e atribuição: [setup.md](../docs/setup.md#5-gateway). Chaves criptografadas (HKDF): [setup.md](../docs/setup.md#banco-já-existente-com-gateways-gravados-antes-do-hkdf). Erros e timeouts: [operations.md](../docs/operations.md#o-agent-não-responde).
 
 ## Webhook da Evolution
 
-`POST /api/v1/webhooks/evolution?token=...` responde 401 sem `?token=` igual a `EVOLUTION_WEBHOOK_TOKEN` ([ADR 0006](../docs/adr/0006-webhook-token-auth.md)). Configuração da Evolution em [setup.md](../docs/setup.md#2-infra-postgresql-redis-rabbitmq-evolution); diagnóstico em [operations.md](../docs/operations.md#o-webhook-não-chega-à-fila).
-
-- Fora de `ENVIRONMENT=development` a app recusa subir com `EVOLUTION_WEBHOOK_TOKEN` vazio ou `change-me...`.
-- O access log do uvicorn mascara `?token=`; proxies reversos na frente da API precisam fazer o mesmo.
-- O worker usa `aio-pika` num único event loop, com `RABBITMQ_PREFETCH=8` mensagens em paralelo e ordem garantida por Conversation.
+`POST /api/v1/webhooks/evolution?token=...` exige `EVOLUTION_WEBHOOK_TOKEN` ([ADR 0006](../docs/adr/0006-webhook-token-auth.md)). Configuração em [setup.md](../docs/setup.md#2-infra-postgresql-redis-rabbitmq-evolution); fluxo do consumer em [architecture.md](../docs/architecture.md); diagnóstico em [operations.md](../docs/operations.md#o-webhook-não-chega-à-fila).

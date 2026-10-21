@@ -4,7 +4,7 @@
 # modelo versionado: copie-o e suba com as variáveis do backend/.env.
 #
 #   cp docker-compose.example.yml docker-compose.yml
-#   docker compose --env-file backend/.env up -d
+#   docker compose --env-file backend/.env up -d     # sempre com --env-file; sem ele o compose recusa subir
 #
 # Senhas e portas abaixo são defaults de DESENVOLVIMENTO, os mesmos de backend/.env.example. Não use em produção.
 # Obrigatórias no backend/.env: EVOLUTION_API_KEY e EVOLUTION_WEBHOOK_TOKEN (o compose recusa subir sem elas).
@@ -35,6 +35,8 @@ services:
     ports:
       - "${REDIS_PORT:-6380}:6379"
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_password}
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_password} # o healthcheck lê a senha do ambiente do container
     volumes:
       - redis_data:/data
     healthcheck:
@@ -94,9 +96,7 @@ services:
 
       # Webhook (ADR 0006). O token vai na query string; EVOLUTION_WEBHOOK_TOKEN é o mesmo de backend/.env.
       - WEBHOOK_GLOBAL_ENABLED=true
-      # Com BY_EVENTS=true a Evolution anexa "/<evento>" ao fim da URL; como a URL termina na query string,
-      # o token chegaria como "X/messages-upsert". O backend tolera isso, mas o recomendado é false:
-      # o evento já vem em payload.event.
+      # BY_EVENTS=false: o evento já vem em payload.event (por quê: docs/setup.md, seção 2).
       - WEBHOOK_GLOBAL_WEBHOOK_BY_EVENTS=false
       - WEBHOOK_GLOBAL_URL=http://host.docker.internal:8000/api/v1/webhooks/evolution?token=${EVOLUTION_WEBHOOK_TOKEN:?defina EVOLUTION_WEBHOOK_TOKEN em backend/.env}
       - WEBSOCKET_ENABLED=true

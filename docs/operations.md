@@ -37,13 +37,15 @@ Fechar o Ticket **não** devolve a Conversation ao Agent, e `release-control` **
 
 ### Limites conhecidos
 
-- Os endpoints de Tickets não filtram por Company: qualquer usuário autenticado vê os Tickets de todas. Trate como pendência de segurança antes de operar com mais de uma Company.
+- Os endpoints de Tickets não filtram por Company: qualquer usuário autenticado vê os Tickets de todas. As rotas `/instances` (por exemplo `GET /instances/`) não exigem login. Trate as duas como pendência de segurança antes de operar com mais de uma Company ([#25](https://github.com/levygit837-cyber/Neuralilux/issues/25)).
+- `POST /auth/register` é público e aceita `company_id`: qualquer pessoa que conheça o id de uma Company cria um usuário nela ([#25](https://github.com/levygit837-cyber/Neuralilux/issues/25)).
+- `NEXT_PUBLIC_EVOLUTION_API_KEY` vai para o bundle do navegador, então a chave da Evolution fica visível a quem abrir o dashboard ([#26](https://github.com/levygit837-cyber/Neuralilux/issues/26)).
 - Não há Handoff automático quando um Attendant escreve pelo celular; só `take-control` ou a Tool ligam o estado.
 - `PATCH /tickets/{id}` recebe `status` e `assigned_to` como query string, não JSON.
 
 ## Troubleshooting
 
-Os logs são estruturados (`structlog`); `LOG_LEVEL=info` mostra os motivos de descarte abaixo. API e worker são processos separados: procure no log certo.
+Os logs são estruturados (`structlog`). API e worker são processos separados: procure no log certo.
 
 ### O Agent não responde
 
@@ -53,6 +55,7 @@ Siga a ordem; o primeiro que bater é a causa. Mensagens em `código` aparecem n
 |---|---|---|
 | Nada: nenhuma linha `Processing webhook event` | O webhook não chega à fila ou o worker está parado. | Veja as duas linhas abaixo. |
 | `Message for unknown instance discarded` | Não há Instance com `evolution_instance_id` igual ao nome na Evolution. | Cadastre a Instance (`GET /api/v1/instances/{nome}/agent-status` cria a linha) e tente de novo. |
+| `Group or broadcast message ignored` | Chat de grupo (`@g.us`) ou lista de transmissão (`@broadcast`). A Message é descartada antes de ser gravada. | Esperado: o Agent não atende grupos nem listas. Nada fica no banco. |
 | `Message not processed by agent` com `reason=from_me` | Mensagem enviada pelo próprio número. | Esperado. |
 | `reason=unresolved_lid` | JID `@lid` sem número real: não há como responder. | Esperado; aguarde o Contact aparecer com número. |
 | `reason=stale` | Mensagem mais velha que 5 min em relação ao início do worker (backlog de uma queda). | Esperado; fica gravada, sem resposta. |
@@ -72,13 +75,13 @@ Causas comuns de `Turn failed`:
 
 ### A Evolution reinicia em loop
 
-- **`P1000 Authentication failed … credentials for evolution`** no log do `evolution-api`: o usuário e o banco `evolution` não existem porque o `scripts/init-multiple-databases.sh` não rodou. Ele só roda na primeira criação do volume do Postgres, e só se o Docker conseguir montá-lo como arquivo. Com Colima, mantenha o repositório dentro do `$HOME`. Depois de corrigir o caminho, recrie o volume (**apaga os dados locais do Postgres**): `docker compose down -v && docker compose --env-file backend/.env up -d`.
+- **`P1000 Authentication failed … credentials for evolution`** no log do `evolution-api`: o usuário e o banco `evolution` não existem porque o `scripts/init-multiple-databases.sh` não rodou. Ele só roda na primeira criação do volume do Postgres, e só se o Docker conseguir montá-lo como arquivo. Com Colima, mantenha o repositório dentro do `$HOME`. Depois de corrigir o caminho, recrie o volume (**apaga os dados locais do Postgres**): `docker compose --env-file backend/.env down -v && docker compose --env-file backend/.env up -d`.
 - **`required variable EVOLUTION_API_KEY is missing`** ao subir o compose: faltou `--env-file backend/.env` ou a variável está vazia no `.env`.
 
 ### O webhook não chega à fila
 
 - **401 no webhook**: o token da URL não bate com `EVOLUTION_WEBHOOK_TOKEN` do `backend/.env`, ou a variável está vazia ([ADR 0006](adr/0006-webhook-token-auth.md)). Confira `WEBHOOK_GLOBAL_URL` no serviço `evolution-api` e se o compose foi subido com `--env-file backend/.env`.
-- **Token chega como `TOKEN/messages-upsert`**: `WEBHOOK_GLOBAL_WEBHOOK_BY_EVENTS=true`. O backend tolera, mas ponha `false`.
+- **Token chega como `TOKEN/messages-upsert`**: o serviço da Evolution está com `WEBHOOK_GLOBAL_WEBHOOK_BY_EVENTS=true`. Ponha `false` (motivo em [setup.md](setup.md#2-infra-postgresql-redis-rabbitmq-evolution)).
 - **A Evolution não alcança a API**: no Linux o container precisa de `extra_hosts: host.docker.internal:host-gateway` e a API de `--host 0.0.0.0`.
 - **A fila cresce e nada consome**: o worker não está rodando (`python scripts/run_worker.py`). Veja a fila `webhooks.evolution` no painel do RabbitMQ (`http://localhost:15672`, vhost `neuralilux`, usuário e senha de dev do compose). A fila guarda até 24 h e 100 mil Messages.
 - Uma Message cujo processamento falha volta à fila **uma vez**; se falhar de novo, é descartada e logada em `error` (`Processing error, requeueing once`). JSON inválido é descartado sem requeue.
@@ -99,7 +102,7 @@ Causas comuns de `Turn failed`:
 
 - `SECRET_KEY de exemplo nao pode ser usada…` ou `EVOLUTION_WEBHOOK_TOKEN vazio ou de exemplo…`: com `ENVIRONMENT != development` os valores de exemplo são recusados. Defina valores fortes.
 - Erro de migração com mais de uma head: veja [agents/migrations.md](agents/migrations.md).
-- O worker sai com `Failed to connect to RabbitMQ`: confira `RABBITMQ_URL`, o vhost `neuralilux` e `docker compose ps`.
+- O worker sai com `Failed to connect to RabbitMQ`: confira `RABBITMQ_URL`, o vhost `neuralilux` e `docker compose --env-file backend/.env ps`.
 
 ### Memória
 

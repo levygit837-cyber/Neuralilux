@@ -81,4 +81,5 @@ O Turn publica eventos no event bus Redis (`app/realtime/event_bus.py`, canal `n
 
 - Os previews são cortados em `TOOL_EVENT_PREVIEW_LIMIT` (240). Os payloads brutos (`input_payload`, `output_payload`) só saem com `TOOL_EVENT_INCLUDE_RAW_PAYLOADS=true`; deixe `false` fora de debug, pois podem conter dados do Contact.
 - Os eventos vão para duas salas: `conversation:{instance}:{conversation_id}` (depois de `join_conversation`) e `instance:{instance}` (depois de `subscribe_instance`). A conexão exige o JWT em `auth.token`.
+- O `conversation_id` **não é o mesmo em todos os eventos**: em `thinking_event` e `tool_event` ele é o `remote_jid` da Conversation (por exemplo `5511999999999@s.whatsapp.net`); em `human_handoff_requested` é o UUID da Conversation. Quem assina a sala por Conversation precisa tratar os dois formatos.
 - Os eventos que já existiam continuam: `new_message`, `conversation_updated`, `message_status_update`, `connection_status_update` e `qr_code_update`. A tradução de evento do bus para evento Socket.IO está em `app/realtime/socket.py` (`emit_realtime_event`).
