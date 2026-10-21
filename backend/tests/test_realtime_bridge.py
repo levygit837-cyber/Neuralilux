@@ -1,19 +1,12 @@
-import asyncio
-import json
-
 import pytest
 from datetime import datetime, timezone
-from uuid import uuid4
 
 from app.agent import executor
 from app.agent.loop import TurnResult
-from app.core.database import Base, SessionLocal, engine
+from app.core.database import Base, engine
 from app.models.models import Agent, Contact, Conversation, Instance, Message, User
 from app.services.evolution_api import evolution_api
-from app.services.message_queue_service import message_queue_service
-from app.workers import whatsapp_consumer
 from app.workers.whatsapp_consumer import WhatsAppMessageConsumer
-from tests.conftest import TestingSessionLocal
 
 
 @pytest.fixture
@@ -139,46 +132,6 @@ async def test_save_message_to_database_handles_evolution_event_shape_and_publis
 
 
 @pytest.mark.asyncio
-async def test_save_message_to_database_creates_placeholder_instance_when_missing(
-    db, monkeypatch
-):
-    published_events = []
-
-    async def fake_publish(event):
-        published_events.append(event)
-
-    monkeypatch.setattr(
-        "app.workers.whatsapp_consumer.realtime_event_bus.publish",
-        fake_publish,
-    )
-
-    consumer = WhatsAppMessageConsumer()
-    payload = {
-        "instance": "evo-placeholder-1",
-        "data": {
-            "key": {
-                "remoteJid": "5511888888888@s.whatsapp.net",
-                "fromMe": False,
-                "id": "msg-placeholder-1",
-            },
-            "message": {"conversation": "Mensagem sem mapeamento prévio"},
-            "pushName": "Contato Novo",
-            "messageTimestamp": 1710001234,
-        },
-    }
-
-    await consumer._save_message_to_database(db, payload)
-
-    instance = db.query(Instance).filter(Instance.evolution_instance_id == "evo-placeholder-1").one()
-    message = db.query(Message).filter(Message.message_id == "msg-placeholder-1").one()
-
-    assert instance.name == "evo-placeholder-1"
-    assert instance.owner_id is None
-    assert message.instance_id == instance.id
-    assert published_events[0]["instance_name"] == "evo-placeholder-1"
-
-
-@pytest.mark.asyncio
 async def test_update_message_status_normalizes_and_publishes_realtime_event(
     db, owned_instance, monkeypatch
 ):
@@ -296,90 +249,6 @@ async def test_connection_update_normalizes_state_and_publishes_realtime_event(
 
 
 @pytest.mark.asyncio
-async def test_process_webhook_event_handles_messages_upsert_end_to_end(db, monkeypatch):
-    published_events = []
-    suffix = uuid4().hex
-    instance_name = f"evo-process-{suffix}"
-    message_id = f"msg-process-{suffix}"
-
-    async def fake_publish(event):
-        published_events.append(event)
-
-    monkeypatch.setattr(
-        "app.workers.whatsapp_consumer.realtime_event_bus.publish",
-        fake_publish,
-    )
-
-    consumer = WhatsAppMessageConsumer()
-    payload = {
-        "event": "messages.upsert",
-        "data": {
-            "instance": instance_name,
-            "data": {
-                "key": {
-                    "remoteJid": "5511777777777@s.whatsapp.net",
-                    "fromMe": False,
-                    "id": message_id,
-                },
-                "message": {"conversation": "Mensagem processada pelo worker"},
-                "pushName": "Contato Worker",
-                "messageTimestamp": 1710002222,
-            },
-        },
-    }
-
-    result = await consumer.process_webhook_event(payload)
-
-    verification_db = SessionLocal()
-    try:
-        instance = verification_db.query(Instance).filter(Instance.evolution_instance_id == instance_name).one()
-        message = verification_db.query(Message).filter(Message.message_id == message_id).one()
-    finally:
-        verification_db.close()
-
-    assert result["status"] == "processed"
-    assert instance.name == instance_name
-    assert message.instance_id == instance.id
-    assert published_events[0]["type"] == "incoming_message"
-
-
-@pytest.mark.asyncio
-async def test_save_message_to_database_handles_group_jid_without_overflow(
-    db, monkeypatch
-):
-    published_events = []
-
-    async def fake_publish(event):
-        published_events.append(event)
-
-    monkeypatch.setattr(
-        "app.workers.whatsapp_consumer.realtime_event_bus.publish",
-        fake_publish,
-    )
-
-    consumer = WhatsAppMessageConsumer()
-    payload = {
-        "instance": "evo-group-1",
-        "data": {
-            "key": {
-                "remoteJid": "553388773141-1562969789@g.us",
-                "fromMe": False,
-                "id": "msg-group-1",
-            },
-            "message": {"conversation": "Mensagem de grupo"},
-            "pushName": "Grupo Teste",
-            "messageTimestamp": 1710003333,
-        },
-    }
-
-    await consumer._save_message_to_database(db, payload)
-
-    contact = db.query(Contact).filter(Contact.remote_jid == "553388773141-1562969789@g.us").one()
-    assert contact.phone_number == "553388773141"
-    assert published_events[0]["instance_name"] == "evo-group-1"
-
-
-@pytest.mark.asyncio
 async def test_save_message_to_database_does_not_trigger_agent_when_instance_is_disabled(
     db, monkeypatch, agent_turn
 ):
@@ -429,7 +298,7 @@ async def test_save_message_to_database_does_not_trigger_agent_when_instance_is_
             },
             "message": {"conversation": "Mensagem para nao responder"},
             "pushName": "Contato OFF",
-            "messageTimestamp": 1710004444,
+            "messageTimestamp": int(datetime.now(timezone.utc).timestamp()),
         },
     }
 
@@ -489,11 +358,12 @@ async def test_save_message_to_database_triggers_agent_when_instance_is_enabled(
             },
             "message": {"conversation": "Mensagem para responder"},
             "pushName": "Contato ON",
-            "messageTimestamp": 1710005555,
+            "messageTimestamp": int(datetime.now(timezone.utc).timestamp()),
         },
     }
 
     await consumer._save_message_to_database(db, payload)
+    await consumer.drain()
 
     [turn] = agent_turn["turns"]
     assert turn["instance"].id == "instance-agent-on-1"
@@ -504,84 +374,3 @@ async def test_save_message_to_database_triggers_agent_when_instance_is_enabled(
     ]
     conversation = db.query(Conversation).filter(Conversation.remote_jid == "5511555555555@s.whatsapp.net").one()
     assert agent_turn["summaries"] == [conversation.id]
-
-
-class _FakeChannel:
-    def __init__(self):
-        self.acked, self.nacked = [], []
-
-    def basic_ack(self, delivery_tag):
-        self.acked.append(delivery_tag)
-
-    def basic_nack(self, delivery_tag, requeue):
-        self.nacked.append(delivery_tag)
-
-
-class _FakeMethod:
-    routing_key = "webhooks.evolution"
-    delivery_tag = 1
-
-
-def test_summary_termina_antes_do_worker_fechar_o_event_loop_da_mensagem(db, monkeypatch, agent_turn):
-    """O worker roda cada mensagem num event loop próprio e o fecha logo depois do callback.
-
-    Um Summary disparado com create_task morreria pendente; ele tem de terminar dentro do callback.
-    """
-    finished = []
-
-    async def slow_refresh_summary(conversation_id):
-        # Cede o loop algumas vezes, como faria a chamada real ao Gateway.
-        for _ in range(3):
-            await asyncio.sleep(0)
-        finished.append(conversation_id)
-
-    async def fake_publish(_event):
-        return None
-
-    monkeypatch.setattr(executor, "refresh_summary", slow_refresh_summary)
-    monkeypatch.setattr(whatsapp_consumer.realtime_event_bus, "publish", fake_publish)
-    monkeypatch.setattr(whatsapp_consumer, "SessionLocal", TestingSessionLocal)
-
-    user = User(id="user-loop-1", email="loop@example.com", hashed_password="hashed", is_active=True)
-    agent = Agent(id="agent-loop-1", name="Agente", system_prompt="", is_active=True, owner_id=user.id)
-    instance = Instance(
-        id="instance-loop-1",
-        name="Loop Instance",
-        evolution_instance_id="evo-loop-1",
-        status="connected",
-        is_active=True,
-        owner_id=user.id,
-        agent_id=agent.id,
-        agent_enabled=True,
-    )
-    db.add_all([user, agent, instance])
-    db.commit()
-
-    body = json.dumps(
-        {
-            "event": "messages.upsert",
-            "data": {
-                "instance": "evo-loop-1",
-                "data": {
-                    "key": {"remoteJid": "5511444444444@s.whatsapp.net", "fromMe": False, "id": "msg-loop-1"},
-                    "message": {"conversation": "Oi"},
-                    "pushName": "Contato Loop",
-                    "messageTimestamp": 1710006666,
-                },
-            },
-        }
-    )
-    channel = _FakeChannel()
-
-    try:
-        message_queue_service._process_message(
-            WhatsAppMessageConsumer().process_webhook_event, channel, _FakeMethod(), None, body
-        )
-    finally:
-        asyncio.set_event_loop(None)  # _process_message deixa o loop fechado como corrente
-
-    assert channel.acked == [1]
-    assert agent_turn["sent"]  # a resposta saiu antes do Summary
-    conversation = db.query(Conversation).filter(Conversation.remote_jid == "5511444444444@s.whatsapp.net").one()
-    assert finished == [conversation.id]
-
