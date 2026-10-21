@@ -1,0 +1,142 @@
+# Integrar um sistema de gestão
+
+Há dois sentidos de integração. Em um, o sistema de gestão (ERP, PDV, agenda) **empurra** dados para o Neuralilux pela API REST. No outro, o Agent **puxa** dados e executa ações no sistema durante um Turn, por Tools de um Pack. Termos conforme o [glossário](../CONTEXT.md); a estrutura do Pack está em [packs.md](packs.md).
+
+| Preciso de… | Use |
+|---|---|
+| Manter cardápio, preços e disponibilidade em dia | [API REST](#via-api-rest) |
+| Ler Conversations, Tickets e Messages para um painel externo | [API REST](#via-api-rest) |
+| O Agent consultar estoque, agenda ou preço em tempo real | [Tool de Pack](#via-tools-de-pack) |
+| O Agent gravar um pedido ou agendamento no sistema da Company | [Tool de Pack](#via-tools-de-pack) |
+
+## Via API REST
+
+Base: `http://<host>:8000/api/v1`. A documentação interativa (`/docs` e `/redoc`) só existe com `ENVIRONMENT=development`; fora disso responde 404. O schema completo continua em `/openapi.json`.
+
+### Autenticação
+
+Toda rota de dados exige `Authorization: Bearer <JWT>`. O login é um formulário (`application/x-www-form-urlencoded`), não JSON:
+
+```bash
+curl -s -X POST http://localhost:8000/api/v1/auth/login \
+  -d 'username=integracao@empresa.com' -d 'password=...'
+# {"access_token": "...", "token_type": "bearer"}
+```
+
+- O token expira em `ACCESS_TOKEN_EXPIRE_MINUTES` (padrão 30). Uma integração de servidor tem de refazer o login ao receber 401.
+- **Não há chave de API para máquinas.** A integração usa um usuário comum da Company (`POST /auth/register` com `company_id`, ou criado pelo administrador). Use um usuário dedicado, com senha forte guardada no cofre do sistema de gestão, nunca a conta de uma pessoa.
+- O escopo da Company vem do usuário: as rotas de `/menu` operam sobre `current_user.company_id`.
+
+### Rotas úteis
+
+| Rota | Uso |
+|---|---|
+| `GET /menu` | Cardápio ativo da Company: catálogo, categorias e Catalog Items. |
+| `POST /menu/categories`, `PATCH`/`DELETE /menu/categories/{id}` | Categorias. |
+| `POST /menu/items`, `PATCH`/`DELETE /menu/items/{id}` | Catalog Items: `name`, `price`, `is_available`, `sku`, `stock_quantity`, `category_id`. |
+| `GET /companies/{id}`, `PUT /companies/{id}` | Dados da Company, incluindo `business_hours`. |
+| `GET /conversations`, `GET /conversations/{id}/messages` | Conversations e Messages. |
+| `POST /conversations/{id}/messages` | Envia texto pela Instance (a Instance precisa estar `connected`). |
+| `POST /conversations/{id}/take-control`, `POST .../release-control`, `GET .../human-control-status` | Handoff manual, veja [operations.md](operations.md#handoff-e-tickets). |
+| `GET /tickets`, `GET`/`PATCH /tickets/{id}`, `POST /tickets/{id}/assign` | Tickets de Handoff. |
+
+`/products` existe só por compatibilidade e está marcado como obsoleto no código; use `/menu`.
+
+### Exemplo: sincronizar a disponibilidade de um Catalog Item
+
+```bash
+TOKEN=...   # do login acima
+curl -s -X PATCH "http://localhost:8000/api/v1/menu/items/$ITEM_ID" \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"is_available": false, "stock_quantity": 0}'
+```
+
+A Tool `buscar_cardapio` só devolve itens disponíveis, então a mudança vale já no próximo Turn.
+
+### Eventos para o sistema de gestão
+
+Não há webhook de saída do Neuralilux. O que existe:
+
+- **Socket.IO** (`/realtime/socket.io`, JWT em `auth.token`): `new_message`, `conversation_updated`, `tool_event`, `human_handoff_requested` e outros, descritos em [agent.md](agent.md#eventos-em-tempo-real).
+- **Polling** de `GET /tickets?status=open` para reagir a Handoffs.
+
+O endpoint `/webhooks/evolution` é exclusivo da Evolution ([ADR 0006](adr/0006-webhook-token-auth.md)); não o use como entrada de sistemas externos.
+
+### Limites atuais
+
+- Falta isolamento por Company em parte das rotas. `GET /tickets` lista os Tickets de todas as Companies para qualquer usuário autenticado, e as rotas `/instances` (por exemplo `GET /instances/`) não exigem login ([#25](https://github.com/levygit837-cyber/Neuralilux/issues/25)). Não exponha a API a terceiros sem uma camada de rede e revisão desses pontos.
+- `POST /auth/register` é público e aceita `company_id`: quem conhece o id de uma Company cria usuário nela ([#25](https://github.com/levygit837-cyber/Neuralilux/issues/25)).
+- O dashboard embute `NEXT_PUBLIC_EVOLUTION_API_KEY` no bundle do navegador ([#26](https://github.com/levygit837-cyber/Neuralilux/issues/26)).
+- Não há rate limit por integração nem chave de API revogável.
+
+## Via Tools de Pack
+
+Quando o Agent precisa de dado vivo ou de gravar no sistema da Company, a integração é uma Tool: o handler chama a API do sistema de gestão durante o Turn. Isso mantém o núcleo genérico ([ADR 0004](adr/0004-generic-core-business-packs.md)); o conhecimento do sistema externo vive só no Pack.
+
+Exemplo, só como documentação: uma Tool `consultar_horarios` do Pack de academia (veja [packs.md](packs.md#exemplo-pack-de-academia)) consulta a agenda no sistema de gestão por HTTP.
+
+```python
+# backend/app/packs/gym/agenda.py
+from __future__ import annotations
+
+import json
+from typing import Any
+
+import httpx
+import structlog
+
+from app.agent.contracts import Tool, ToolContext, ToolResult
+from app.core.config import settings
+
+logger = structlog.get_logger()
+
+AGENDA_TIMEOUT_SECONDS = 5.0
+
+
+async def _consultar_horarios(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+    # GYM_AGENDA_URL e GYM_AGENDA_TOKEN seriam novos campos em Settings (app/core/config.py).
+    try:
+        async with httpx.AsyncClient(timeout=AGENDA_TIMEOUT_SECONDS) as client:
+            response = await client.get(
+                f"{settings.GYM_AGENDA_URL}/aulas",
+                params={"modalidade": args["modalidade"], "dia": args["dia"]},
+                headers={"Authorization": f"Bearer {settings.GYM_AGENDA_TOKEN}"},
+            )
+            response.raise_for_status()
+    except httpx.HTTPError:
+        # Erro esperado de integração: o modelo recebe uma orientação, não uma exceção.
+        logger.warning("Agenda indisponível", company_id=ctx.company_id, exc_info=True)
+        return ToolResult(
+            content=json.dumps(
+                {"erro": "A agenda está indisponível agora. Ofereça um atendente."}, ensure_ascii=False
+            ),
+            is_error=True,
+        )
+    return ToolResult(content=json.dumps({"aulas": response.json()}, ensure_ascii=False))
+
+
+def consultar_horarios_tool() -> Tool:
+    return Tool(
+        name="consultar_horarios",
+        description="Horários das aulas de uma modalidade em um dia da semana. Use antes de informar qualquer horário.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "modalidade": {"type": "string", "description": "Ex: 'spinning'."},
+                "dia": {"type": "string", "description": "Dia da semana, ex: 'segunda'."},
+            },
+            "required": ["modalidade", "dia"],
+            "additionalProperties": False,
+        },
+        handler=_consultar_horarios,
+    )
+```
+
+Regras para Tools que chamam sistemas externos:
+
+- **Timeout curto e explícito.** O Turn inteiro tem `max_steps` chamadas ao modelo e o Contact está esperando; 5 s por chamada externa é um teto razoável.
+- **Sem retry dentro da Tool.** Uma falha vira `ToolResult(is_error=True)` com orientação. O prompt base já manda o Agent não repetir a mesma chamada e oferecer um atendente.
+- **Escopo pela Company.** Se o sistema externo atende várias Companies, escolha credencial e Company por `ctx.company_id`, nunca por um valor que o modelo informou.
+- **Segredos fora do código.** Credenciais do sistema externo entram por `Settings`/variável de ambiente; se forem por Company, guarde criptografadas como as chaves de Gateway (`app/core/crypto.py`).
+- **Ações que gravam** (pedido, agendamento) devem validar tudo antes de enviar e ser idempotentes no sistema externo: o modelo pode chamar a Tool de novo após um erro.
+- **Não devolva dados em excesso.** O resultado entra no contexto do modelo; filtre e resuma no handler.

@@ -2,7 +2,7 @@
 
 # Neuralilux
 
-**Protótipo técnico de atendimento assistido por IA para operações no WhatsApp.**
+**Agente de atendimento por WhatsApp com IA, configurável para o ramo de cada empresa.**
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
@@ -11,107 +11,76 @@
 
 </div>
 
-## Navegação rápida
+## O que é
 
-[Problema](#o-problema) · [Implementação](#o-que-está-implementado) · [Arquitetura](#arquitetura) · [Execução](#rodar-localmente) · [Limites](#limites-atuais)
+Uma Company conecta o número de WhatsApp dela (uma Instance, via Evolution API). O Agent atende os Contacts com as Tools do Pack do seu ramo, consulta a memória da Conversation e passa para um Attendant quando precisa (Handoff). Um dashboard Next.js acompanha Instances, Conversations e o que o Agent está fazendo em tempo real.
 
-## O problema
+Hoje existe um Pack, "catálogo & pedidos" (restaurantes): cardápio, pedido e Pix. Novos ramos entram como outro Pack, sem mexer no núcleo ([como criar um Pack](docs/packs.md)). O vocabulário do projeto está no [glossário](CONTEXT.md).
 
-Equipes que atendem pelo WhatsApp precisam acompanhar múltiplas instâncias, manter respostas
-consistentes e conectar a conversa a dados como cardápio, pedidos, horários e entrega. O Neuralilux
-explora essa operação em um dashboard único, com agentes especializados e intervenção humana.
+## Para quem
 
-O projeto é um protótipo técnico legado, não uma plataforma validada para produção.
+- **Donos de negócio e administradores** que atendem pelo WhatsApp e querem automatizar o atendimento com passagem para um humano.
+- **Desenvolvedores** que querem rodar, estender com Packs ou integrar o sistema de gestão de uma Company.
 
-## O que está implementado
+É um projeto em evolução, sem garantias de produção: veja [Limites atuais](#limites-atuais).
 
-- autenticação, empresas, usuários e múltiplas instâncias da Evolution API;
-- conexão de instâncias por QR code e associação entre instância e agente;
-- persistência de conversas e mensagens, Socket.IO e polling de contingência;
-- roteamento entre agentes de vendas e atendimento;
-- ferramentas ligadas ao fluxo principal para cardápio, pedido, horário e entrega;
-- configuração de provedores de inferência, fallback e eventos de streaming;
-- dashboard Next.js para instâncias, conversas, agente, estoque e configurações.
+## Quickstart
 
-Há implementações isoladas de ticket e pagamento, mas elas não fecham hoje uma jornada completa pelo
-dispatcher principal. Alguns cartões de configuração da interface também permanecem demonstrativos.
-
-## Arquitetura
-
-```text
-WhatsApp / Evolution API
-          │
-          ▼
-FastAPI ── webhooks ── roteador Sales/SAC ── tools operacionais
-   │                         │
-   ├── PostgreSQL            └── provedores de inferência + fallback
-   ├── Redis / RabbitMQ
-   │
-   └── Socket.IO / REST ── dashboard Next.js
-```
-
-```text
-backend/app/
-├── agent/           # loop do Agent, Tools, executor, memória e prompts
-├── api/routes/      # autenticação, instâncias, conversas e configuração
-├── whatsapp/        # cliente Evolution, consumer RabbitMQ e sender
-├── realtime/        # Socket.IO, event bus e eventos de Tool
-└── services/        # serviços de domínio (empresas, pedidos, cardápio)
-
-frontend/src/
-├── app/             # rotas do dashboard
-├── components/      # chat, agente, métricas e configurações
-├── services/        # clientes HTTP e Socket.IO
-└── stores/          # estado de autenticação, chat e instâncias
-```
-
-## Rodar localmente
-
-Pré-requisitos: Docker, Python 3.11 ou 3.12, Node 20.9+ (exigência do Next 16) e um Gateway que fale o protocolo Anthropic Messages (cadastrado depois em **Configurações > Gateways**).
+Pré-requisitos: Docker (Compose v2), Python 3.11 ou 3.12, Node 20.9+ e um Gateway que fale o protocolo Anthropic Messages ([ADR 0002](docs/adr/0002-anthropic-messages-via-gateways.md)).
 
 ```bash
-# 1. Infra: PostgreSQL, Redis, RabbitMQ e Evolution API
-docker compose up -d postgres redis rabbitmq evolution-api
+# 1. Variáveis do backend (defina EVOLUTION_API_KEY, EVOLUTION_WEBHOOK_TOKEN e SECRET_KEY)
+cp backend/.env.example backend/.env
 
-# 2. Backend
+# 2. Infra: PostgreSQL, Redis, RabbitMQ e Evolution API
+cp docker-compose.example.yml docker-compose.yml
+docker compose --env-file backend/.env up -d
+
+# 3. Backend: dependências, banco e dados de exemplo
 cd backend
-cp .env.example .env        # ajuste EVOLUTION_API_KEY, EVOLUTION_WEBHOOK_TOKEN e SECRET_KEY
 python3.12 -m venv venv && source venv/bin/activate
-pip install -r requirements-dev.txt   # dev: runtime + testes/lint; produção usa requirements.txt
-uvicorn app.main:socket_app --host 0.0.0.0 --port 8000 --reload
-python scripts/run_worker.py   # outro terminal: consome webhooks e mensagens
+pip install -r requirements-dev.txt
+alembic upgrade head
+SEED_DEV_SUPERUSER=1 python scripts/seed_data.py
+uvicorn app.main:socket_app --host 0.0.0.0 --port 8000 --reload   # API
+python scripts/run_worker.py                                       # worker, outro terminal
 
-# 3. Frontend
-cd frontend
-cp .env.example .env.local
-npm install && npm run dev
+# 4. Frontend (outro terminal, na raiz do repositório)
+cd frontend && cp .env.example .env.local && npm install && npm run dev
 ```
 
-Em banco novo, rode `alembic upgrade head` e `python scripts/seed_data.py` antes de subir a API. O passo a passo
-completo, incluindo a conexão do WhatsApp por QR code, está em [docs/SETUP_GUIDE.md](docs/SETUP_GUIDE.md).
+O `docker-compose.yml` é **local e ignorado pelo git**: ele pode ter credenciais suas. O repositório versiona o [`docker-compose.example.yml`](docker-compose.example.yml), sem segredos; é dele que o passo 2 parte. Entre em `http://localhost:3000` com `usuario@teste.com` / `teste123` (usuário de dev criado pelo seed).
 
-## Limites atuais
-
-- o `docker-compose.yml` mantém defaults de desenvolvimento (chaves e senhas em texto puro);
-- endpoints de tickets ainda exigem reforço de isolamento e autorização por empresa;
-- as suítes não foram reproduzidas em uma instalação limpa desta versão pública;
-- dependências frontend e defaults de desenvolvimento precisam de revisão antes de qualquer deploy;
-- a navegação móvel e a acessibilidade ainda não passaram por validação completa;
-- nenhuma métrica de clientes, disponibilidade ou uso comercial é comprovada pelo repositório.
+Conectar o WhatsApp por QR code, ligar a Instance à Company e conferir a primeira resposta estão no [guia de setup](docs/setup.md).
 
 ## Documentação
 
-- [Backend](backend/README.md)
-- [Frontend](frontend/README.md)
+| Documento | Conteúdo |
+|---|---|
+| [docs/setup.md](docs/setup.md) | Infra local, `.env`, migrações, seed, Gateway, QR code e primeira resposta. |
+| [docs/architecture.md](docs/architecture.md) | Fluxo webhook → consumer → executor → loop → Tools → Evolution. |
+| [docs/agent.md](docs/agent.md) | Loop, Tools, memória (Recent Window, Summary, History Search) e eventos. |
+| [docs/packs.md](docs/packs.md) | Criar um Pack para farmácia, loja ou academia: contrato e exemplo. |
+| [docs/integrations.md](docs/integrations.md) | Integrar um sistema de gestão por API REST e por Tools de Pack. |
+| [docs/operations.md](docs/operations.md) | Handoff, Tickets e troubleshooting. |
+| [CONTEXT.md](CONTEXT.md) | Glossário do domínio. |
+| [docs/adr/](docs/adr/) | Decisões de arquitetura. |
+| [backend/README.md](backend/README.md) · [frontend/README.md](frontend/README.md) | Notas de cada parte. |
+| [AGENTS.md](AGENTS.md) | Guia para agentes de código: layout, comandos e regras. |
 
-Documentos antigos que afirmam conclusão total ou prontidão para produção devem ser tratados como
-registro histórico, não como estado atual.
+## Limites atuais
+
+- Os endpoints de Tickets não filtram por Company e as rotas `/instances` não exigem login ([#25](https://github.com/levygit837-cyber/Neuralilux/issues/25); detalhes em [operations.md](docs/operations.md#limites-conhecidos)).
+- `POST /auth/register` é público e aceita `company_id`: quem conhece o id de uma Company cria usuário nela ([#25](https://github.com/levygit837-cyber/Neuralilux/issues/25)).
+- `NEXT_PUBLIC_EVOLUTION_API_KEY` vai para o bundle do navegador, expondo a chave da Evolution a quem abrir o dashboard ([#26](https://github.com/levygit837-cyber/Neuralilux/issues/26)).
+- Os defaults de desenvolvimento (senhas do compose, `usuario@teste.com`) não servem para produção; a app recusa `SECRET_KEY` e `EVOLUTION_WEBHOOK_TOKEN` de exemplo fora de `ENVIRONMENT=development`.
+- Só existe o Pack de catálogo & pedidos.
+- A navegação móvel e a acessibilidade do dashboard não passaram por validação completa.
+- Nenhuma métrica de clientes, disponibilidade ou uso comercial é comprovada pelo repositório.
 
 ## Desenvolvimento
 
-Projeto conduzido com desenvolvimento assistido por agentes de IA. O trabalho humano incluiu
-definição do produto, decomposição das jornadas, direção da interface, supervisão das implementações
-e revisão dos fluxos.
+Projeto conduzido com desenvolvimento assistido por agentes de IA. O trabalho humano incluiu definição do produto, decomposição das jornadas, direção da interface, supervisão das implementações e revisão dos fluxos. Toda mudança entra por PR revisado.
 
 ## Licença
 
