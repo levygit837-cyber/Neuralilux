@@ -201,3 +201,36 @@ async def test_six_tools_in_total():
         t.name for t in CatalogOrdersPack().tools()
     ]
     assert len(names) == len(set(names)) == 6
+
+
+async def test_buscar_historico_default_uses_real_memory_search_scoped_to_contact(world):
+    from app.models.models import Contact, Conversation
+
+    def message(conversation, jid, text):
+        return Message(
+            instance_id=world.instance.id,
+            conversation_id=conversation.id,
+            remote_jid=jid,
+            direction="incoming",
+            message_type="text",
+            content=text,
+            timestamp=datetime.now(timezone.utc),
+        )
+
+    other = Contact(instance_id=world.instance.id, phone_number="5585911112222", remote_jid="5585911112222@s.whatsapp.net")
+    world.db.add(other)
+    world.db.flush()
+    other_conversation = Conversation(instance_id=world.instance.id, contact_id=other.id, remote_jid=other.remote_jid)
+    world.db.add(other_conversation)
+    world.db.flush()
+    world.db.add_all(
+        [
+            message(world.conversation, world.contact.remote_jid, "quero a pizza toscana de ontem"),
+            message(other_conversation, other.remote_jid, "pizza toscana do outro cliente"),
+        ]
+    )
+    world.db.commit()
+
+    result = await call(tool("buscar_historico"), world.ctx, consulta="toscana")
+    snippets = [r["snippet"] for r in payload(result)["resultados"]]
+    assert snippets == ["quero a pizza toscana de ontem"]
