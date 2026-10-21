@@ -33,9 +33,9 @@ Requer Python 3.11 ou 3.12 e a infra do `docker-compose.yml` no ar
 ```bash
 python3.12 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt   # runtime + ferramentas de teste/lint; produção usa só requirements.txt
 
-cp .env.example .env   # ajuste EVOLUTION_API_KEY, SECRET_KEY e a chave do LLM
+cp .env.example .env   # ajuste EVOLUTION_API_KEY e SECRET_KEY; o modelo é configurado como Gateway
 
 # Banco já existente com Gateways gravados antes do HKDF: PASSO ÚNICO OBRIGATÓRIO, antes de subir a app
 python scripts/reencrypt_gateway_secrets.py

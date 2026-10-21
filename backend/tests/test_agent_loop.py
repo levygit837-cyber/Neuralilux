@@ -1,14 +1,18 @@
 """run_turn: o loop do Agent contra um FakeMessagesClient roteirizado."""
 
+from dataclasses import replace
+from unittest.mock import MagicMock
+
 import pytest
 
 from app.agent.contracts import Tool, ToolContext, ToolResult
 from app.agent.loop import run_turn
 from app.agent.tools import GENERIC_TOOL_ERROR, ToolRegistry
+from app.models.models import Company
 from tests.agent_fakes import FakeMessagesClient, FakePack, reply, text, tool_use
 
 CTX = ToolContext(
-    db=None,
+    db=MagicMock(),
     company_id="company-1",
     instance_id="instance-1",
     conversation_id="conversation-1",
@@ -153,22 +157,25 @@ async def test_ends_turn_para_sem_chamar_o_modelo_de_novo_e_responde_a_mensagem_
 
 
 @pytest.mark.asyncio
-async def test_max_steps_faz_chamada_final_sem_tools_pedindo_a_resposta():
+async def test_max_steps_faz_chamada_final_com_schemas_e_ignora_tool_use_dela():
+    buscar = _returning("nada")
     client = FakeMessagesClient(
         [
             reply(tool_use("buscar_cardapio", {}, "toolu_1")),
             reply(tool_use("buscar_cardapio", {}, "toolu_2")),
-            reply(text("Não achei, quer outra opção?")),
+            reply(text("Não achei, quer outra opção?"), tool_use("buscar_cardapio", {}, "toolu_3")),
         ]
     )
 
-    result = await _run(client, _registry(buscar_cardapio=_returning("nada")), max_steps=2)
+    result = await _run(client, _registry(buscar_cardapio=buscar), max_steps=2)
 
     assert result.reply_text == "Não achei, quer outra opção?"
     assert result.steps == 3
     assert len(result.tool_calls) == 2
+    assert len(buscar.calls) == 2
     final = client.requests[-1]
-    assert final.tools == []
+    # O histórico tem tool_use/tool_result: o request continua precisando das definições das Tools.
+    assert [schema["name"] for schema in final.tools] == ["buscar_cardapio"]
     last_user = final.messages[-1]
     assert last_user["role"] == "user"
     assert last_user["content"][0] == {"type": "tool_result", "tool_use_id": "toolu_2", "content": "nada"}
@@ -192,3 +199,32 @@ async def test_historico_do_chamador_nao_e_alterado():
     await run_turn(client, "m", "S", history, _registry(info_empresa=_returning("dados")), CTX)
 
     assert history == [{"role": "user", "content": "oi"}]
+
+
+@pytest.mark.asyncio
+async def test_flush_que_falha_numa_tool_nao_quebra_a_proxima_tool_do_turn(db):
+    db.add(Company(id="company-dup", name="Original"))
+    db.commit()
+
+    async def grava_duplicado(ctx, args):
+        ctx.db.add(Company(id="company-dup", name="Duplicada"))
+        ctx.db.flush()  # IntegrityError: chave primária repetida
+        return ToolResult(content="não chega aqui")
+
+    async def consulta(ctx, args):
+        return ToolResult(content=ctx.db.get(Company, "company-dup").name)
+
+    client = FakeMessagesClient(
+        [
+            reply(tool_use("grava", {}, "toolu_1"), tool_use("consulta", {}, "toolu_2")),
+            reply(text("ok")),
+        ]
+    )
+
+    result = await run_turn(
+        client, "m", "S", HISTORY, _registry(grava=grava_duplicado, consulta=consulta), replace(CTX, db=db)
+    )
+
+    failed, queried = result.tool_calls
+    assert failed.is_error
+    assert queried.result == {"type": "tool_result", "tool_use_id": "toolu_2", "content": "Original"}

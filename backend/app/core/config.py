@@ -47,10 +47,6 @@ class Settings(BaseSettings):
     # Rate Limiting
     RATE_LIMIT_PER_MINUTE: int = 60
 
-    # Uploads
-    UPLOAD_DIR: str = "/app/uploads"
-    MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024  # 10MB
-
     # Memória por Conversation (ADR 0003)
     MEMORY_WINDOW: int = 20  # Messages na Recent Window
     SUMMARY_EVERY: int = 20  # Messages fora da janela e não resumidas que disparam um novo Summary

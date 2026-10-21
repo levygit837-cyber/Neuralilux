@@ -3,7 +3,9 @@
 Chama o modelo; enquanto ele pedir `tool_use`, executa todas as Tools em ordem,
 anexa a resposta do assistant e os `tool_result` e chama de novo. Para em
 `end_turn` (ou qualquer outro `stop_reason`), numa Tool com `ends_turn` ou ao
-atingir `max_steps`; neste caso faz uma última chamada sem Tools pedindo a resposta.
+atingir `max_steps`; neste caso faz uma última chamada pedindo a resposta. Essa
+chamada ainda leva os schemas das Tools (o histórico tem `tool_use`/`tool_result`
+e o protocolo exige as definições), mas qualquer `tool_use` nela é ignorado.
 """
 
 from __future__ import annotations
@@ -85,8 +87,9 @@ async def run_turn(
             results.append({"type": "text", "text": FINAL_ANSWER_INSTRUCTION})
             messages.append({"role": "user", "content": results})
             final = await client.create(
-                MessagesRequest(model=model, system=system, messages=messages, tools=[], effort=effort)
+                MessagesRequest(model=model, system=system, messages=messages, tools=tools, effort=effort)
             )
+            # Só o texto conta: um tool_use aqui não é executado.
             return TurnResult(reply_text=_reply_text(final), tool_calls=tool_calls, steps=steps + 1)
         messages.append({"role": "user", "content": results})
 

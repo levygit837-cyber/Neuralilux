@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from datetime import datetime, timezone
 from uuid import uuid4
@@ -7,6 +9,7 @@ from app.agent.loop import TurnResult
 from app.core.database import Base, SessionLocal, engine
 from app.models.models import Agent, Contact, Conversation, Instance, Message, User
 from app.services.evolution_api import evolution_api
+from app.workers import whatsapp_consumer
 from app.workers.whatsapp_consumer import WhatsAppMessageConsumer
 
 
@@ -23,8 +26,11 @@ def agent_turn(monkeypatch):
         calls["sent"].append({"instance_name": instance_name, "remote_jid": remote_jid, "text": text})
         return {"key": {"id": "sent-1"}}
 
+    async def fake_refresh_summary(conversation_id):
+        calls["summaries"].append(conversation_id)
+
     monkeypatch.setattr(executor, "handle_incoming", fake_handle_incoming)
-    monkeypatch.setattr(executor, "schedule_summary_refresh", calls["summaries"].append)
+    monkeypatch.setattr(executor, "refresh_summary", fake_refresh_summary)
     monkeypatch.setattr(evolution_api, "send_text_message", fake_send)
     return calls
 
@@ -493,6 +499,8 @@ async def test_save_message_to_database_triggers_agent_when_instance_is_enabled(
     assert agent_turn["sent"] == [
         {"instance_name": "evo-agent-on-1", "remote_jid": "5511555555555@s.whatsapp.net", "text": "Resposta"}
     ]
+    # O Summary roda numa task separada, disparada depois do envio.
+    await asyncio.gather(*list(whatsapp_consumer._summary_tasks))
     conversation = db.query(Conversation).filter(Conversation.remote_jid == "5511555555555@s.whatsapp.net").one()
     assert agent_turn["summaries"] == [conversation.id]
 

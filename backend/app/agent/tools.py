@@ -72,6 +72,8 @@ class ToolRegistry:
         try:
             outcome = await tool.handler(ctx, args)
         except Exception:
+            # Um flush que falhou deixa a Session inválida; sem rollback a próxima Tool do Turn quebra também.
+            ctx.db.rollback()
             logger.exception(
                 "Tool handler failed",
                 tool_name=name,

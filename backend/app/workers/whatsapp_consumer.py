@@ -19,6 +19,9 @@ from app.services.evolution_api import evolution_api
 
 logger = structlog.get_logger()
 
+# Referências fortes às tarefas de Summary: sem elas o event loop pode coletá-las no meio.
+_summary_tasks: set[asyncio.Task[None]] = set()
+
 
 def _resolve_default_agent(db: Session, instance: Instance) -> Agent | None:
     """
@@ -610,7 +613,9 @@ class WhatsAppMessageConsumer:
                 text=result.reply_text,
             )
             log.info("Agent response sent", steps=result.steps, response_length=len(result.reply_text))
-            executor.schedule_summary_refresh(conversation.id)
+            task = asyncio.create_task(executor.refresh_summary(conversation.id))
+            _summary_tasks.add(task)
+            task.add_done_callback(_summary_tasks.discard)
         except Exception:
             # Nunca derruba o worker: o erro fica no log e a próxima Message tenta de novo.
             log.exception("Unexpected error processing message with agent")

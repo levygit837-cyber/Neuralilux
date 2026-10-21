@@ -1,6 +1,7 @@
 """ToolRegistry: schemas no formato Messages e execução de tool_use."""
 
 from dataclasses import dataclass
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -8,7 +9,7 @@ from app.agent.contracts import Tool, ToolContext, ToolResult
 from app.agent.tools import ToolRegistry
 
 CTX = ToolContext(
-    db=None,
+    db=MagicMock(),
     company_id="company-1",
     instance_id="instance-1",
     conversation_id="conversation-1",

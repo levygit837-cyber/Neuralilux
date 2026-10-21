@@ -2,19 +2,18 @@
 
 Ordem: gate de Handoff lido do banco, contexto (Summary + Recent Window), Gateway
 do `whatsapp_agent`, loop com as Tools dos Packs da Company, formatação para o
-WhatsApp. Quem chama envia `reply_text` (se houver) e depois chama
-`schedule_summary_refresh`, que atualiza o Summary em background sem atrasar o envio.
+WhatsApp e nova leitura do Handoff antes de devolver a resposta. Quem chama envia
+`reply_text` (se houver) e depois dispara `refresh_summary` em background.
 """
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 
 import structlog
 from sqlalchemy.orm import Session
 
-from app.agent.contracts import Pack, Tool, ToolContext
+from app.agent.contracts import ChatMessage, Pack, Tool, ToolContext
 from app.agent.core_tools import core_tools
 from app.agent.events import TurnEvents
 from app.agent.formatting import to_whatsapp
@@ -28,9 +27,6 @@ from app.models.models import Company, Contact, Conversation, Instance
 from app.packs.registry import pack_for_company
 
 logger = structlog.get_logger()
-
-# Referências fortes às tarefas de Summary: sem elas o event loop pode coletá-las no meio.
-_summary_tasks: set[asyncio.Task[None]] = set()
 
 AGENT_TYPE = "whatsapp_agent"
 FALLBACK_REPLY = "Desculpe, tive um problema para responder agora. Pode mandar sua mensagem de novo em instantes?"
@@ -93,9 +89,7 @@ async def handle_incoming(
     await events.thinking_start()
     try:
         summary, history = build_context(db, conversation)
-        if not history or history[-1]["role"] != "user":
-            # A Message que disparou o Turn ainda não está na janela (ex.: commit pendente).
-            history = [*history, {"role": "user", "content": text}]
+        history = _with_incoming(history, text)
         packs = packs_for(company)
         client, model, effort = resolve_gateway(AGENT_TYPE)
         system = build_system_prompt(company_name=company.name, packs=packs, ctx=ctx, summary=summary)
@@ -110,19 +104,50 @@ async def handle_incoming(
             observer=events,
         )
     except Exception:
+        # A Session do Turn pode ter ficado inválida (flush que falhou); quem chama ainda vai usá-la.
+        db.rollback()
         log.exception("Turn failed")
         return TurnResult(reply_text=FALLBACK_REPLY)
     finally:
         await events.flush()
         await events.thinking_end()
 
+    ended_by_tool = any(call.ends_turn for call in result.tool_calls)
+    if not ended_by_tool and _in_handoff(db, conversation.id):
+        # Um Attendant assumiu enquanto o modelo respondia: a resposta do Agent não sai.
+        log.info("Conversation entered Handoff during the Turn, reply dropped")
+        return TurnResult(reply_text=None, tool_calls=result.tool_calls, steps=result.steps)
+
     reply = to_whatsapp(result.reply_text) if result.reply_text else None
     log.info("Turn finished", steps=result.steps, tools=[call.name for call in result.tool_calls], replied=bool(reply))
     return TurnResult(reply_text=reply or None, tool_calls=result.tool_calls, steps=result.steps)
 
 
-async def _refresh_summary(conversation_id: str) -> None:
-    # Session própria: a do Turn não é segura entre tarefas e esta roda concorrente ao próximo Turn.
+def _with_incoming(history: list[ChatMessage], text: str) -> list[ChatMessage]:
+    """Garante que a Message que disparou o Turn é o fim do histórico.
+
+    A Recent Window junta Messages seguidas do Contact numa entrada `user`; a atual pode
+    ainda não estar gravada. Decide pelo conteúdo, não pelo papel: uma Message anterior
+    sem resposta não pode fazer a atual sumir.
+    """
+    incoming = text.strip()
+    if not incoming:
+        return history
+    if history and history[-1]["role"] == "user":
+        last = history[-1]["content"]
+        if isinstance(last, str):
+            if last.strip().endswith(incoming):
+                return history
+            return [*history[:-1], {"role": "user", "content": f"{last}\n{incoming}"}]
+    return [*history, {"role": "user", "content": incoming}]
+
+
+async def refresh_summary(conversation_id: str) -> None:
+    """Atualiza o Summary da Conversation; roda em background, depois que a resposta foi enviada.
+
+    Abre a própria Session: a do Turn não é segura entre tarefas e esta roda em paralelo ao
+    próximo Turn. Falhas só vão para o log.
+    """
     db = database.SessionLocal()
     try:
         conversation = db.get(Conversation, conversation_id)
@@ -131,14 +156,7 @@ async def _refresh_summary(conversation_id: str) -> None:
         client, model, _effort = resolve_gateway(AGENT_TYPE)
         await maybe_refresh_summary(db, client, model, conversation)
     except Exception:
+        db.rollback()
         logger.exception("Summary refresh failed", conversation_id=conversation_id)
     finally:
         db.close()
-
-
-def schedule_summary_refresh(conversation_id: str) -> asyncio.Task[None]:
-    """Atualiza o Summary da Conversation em background, depois que a resposta já foi enviada."""
-    task = asyncio.get_running_loop().create_task(_refresh_summary(conversation_id))
-    _summary_tasks.add(task)
-    task.add_done_callback(_summary_tasks.discard)
-    return task

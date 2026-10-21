@@ -1,5 +1,5 @@
 #!/bin/bash
-# Script para iniciar o backend no host (acessa LM Studio localmente)
+# Script para iniciar o backend no host (dev). O modelo vem de um Gateway cadastrado no banco.
 
 set -euo pipefail
 
@@ -76,7 +76,8 @@ fi
 echo "📦 Ativando ambiente virtual..."
 source "$VENV_DIR/bin/activate"
 
-current_requirements_hash="$( (command -v sha256sum >/dev/null && sha256sum requirements.txt || shasum -a 256 requirements.txt) | awk '{print $1}')"
+# O hash cobre os dois arquivos: requirements-dev.txt inclui requirements.txt via `-r`.
+current_requirements_hash="$( (command -v sha256sum >/dev/null && cat requirements.txt requirements-dev.txt | sha256sum || cat requirements.txt requirements-dev.txt | shasum -a 256) | awk '{print $1}')"
 stored_requirements_hash="$(cat "$requirements_hash_file" 2>/dev/null || true)"
 
 dependency_check_failed=0
@@ -94,34 +95,20 @@ fi
 
 if [ "$current_requirements_hash" != "$stored_requirements_hash" ] || [ "$dependency_check_failed" -eq 1 ]; then
     echo "📥 Sincronizando dependências do backend..."
-    pip install -r requirements.txt
+    pip install -r requirements-dev.txt
     printf '%s\n' "$current_requirements_hash" > "$requirements_hash_file"
 fi
 
 # Configurar variáveis de ambiente
 export DATABASE_URL="postgresql+psycopg://neuralilux:neuralilux_password@localhost:5434/neuralilux"
 export REDIS_URL="redis://:redis_password@localhost:6380/0"
-export LM_STUDIO_URL="http://localhost:1234"
-export LM_STUDIO_MODEL="${LM_STUDIO_MODEL:-qwen3.5-4b-claude-4.6-opus-reasoning-distilled-v2}"
-export LM_STUDIO_DISABLE_THINKING="false"
-export AGENT_RESPONSE_MAX_TOKENS="250"
 export ENVIRONMENT="development"
 export DEBUG="true"
 
 echo "✅ Variáveis de ambiente configuradas:"
 echo "   - DATABASE_URL: $DATABASE_URL"
 echo "   - REDIS_URL: $REDIS_URL"
-echo "   - LM_STUDIO_URL: $LM_STUDIO_URL"
-echo "   - LM_STUDIO_MODEL: $LM_STUDIO_MODEL"
-
-# Verificar se o LM Studio está acessível
-echo "🔍 Verificando conectividade com LM Studio..."
-if curl -s --max-time 5 "http://localhost:1234/v1/models" > /dev/null 2>&1; then
-    echo "✅ LM Studio está acessível em http://localhost:1234"
-else
-    echo "⚠️  LM Studio não está acessível. Verifique se está rodando e aceitando conexões."
-    echo "   Tentando iniciar mesmo assim..."
-fi
+echo "   - Gateways de inferência: Configurações > Gateways (ou /api/v1/gateways)"
 
 # Iniciar o backend
 echo "🚀 Iniciando servidor FastAPI..."

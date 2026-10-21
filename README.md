@@ -75,7 +75,7 @@ docker compose up -d postgres redis rabbitmq evolution-api
 cd backend
 cp .env.example .env        # ajuste EVOLUTION_API_KEY e SECRET_KEY
 python3.12 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt   # dev: runtime + testes/lint; produção usa requirements.txt
 uvicorn app.main:socket_app --host 0.0.0.0 --port 8000 --reload
 python scripts/run_worker.py   # outro terminal: consome webhooks e mensagens
 
