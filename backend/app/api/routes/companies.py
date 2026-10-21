@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List
 
 from app.api.deps import get_db
 from app.schemas.company import CompanyCreate, CompanyUpdate, CompanyResponse

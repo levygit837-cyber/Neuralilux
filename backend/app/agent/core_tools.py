@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from decimal import Decimal
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 

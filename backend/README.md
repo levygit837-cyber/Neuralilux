@@ -137,5 +137,5 @@ O worker (`scripts/run_worker.py`) usa `aio-pika` num único event loop, com `RA
 ### Agent e resposta automática
 
 - `scripts/seed_data.py` cria um Agent por Company e liga as Instances da Company com `agent_enabled=True`, então um seed novo já responde.
-- Instances criadas por `POST /api/v1/instances` (`instances.py`) nascem com `agent_enabled=False` e sem Agent: atribua um Agent e ligue
+- Instances criadas por `POST /api/v1/instances` (`app/api/routes/instances/`) nascem com `agent_enabled=False` e sem Agent: atribua um Agent e ligue
   a resposta automática (`agent_enabled`) antes de esperar respostas. Reexecutar o seed não religa uma Instance que o operador desligou.

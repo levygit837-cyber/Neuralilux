@@ -18,13 +18,15 @@ from app.agent import executor
 from app.core.database import SessionLocal
 from app.models import Agent, Contact, Conversation, Instance, Message
 from app.whatsapp.message_queue import message_queue_service
+from app.whatsapp.sender import send_and_persist
 from app.whatsapp.status_events import (
     find_instance,
+    publish_message,
     publish_qr_code_update,
+    touch_conversation,
     update_connection_status,
     update_message_status,
 )
-from app.whatsapp.sender import publish_message, send_and_persist, touch_conversation
 from app.whatsapp.webhook_parser import (
     ParsedContent,
     is_ignored_chat,
