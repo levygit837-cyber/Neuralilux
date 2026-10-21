@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.agent.contracts import Tool, ToolContext, ToolResult
-from app.models.models import CustomerOrder
+from app.models import CustomerOrder
 from app.packs.catalog_orders import checkout, items
 from app.packs.catalog_orders.order_state import error, ok, view
 from app.packs.catalog_orders.pix import PixError

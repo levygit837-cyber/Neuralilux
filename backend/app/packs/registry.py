@@ -6,7 +6,7 @@ Um novo ramo entra aqui como mais uma entrada do mapa; o núcleo não muda.
 from collections.abc import Callable
 
 from app.agent.contracts import Pack
-from app.models.models import BusinessType, Company
+from app.models import BusinessType, Company
 from app.packs.catalog_orders.pack import CatalogOrdersPack
 
 PACKS_BY_BUSINESS_TYPE: dict[str, Callable[[], Pack]] = {

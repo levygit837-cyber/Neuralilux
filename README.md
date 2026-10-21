@@ -52,9 +52,11 @@ FastAPI ── webhooks ── roteador Sales/SAC ── tools operacionais
 
 ```text
 backend/app/
-├── agents/          # grafo, prompts, memória, outputs e tools
-├── api/v1/          # autenticação, instâncias, conversas e configuração
-└── services/        # Evolution API, inferência, catálogo e tempo real
+├── agent/           # loop do Agent, Tools, executor, memória e prompts
+├── api/routes/      # autenticação, instâncias, conversas e configuração
+├── whatsapp/        # cliente Evolution, consumer RabbitMQ e sender
+├── realtime/        # Socket.IO, event bus e eventos de Tool
+└── services/        # serviços de domínio (empresas, pedidos, cardápio)
 
 frontend/src/
 ├── app/             # rotas do dashboard

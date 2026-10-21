@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Any
 
 from app.agent.contracts import ToolContext
-from app.models.models import CustomerOrderItem, MenuCatalog, MenuItem
+from app.models import CustomerOrderItem, MenuCatalog, MenuItem
 from app.packs.catalog_orders.order_state import active_order, new_order, view
 from app.packs.catalog_orders.totals import cents, recompute
 from app.packs.catalog_orders.validation import OrderError, positive_int

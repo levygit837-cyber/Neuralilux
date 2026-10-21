@@ -12,7 +12,7 @@ sys.path.insert(0, str(backend_dir))
 
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
-from app.models.models import Product, ProductType, Company, MenuItem, MenuCatalog
+from app.models import Product, ProductType, Company, MenuItem, MenuCatalog
 DEFAULT_COMPANY_NAME = "Empresa Padrão"
 
 def ensure_product_types(db: Session) -> dict[str, str]:

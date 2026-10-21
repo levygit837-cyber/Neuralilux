@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from sqlalchemy.orm import Session
 
 from app.core.security import get_password_hash
-from app.models.models import User
+from app.models import User
 
 MIN_PASSWORD_LENGTH = 6  # mesmo minimo de `UserCreate`
 

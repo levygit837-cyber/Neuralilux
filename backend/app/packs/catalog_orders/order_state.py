@@ -9,7 +9,7 @@ from decimal import Decimal
 from typing import Any
 
 from app.agent.contracts import ToolContext, ToolResult
-from app.models.models import Company, Contact, CustomerOrder
+from app.models import Company, Contact, CustomerOrder
 from app.packs.catalog_orders.totals import subtotal
 from app.packs.catalog_orders.validation import OrderError
 

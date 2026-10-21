@@ -23,7 +23,7 @@ from app.agent.prompts import build_system_prompt
 from app.agent.tools import ToolRegistry
 from app.core import database
 from app.llm.registry import resolve as resolve_gateway
-from app.models.models import Company, Contact, Conversation, Instance
+from app.models import Company, Contact, Conversation, Instance
 from app.packs.registry import pack_for_company
 
 logger = structlog.get_logger()

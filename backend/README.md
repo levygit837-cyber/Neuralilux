@@ -7,19 +7,20 @@ API backend em Python + FastAPI para o sistema Neuralilux.
 ```
 backend/
 ├── app/
-│   ├── api/              # Endpoints da API
-│   │   └── v1/
-│   │       ├── endpoints/
-│   │       └── router.py
-│   ├── core/             # Configurações centrais
-│   │   ├── config.py
-│   │   ├── database.py
-│   │   └── security.py
-│   ├── models/           # Modelos SQLAlchemy
-│   ├── services/         # Lógica de negócio
-│   ├── agents/           # Agentes de IA
-│   └── main.py           # Aplicação FastAPI
-├── tests/                # Testes
+│   ├── main.py           # Aplicação FastAPI (entrypoint: app.main:socket_app)
+│   ├── core/             # config, database, security, crypto, logging
+│   ├── api/              # deps.py (get_db, get_current_user) e router.py
+│   │   └── routes/       # uma rota por assunto, sob /api/v1
+│   ├── models/           # Modelos SQLAlchemy, um módulo por agregado
+│   ├── schemas/          # Schemas Pydantic, agrupados como os models
+│   ├── llm/              # Cliente Anthropic Messages, registry de Gateways, erros
+│   ├── agent/            # Loop do Agent, Tools, executor, memória, prompts
+│   ├── packs/            # Packs por Business Type (catalog_orders)
+│   ├── whatsapp/         # Cliente Evolution, consumer RabbitMQ, parser de webhook, sender
+│   ├── realtime/         # Socket.IO, event bus Redis, eventos de Tool
+│   └── services/         # Serviços de domínio (companies, orders, menu/…)
+├── scripts/              # run_worker.py, seeds e utilitários
+├── tests/                # api/, agent/, packs/, whatsapp/, realtime/, llm/, models/, core/, scripts/
 ├── alembic/              # Migrações de banco
 ├── requirements.txt
 └── Dockerfile
@@ -100,14 +101,14 @@ O Agent roda num loop próprio em `app/agent/` (ADR 0001), sem framework de agen
 ## Testes
 
 ```bash
-# Executar todos os testes
-pytest
+# Executar todos os testes (e2e só com RUN_E2E=1)
+pytest tests --ignore=tests/e2e
 
 # Com cobertura
-pytest --cov=app tests/
+pytest --cov=app tests --ignore=tests/e2e
 
-# Teste específico
-pytest tests/test_auth.py
+# Uma área
+pytest tests/whatsapp
 ```
 
 ## Documentação da API
@@ -136,5 +137,5 @@ O worker (`scripts/run_worker.py`) usa `aio-pika` num único event loop, com `RA
 ### Agent e resposta automática
 
 - `scripts/seed_data.py` cria um Agent por Company e liga as Instances da Company com `agent_enabled=True`, então um seed novo já responde.
-- Instances criadas por `POST /api/v1/instances` (`instances.py`) nascem com `agent_enabled=False` e sem Agent: atribua um Agent e ligue
+- Instances criadas por `POST /api/v1/instances` (`app/api/routes/instances/`) nascem com `agent_enabled=False` e sem Agent: atribua um Agent e ligue
   a resposta automática (`agent_enabled`) antes de esperar respostas. Reexecutar o seed não religa uma Instance que o operador desligou.

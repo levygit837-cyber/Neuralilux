@@ -11,6 +11,7 @@ import pytest_asyncio
 from unittest.mock import AsyncMock
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
+from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy import JSON
@@ -24,7 +25,8 @@ if not hasattr(sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler, 'visit_JSONB'
     )
 
 from app.main import app
-from app.core.database import Base, get_db
+from app.api.deps import get_db
+from app.core.database import Base
 
 # Test database
 SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
@@ -56,7 +58,7 @@ def db():
     db = TestingSessionLocal()
     
     # Populate delivery zones for testing
-    from app.models.models import DeliveryZone
+    from app.models import DeliveryZone
     zone1 = DeliveryZone(
         id="zone_test_001",
         name="Centro",
@@ -84,12 +86,31 @@ def db():
         Base.metadata.drop_all(bind=engine)
 
 @pytest.fixture
+def db_session():
+    """Sessão em SQLite em memória, isolada do `db` (que usa o arquivo test.db)."""
+    memory_engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    MemorySession = sessionmaker(autocommit=False, autoflush=False, bind=memory_engine)
+    Base.metadata.create_all(bind=memory_engine)
+
+    session = MemorySession()
+    try:
+        yield session
+    finally:
+        session.close()
+        Base.metadata.drop_all(bind=memory_engine)
+
+
+@pytest.fixture
 def conversation_factory(db):
     """Cria Instance + Contact + Conversation reais com o id pedido.
 
     order_service valida a existência da Conversation antes de abrir a comanda.
     """
-    from app.models.models import Contact, Conversation, Instance
+    from app.models import Contact, Conversation, Instance
 
     def _make(conversation_id: str, remote_jid: str = "5511999999999@s.whatsapp.net") -> Conversation:
         instance = Instance(name=f"inst-{conversation_id}", evolution_instance_id=f"evo-{conversation_id}")
@@ -163,7 +184,7 @@ def _no_real_realtime_publish(monkeypatch):
     nos seguintes ele falha com "Event loop is closed". Testes que querem observar
     eventos continuam podendo sobrescrever `publish` com monkeypatch/patch.
     """
-    from app.services.realtime_event_bus import realtime_event_bus
+    from app.realtime.event_bus import realtime_event_bus
 
     monkeypatch.setattr(realtime_event_bus, "publish", AsyncMock())
 

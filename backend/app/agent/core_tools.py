@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from decimal import Decimal
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -17,7 +16,7 @@ import structlog
 
 from app.agent.contracts import Tool, ToolContext, ToolResult
 from app.agent.memory import search_history
-from app.models.models import Company, Conversation, DeliveryZone, Instance, Message, Ticket
+from app.models import Company, Conversation, DeliveryZone, Instance, Message, Ticket
 
 logger = structlog.get_logger()
 
@@ -37,7 +36,7 @@ def utc_now() -> datetime:
 
 
 async def publish_event(event: dict[str, Any]) -> None:
-    from app.services.realtime_event_bus import realtime_event_bus
+    from app.realtime.event_bus import realtime_event_bus
 
     await realtime_event_bus.publish(event)
 

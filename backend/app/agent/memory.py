@@ -9,7 +9,7 @@ from sqlalchemy.orm import Query, Session
 
 from app.agent.contracts import ChatMessage, MessagesClient, MessagesRequest
 from app.core.config import settings
-from app.models.models import Conversation, ConversationMemorySummary, Message
+from app.models import Conversation, ConversationMemorySummary, Message
 
 logger = logging.getLogger(__name__)
 

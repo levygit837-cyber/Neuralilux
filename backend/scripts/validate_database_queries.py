@@ -9,7 +9,7 @@ backend_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(backend_dir))
 
 from app.core.database import SessionLocal
-from app.models.models import Product, Company, MenuItem, MenuCatalog
+from app.models import Product, Company, MenuItem, MenuCatalog
 from app.services.product_service import list_products, get_products_by_company
 
 def main():

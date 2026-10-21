@@ -1,0 +1,127 @@
+"""Schemas do catálogo: cardápio (Menu*) e o legado Product (DEPRECATED)."""
+from datetime import datetime
+from decimal import Decimal
+from typing import List, Optional
+
+from pydantic import BaseModel, Field
+
+
+class MenuAttributeInput(BaseModel):
+    key: str = Field(..., min_length=1, max_length=100)
+    value: str = Field(..., min_length=1, max_length=500)
+
+
+class MenuCategoryCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    description: Optional[str] = None
+
+
+class MenuCategoryUpdate(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+    description: Optional[str] = None
+
+
+class MenuItemCreate(BaseModel):
+    category_id: str
+    name: str = Field(..., min_length=1, max_length=200)
+    description: Optional[str] = None
+    price: Optional[Decimal] = Field(None, ge=0)
+    is_available: bool = True
+    custom_attributes: List[MenuAttributeInput] = Field(default_factory=list)
+    sku: Optional[str] = Field(None, max_length=50)
+    stock_quantity: int = Field(0, ge=0)
+
+
+class MenuItemUpdate(BaseModel):
+    category_id: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+    description: Optional[str] = None
+    price: Optional[Decimal] = Field(None, ge=0)
+    is_available: Optional[bool] = None
+    custom_attributes: Optional[List[MenuAttributeInput]] = None
+    sku: Optional[str] = Field(None, max_length=50)
+    stock_quantity: Optional[int] = Field(None, ge=0)
+
+
+class MenuCatalogResponse(BaseModel):
+    id: str
+    name: str
+    source_type: Optional[str] = None
+
+
+class MenuCategoryResponse(BaseModel):
+    id: str
+    name: str
+    description: Optional[str] = None
+    sort_order: int
+    items_count: int
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class MenuItemResponse(BaseModel):
+    id: str
+    category_id: str
+    name: str
+    description: Optional[str] = None
+    price: Optional[Decimal] = None
+    is_available: bool
+    custom_attributes: List[MenuAttributeInput] = Field(default_factory=list)
+    sku: Optional[str] = None
+    stock_quantity: int = 0
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class MenuManagementResponse(BaseModel):
+    catalog: MenuCatalogResponse
+    categories: List[MenuCategoryResponse]
+    items: List[MenuItemResponse]
+
+
+# DEPRECATED: Product segue só por compatibilidade; use os schemas de Menu.
+class ProductCreate(BaseModel):
+    company_id: str
+    product_type_id: str
+    name: str = Field(..., min_length=1, max_length=200)
+    description: Optional[str] = None
+    price: Decimal = Field(..., ge=0)
+    image_url: Optional[str] = None
+    sku: Optional[str] = Field(None, max_length=50)
+    is_available: bool = True
+    stock_quantity: Optional[int] = Field(None, ge=0)
+
+
+class ProductUpdate(BaseModel):
+    product_type_id: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
+    description: Optional[str] = None
+    price: Optional[Decimal] = Field(None, ge=0)
+    image_url: Optional[str] = None
+    sku: Optional[str] = Field(None, max_length=50)
+    is_available: Optional[bool] = None
+    stock_quantity: Optional[int] = Field(None, ge=0)
+
+
+class ProductResponse(BaseModel):
+    id: str
+    company_id: str
+    product_type_id: str
+    name: str
+    description: Optional[str] = None
+    price: Decimal
+    image_url: Optional[str] = None
+    sku: Optional[str] = None
+    is_available: bool
+    stock_quantity: Optional[int] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True

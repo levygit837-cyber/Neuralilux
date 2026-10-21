@@ -13,8 +13,8 @@ from pathlib import Path
 # Add backend project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.workers.whatsapp_consumer import whatsapp_consumer
-from app.services.message_queue_service import message_queue_service
+from app.whatsapp.consumer import whatsapp_consumer
+from app.whatsapp.message_queue import message_queue_service
 
 logger = structlog.get_logger()
 
