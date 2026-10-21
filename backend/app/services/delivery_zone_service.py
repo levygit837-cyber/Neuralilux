@@ -4,7 +4,7 @@ Delivery Zone Service - Gerenciamento de zonas de entrega e taxas.
 from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal
-from app.models.models import DeliveryZone
+from app.models import DeliveryZone
 import structlog
 
 logger = structlog.get_logger()

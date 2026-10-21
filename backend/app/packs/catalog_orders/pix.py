@@ -9,7 +9,7 @@ from decimal import Decimal
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models.models import Company, CustomerOrder, PaymentRecord
+from app.models import Company, CustomerOrder, PaymentRecord
 
 
 class PixError(ValueError):

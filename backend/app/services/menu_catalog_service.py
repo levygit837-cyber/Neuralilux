@@ -13,7 +13,7 @@ import structlog
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.models.models import BusinessType, Company, MenuCatalog, MenuCategory, MenuItem
+from app.models import BusinessType, Company, MenuCatalog, MenuCategory, MenuItem
 
 logger = structlog.get_logger()
 

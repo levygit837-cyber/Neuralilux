@@ -16,7 +16,7 @@ from app.core.crypto import encrypt_secret
 from app.core.database import get_db
 from app.llm import registry
 from app.llm.errors import LLMError, LLMNotConfiguredError, LLMProviderError
-from app.models.models import GatewayAssignment, GatewayModel, InferenceGateway, User
+from app.models import GatewayAssignment, GatewayModel, InferenceGateway, User
 from app.schemas.gateway import (
     AgentType,
     AssignmentResponse,

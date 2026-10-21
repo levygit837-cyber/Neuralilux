@@ -7,7 +7,7 @@ import pytest
 from app.agent import executor
 from app.agent.contracts import Tool, ToolResult
 from app.core import database
-from app.models.models import Company, Contact, Conversation, ConversationMemorySummary, Instance, Message
+from app.models import Company, Contact, Conversation, ConversationMemorySummary, Instance, Message
 from tests.agent_fakes import FakeMessagesClient, FakePack, reply, text, tool_use
 from tests.conftest import TestingSessionLocal
 

@@ -3,7 +3,7 @@
 # New code should use menu_management_service.py
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from app.models.models import Product
+from app.models import Product
 from app.schemas.product import ProductCreate, ProductUpdate
 
 

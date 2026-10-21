@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from app.agent import executor
 from app.agent.loop import TurnResult
 from app.core.database import Base, engine
-from app.models.models import Agent, Contact, Conversation, Instance, Message, User
+from app.models import Agent, Contact, Conversation, Instance, Message, User
 from app.services.evolution_api import evolution_api
 from app.workers.whatsapp_consumer import WhatsAppMessageConsumer
 

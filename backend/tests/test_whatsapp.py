@@ -24,7 +24,7 @@ def mock_status_close():
 def disconnected_instance(db, auth_headers, client):
     resp = client.get("/api/v1/auth/me", headers=auth_headers)
     user_id = resp.json()["id"]
-    from app.models.models import Instance
+    from app.models import Instance
     inst = Instance(id="inst-d-001", name="Disc", phone_number="5511999999999",
                     evolution_instance_id="evo-d-001", status="disconnected",
                     is_active=True, owner_id=user_id)
@@ -38,7 +38,7 @@ def disconnected_instance(db, auth_headers, client):
 def connected_instance(db, auth_headers, client):
     resp = client.get("/api/v1/auth/me", headers=auth_headers)
     user_id = resp.json()["id"]
-    from app.models.models import Instance
+    from app.models import Instance
     inst = Instance(id="inst-c-002", name="Conn", phone_number="5511888888888",
                     evolution_instance_id="evo-c-002", status="connected",
                     is_active=True, owner_id=user_id)

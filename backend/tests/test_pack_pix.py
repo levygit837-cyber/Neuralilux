@@ -4,7 +4,7 @@ import pytest
 from pack_helpers import add_item, call, fill_delivery, make_world, order_of, payload, tool_named
 from sqlalchemy.exc import IntegrityError
 
-from app.models.models import PaymentRecord
+from app.models import PaymentRecord
 from app.packs.catalog_orders import pix
 from app.packs.catalog_orders.pack import CatalogOrdersPack
 

@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal, engine, Base
-from app.models.models import Agent, BusinessType, ProductType, Company, Instance, User, DeliveryZone
+from app.models import Agent, BusinessType, ProductType, Company, Instance, User, DeliveryZone
 from app.core.security import get_password_hash
 from app.services.menu_catalog_service import sync_macedos_menu_from_json
 from app.llm.registry import ensure_default_gateway, reencrypt_gateway_secrets

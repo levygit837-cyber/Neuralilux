@@ -4,7 +4,7 @@ Testes para o modelo PaymentRecord.
 import pytest
 from sqlalchemy.orm import Session
 
-from app.models.models import PaymentRecord, CustomerOrder, Conversation, Instance, Contact, Company
+from app.models import PaymentRecord, CustomerOrder, Conversation, Instance, Contact, Company
 
 
 class TestPaymentRecordModel:

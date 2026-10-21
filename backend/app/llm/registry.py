@@ -13,7 +13,7 @@ from app.core.config import settings
 from app.core.crypto import SecretDecryptionError, decrypt_secret, encrypt_secret, reencrypt_secret
 from app.llm.client import DEFAULT_TIMEOUT_SECONDS, GatewayMessagesClient
 from app.llm.errors import LLMNotConfiguredError
-from app.models.models import GatewayAssignment, GatewayModel, InferenceGateway
+from app.models import GatewayAssignment, GatewayModel, InferenceGateway
 
 logger = structlog.get_logger()
 

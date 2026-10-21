@@ -12,7 +12,7 @@ import unicodedata
 from typing import Any
 
 from app.agent.contracts import Tool, ToolContext, ToolResult
-from app.models.models import MenuCatalog, MenuCategory, MenuItem
+from app.models import MenuCatalog, MenuCategory, MenuItem
 
 MAX_RESULTS = 15
 MAX_DESCRIPTION = 120

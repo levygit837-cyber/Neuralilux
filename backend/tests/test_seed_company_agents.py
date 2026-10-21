@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from app.models.models import Agent, BusinessType, Company, Instance, User
+from app.models import Agent, BusinessType, Company, Instance, User
 
 _SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "seed_data.py"
 

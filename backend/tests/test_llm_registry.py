@@ -10,7 +10,7 @@ from app.core.crypto import decrypt_secret, encrypt_secret
 from app.llm import registry
 from app.llm.client import GatewayMessagesClient
 from app.llm.errors import LLMNotConfiguredError
-from app.models.models import GatewayAssignment, GatewayModel, InferenceGateway
+from app.models import GatewayAssignment, GatewayModel, InferenceGateway
 
 
 def _seed(db, *, agent_type="default", model_active=True, name="gw", api_key="k", effort="low") -> GatewayModel:

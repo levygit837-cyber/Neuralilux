@@ -4,7 +4,7 @@ import pytest
 
 from app.agent import executor
 from app.agent.core_tools import core_tools
-from app.models.models import BusinessType, Company
+from app.models import BusinessType, Company
 from app.packs.catalog_orders.pack import CatalogOrdersPack
 from app.packs.registry import pack_for_company
 

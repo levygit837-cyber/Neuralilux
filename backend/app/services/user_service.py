@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from typing import Optional
-from app.models.models import User
+from app.models import User
 from app.schemas.user import UserCreate
 from app.core.security import get_password_hash, verify_password
 

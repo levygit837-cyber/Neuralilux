@@ -5,7 +5,7 @@ from pack_helpers import call, make_world, tool_named
 
 from app.agent import core_tools
 from app.agent.core_tools import core_tools as build_core_tools
-from app.models.models import Ticket
+from app.models import Ticket
 from app.services.socket_service import chat_socket_service
 
 pytestmark = pytest.mark.asyncio

@@ -8,7 +8,7 @@ import pytest
 from app.agent.contracts import Tool, ToolContext, ToolResult
 from app.agent.loop import MAX_STEPS_FALLBACK_REPLY, run_turn
 from app.agent.tools import GENERIC_TOOL_ERROR, ToolRegistry
-from app.models.models import Company
+from app.models import Company
 from tests.agent_fakes import FakeMessagesClient, FakePack, reply, text, tool_use
 
 CTX = ToolContext(

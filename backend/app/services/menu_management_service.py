@@ -6,7 +6,7 @@ from typing import Any, Optional
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.models.models import MenuCatalog, MenuCategory, MenuItem
+from app.models import MenuCatalog, MenuCategory, MenuItem
 from app.schemas.menu import MenuCategoryCreate, MenuCategoryUpdate, MenuItemCreate, MenuItemUpdate
 
 

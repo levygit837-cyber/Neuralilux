@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from app.core.security import verify_password
-from app.models.models import User
+from app.models import User
 
 _SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "create_superuser.py"
 

@@ -7,7 +7,7 @@ from typing import List, Optional
 from datetime import datetime, timezone
 
 from app.core.database import SessionLocal
-from app.models.models import Ticket, User
+from app.models import Ticket, User
 from app.api.v1.endpoints.auth import get_current_user
 
 router = APIRouter()

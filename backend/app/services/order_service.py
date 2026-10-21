@@ -9,7 +9,7 @@ from typing import Any, Optional
 
 from sqlalchemy.orm import Session, joinedload
 
-from app.models.models import Contact, Conversation, CustomerOrder, CustomerOrderItem, Instance
+from app.models import Contact, Conversation, CustomerOrder, CustomerOrderItem, Instance
 from app.services.menu_catalog_service import find_menu_item
 
 

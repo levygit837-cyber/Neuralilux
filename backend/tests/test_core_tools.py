@@ -5,7 +5,7 @@ from pack_helpers import call, make_world, payload, tool_named
 
 from app.agent import core_tools
 from app.agent.core_tools import TRANSFER_MESSAGE, core_tools as build_core_tools
-from app.models.models import Message, Ticket
+from app.models import Message, Ticket
 
 pytestmark = pytest.mark.asyncio
 
@@ -183,7 +183,7 @@ async def test_six_tools_in_total():
 
 
 async def test_buscar_historico_uses_memory_search_scoped_to_contact(world):
-    from app.models.models import Contact, Conversation
+    from app.models import Contact, Conversation
 
     def message(conversation, jid, text):
         return Message(

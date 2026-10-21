@@ -4,7 +4,7 @@ import pytest
 
 from app.llm import registry
 from app.llm.client import GatewayMessagesClient
-from app.models.models import InferenceGateway, User
+from app.models import InferenceGateway, User
 
 BASE = "/api/v1/gateways"
 

@@ -56,7 +56,7 @@ def db():
     db = TestingSessionLocal()
     
     # Populate delivery zones for testing
-    from app.models.models import DeliveryZone
+    from app.models import DeliveryZone
     zone1 = DeliveryZone(
         id="zone_test_001",
         name="Centro",
@@ -89,7 +89,7 @@ def conversation_factory(db):
 
     order_service valida a existência da Conversation antes de abrir a comanda.
     """
-    from app.models.models import Contact, Conversation, Instance
+    from app.models import Contact, Conversation, Instance
 
     def _make(conversation_id: str, remote_jid: str = "5511999999999@s.whatsapp.net") -> Conversation:
         instance = Instance(name=f"inst-{conversation_id}", evolution_instance_id=f"evo-{conversation_id}")

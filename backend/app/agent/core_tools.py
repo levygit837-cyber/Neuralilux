@@ -17,7 +17,7 @@ import structlog
 
 from app.agent.contracts import Tool, ToolContext, ToolResult
 from app.agent.memory import search_history
-from app.models.models import Company, Conversation, DeliveryZone, Instance, Message, Ticket
+from app.models import Company, Conversation, DeliveryZone, Instance, Message, Ticket
 
 logger = structlog.get_logger()
 

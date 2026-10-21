@@ -6,7 +6,7 @@ import pytest
 
 from app.agent import executor
 from app.agent.loop import TurnResult
-from app.models.models import Agent, BusinessType, Company, Contact, Conversation, Instance, Message
+from app.models import Agent, BusinessType, Company, Contact, Conversation, Instance, Message
 from app.services.evolution_api import evolution_api
 from app.workers import whatsapp_consumer as consumer_module
 from app.services.realtime_event_bus import realtime_event_bus

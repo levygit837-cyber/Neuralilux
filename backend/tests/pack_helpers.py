@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from app.agent.contracts import Tool, ToolContext, ToolResult
-from app.models.models import (
+from app.models import (
     Company,
     Contact,
     Conversation,
@@ -178,7 +178,7 @@ ENDERECO = "Rua das Flores 123, Centro"
 
 def order_of(world):
     """O único Order da Conversation do `world`, relido do banco."""
-    from app.models.models import CustomerOrder
+    from app.models import CustomerOrder
 
     world.db.expire_all()
     return world.db.query(CustomerOrder).filter_by(conversation_id=world.conversation.id).one()

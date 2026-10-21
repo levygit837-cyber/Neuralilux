@@ -1,6 +1,6 @@
 import pytest
 
-from app.models.models import Agent, Instance, User
+from app.models import Agent, Instance, User
 
 
 def test_get_agent_status_creates_placeholder_instance_when_missing(client, auth_headers, db):

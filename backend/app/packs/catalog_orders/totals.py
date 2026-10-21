@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Any
 
 from app.agent.contracts import ToolContext
-from app.models.models import CustomerOrder, DeliveryZone
+from app.models import CustomerOrder, DeliveryZone
 from app.packs.catalog_orders.catalog import words
 from app.packs.catalog_orders.validation import OrderError
 

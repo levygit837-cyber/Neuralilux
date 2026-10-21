@@ -4,7 +4,7 @@ Testes para o modelo Ticket.
 import pytest
 from sqlalchemy.orm import Session
 
-from app.models.models import Ticket, Conversation, Instance, Contact, User, Company
+from app.models import Ticket, Conversation, Instance, Contact, User, Company
 
 
 class TestTicketModel:

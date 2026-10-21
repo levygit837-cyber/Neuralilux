@@ -74,7 +74,7 @@ async def test_unavailable_items_are_never_returned(world, buscar):
 async def test_result_is_capped_at_15(db):
     from decimal import Decimal
 
-    from app.models.models import MenuCategory, MenuItem
+    from app.models import MenuCategory, MenuItem
 
     world = make_world(db)
     catalog_id = world.items["Pizza Toscana"].catalog_id
@@ -100,7 +100,7 @@ async def test_description_is_shortened(db):
 
 
 async def test_inactive_catalog_is_ignored(world, buscar):
-    from app.models.models import MenuCatalog
+    from app.models import MenuCatalog
 
     catalog = world.db.query(MenuCatalog).filter_by(company_id=world.company.id).one()
     catalog.is_active = False

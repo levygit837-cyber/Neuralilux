@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.agent import executor
 from app.core.database import SessionLocal
-from app.models.models import Agent, Contact, Conversation, Instance, Message
+from app.models import Agent, Contact, Conversation, Instance, Message
 from app.services.evolution_api import evolution_api
 from app.services.message_queue_service import message_queue_service
 from app.services.realtime_event_bus import realtime_event_bus

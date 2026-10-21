@@ -6,7 +6,7 @@ import pytest
 
 from app.agent import memory
 from app.agent.contracts import MessagesResponse
-from app.models.models import Message
+from app.models import Message
 
 T0 = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
 
@@ -205,7 +205,7 @@ async def test_summary_failure_is_only_logged(db, conversation_factory, add_mess
 
 def _second_conversation(db, conversation, conversation_id):
     """Outra Conversation do mesmo Contact na mesma Instance."""
-    from app.models.models import Conversation
+    from app.models import Conversation
 
     other = Conversation(
         id=conversation_id,
@@ -332,7 +332,7 @@ async def test_summary_batch_is_capped_at_the_100_oldest_pending_messages(
     assert "Cliente: msg 1" in prompt.splitlines()
     assert "msg 100" in prompt
     assert "msg 101" not in prompt  # 101 em diante fica para o próximo lote
-    from app.models.models import ConversationMemorySummary
+    from app.models import ConversationMemorySummary
 
     row = db.get(ConversationMemorySummary, conversation.id)
     assert row.message_count == 100
@@ -374,7 +374,7 @@ def test_fts_index_is_declared_on_the_model_for_postgres_only():
     from sqlalchemy.dialects import postgresql
     from sqlalchemy.schema import CreateIndex
 
-    from app.models.models import Message
+    from app.models import Message
 
     index = next(i for i in Message.__table__.indexes if i.name == "ix_messages_content_fts")
 

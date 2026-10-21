@@ -3,7 +3,7 @@ from decimal import Decimal
 import pytest
 from pack_helpers import add_item, call, fill_delivery, make_world, order_of, payload, tool_named
 
-from app.models.models import CustomerOrder, PaymentRecord
+from app.models import CustomerOrder, PaymentRecord
 from app.packs.catalog_orders.pack import CatalogOrdersPack
 
 pytestmark = pytest.mark.asyncio
