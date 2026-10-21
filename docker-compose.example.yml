@@ -1,14 +1,132 @@
-# Exemplo versionado do webhook da Evolution (o docker-compose.yml real é ignorado pelo git, ADR 0006).
-# Use como override: docker compose -f docker-compose.yml -f docker-compose.example.yml up -d evolution-api
-# ou copie as três variáveis para o serviço evolution-api do seu compose.
+# Infra local de desenvolvimento: PostgreSQL, Redis, RabbitMQ e Evolution API.
 #
-# EVOLUTION_WEBHOOK_TOKEN: o mesmo valor de backend/.env (exporte-o antes de subir o compose).
+# O docker-compose.yml real é local e ignorado pelo git (pode ter credenciais suas). Este arquivo é o
+# modelo versionado: copie-o e suba com as variáveis do backend/.env.
+#
+#   cp docker-compose.example.yml docker-compose.yml
+#   docker compose --env-file backend/.env up -d
+#
+# Senhas e portas abaixo são defaults de DESENVOLVIMENTO, os mesmos de backend/.env.example. Não use em produção.
+# Obrigatórias no backend/.env: EVOLUTION_API_KEY e EVOLUTION_WEBHOOK_TOKEN (o compose recusa subir sem elas).
+# A API e o worker rodam no host, fora deste compose (veja docs/setup.md).
 services:
-  evolution-api:
+  postgres:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-5434}:5432"
     environment:
+      - POSTGRES_USER=neuralilux
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-neuralilux_password}
+      - POSTGRES_DB=neuralilux
+      - POSTGRES_MULTIPLE_DATABASES=evolution # o script cria o banco e o usuário da Evolution
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-multiple-databases.sh:/docker-entrypoint-initdb.d/init-multiple-databases.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U neuralilux"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_password}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a $${REDIS_PASSWORD:-redis_password} ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    restart: unless-stopped
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=neuralilux
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASSWORD:-rabbitmq_password}
+      - RABBITMQ_DEFAULT_VHOST=neuralilux
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  evolution-api:
+    image: evoapicloud/evolution-api:v2.3.7
+    restart: unless-stopped
+    ports:
+      - "${EVOLUTION_PORT:-8081}:8080"
+    environment:
+      - SERVER_TYPE=http
+      - SERVER_URL=http://localhost:${EVOLUTION_PORT:-8081}
+      - SERVER_PORT=8080
+
+      # Banco próprio da Evolution, criado por scripts/init-multiple-databases.sh (mesma senha de dev do script).
+      - DATABASE_ENABLED=true
+      - DATABASE_PROVIDER=postgresql
+      - DATABASE_CONNECTION_URI=postgresql://evolution:Ev0lution_S3cur3_P%40ssw0rd%21@postgres:5432/evolution
+      - DATABASE_SAVE_DATA_INSTANCE=true
+      - DATABASE_SAVE_DATA_NEW_MESSAGE=true
+      - DATABASE_SAVE_MESSAGE_UPDATE=true
+      - DATABASE_SAVE_DATA_CONTACTS=true
+      - DATABASE_SAVE_DATA_CHATS=true
+      - DATABASE_SAVE_DATA_LABELS=true
+
+      - CACHE_REDIS_ENABLED=true
+      - CACHE_REDIS_URI=redis://:${REDIS_PASSWORD:-redis_password}@redis:6379
+      - CACHE_REDIS_PREFIX_KEY=evolution
+      - CACHE_REDIS_SAVE_INSTANCES=true
+      - CACHE_LOCAL_ENABLED=false
+
+      # O mesmo valor de EVOLUTION_API_KEY do backend/.env.
+      - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY:?defina EVOLUTION_API_KEY em backend/.env}
+      - AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES=false
+
+      # Webhook (ADR 0006). O token vai na query string; EVOLUTION_WEBHOOK_TOKEN é o mesmo de backend/.env.
       - WEBHOOK_GLOBAL_ENABLED=true
       # Com BY_EVENTS=true a Evolution anexa "/<evento>" ao fim da URL; como a URL termina na query string,
       # o token chegaria como "X/messages-upsert". O backend tolera isso, mas o recomendado é false:
       # o evento já vem em payload.event.
       - WEBHOOK_GLOBAL_WEBHOOK_BY_EVENTS=false
-      - WEBHOOK_GLOBAL_URL=http://host.docker.internal:8000/api/v1/webhooks/evolution?token=${EVOLUTION_WEBHOOK_TOKEN:?defina EVOLUTION_WEBHOOK_TOKEN}
+      - WEBHOOK_GLOBAL_URL=http://host.docker.internal:8000/api/v1/webhooks/evolution?token=${EVOLUTION_WEBHOOK_TOKEN:?defina EVOLUTION_WEBHOOK_TOKEN em backend/.env}
+      - WEBSOCKET_ENABLED=true
+      - WEBSOCKET_GLOBAL_EVENTS=true
+      - WEBSOCKET_ALLOWED_HOSTS=*
+
+      - LOG_LEVEL=ERROR,WARN,INFO
+      - LOG_COLOR=false
+      - LOG_BAILEYS=error
+      - QRCODE_LIMIT=30
+      - QRCODE_COLOR=#198754
+      # Versão do WhatsApp/Baileys; sem ela o QR code pode não ser gerado.
+      - CONFIG_SESSION_PHONE_VERSION=2.3000.1037082622
+      - DEL_INSTANCE=false
+      - TELEMETRY=false
+      - LANGUAGE=pt
+    volumes:
+      - evolution_instances:/evolution/instances
+      - evolution_store:/evolution/store
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  redis_data:
+  rabbitmq_data:
+  evolution_instances:
+  evolution_store:
