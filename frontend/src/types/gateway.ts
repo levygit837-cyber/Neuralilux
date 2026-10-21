@@ -1,5 +1,5 @@
 export type ReasoningEffort = 'low' | 'medium' | 'high'
-export type AgentType = 'default' | 'whatsapp_agent' | 'super_agent'
+export type AgentType = 'default' | 'whatsapp_agent'
 
 export interface GatewayModel {
   id: string

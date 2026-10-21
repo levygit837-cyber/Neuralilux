@@ -58,46 +58,6 @@ export default function QrPage() {
     status: instance.instance.state || instance.socket?.state || 'close',
   }), [])
 
-  const resolveInstance = useCallback(async () => {
-    setIsResolvingInstance(true)
-
-    try {
-      const instances = await instanceService.fetchInstances()
-      const availableInstances = instances.map(mapToSelectedInstance)
-
-      if (availableInstances.length === 0) {
-        setResolvedInstance(null)
-        return
-      }
-
-      const normalizedSelectedName = selectedInstance?.instanceName?.toLowerCase()
-      const matchingInstance =
-        availableInstances.find(
-          (instance) =>
-            instance.instanceId === selectedInstance?.instanceId ||
-            instance.instanceName.toLowerCase() === normalizedSelectedName
-        ) ||
-        availableInstances.find((instance) => instance.status === 'open') ||
-        availableInstances[0]
-
-      setResolvedInstance(matchingInstance)
-
-      if (
-        !selectedInstance ||
-        matchingInstance.instanceId !== selectedInstance.instanceId ||
-        matchingInstance.instanceName !== selectedInstance.instanceName ||
-        matchingInstance.status !== selectedInstance.status
-      ) {
-        setSelectedInstance(matchingInstance)
-      }
-    } catch (resolveError) {
-      console.error('Failed to resolve active instance for QR:', resolveError)
-      setResolvedInstance(selectedInstance ?? null)
-    } finally {
-      setIsResolvingInstance(false)
-    }
-  }, [mapToSelectedInstance, selectedInstance, setSelectedInstance])
-
   const stopPolling = useCallback(() => {
     if (pollingIntervalRef.current) {
       clearInterval(pollingIntervalRef.current)
@@ -171,8 +131,53 @@ export default function QrPage() {
   }, [checkStatus, requestQrCode, stopQrRefresh])
 
   useEffect(() => {
-    void resolveInstance()
-  }, [resolveInstance])
+    let cancelled = false
+
+    instanceService
+      .fetchInstances()
+      .then((instances) => {
+        if (cancelled) return
+        const availableInstances = instances.map(mapToSelectedInstance)
+
+        if (availableInstances.length === 0) {
+          setResolvedInstance(null)
+          return
+        }
+
+        const normalizedSelectedName = selectedInstance?.instanceName?.toLowerCase()
+        const matchingInstance =
+          availableInstances.find(
+            (instance) =>
+              instance.instanceId === selectedInstance?.instanceId ||
+              instance.instanceName.toLowerCase() === normalizedSelectedName
+          ) ||
+          availableInstances.find((instance) => instance.status === 'open') ||
+          availableInstances[0]
+
+        setResolvedInstance(matchingInstance)
+
+        if (
+          !selectedInstance ||
+          matchingInstance.instanceId !== selectedInstance.instanceId ||
+          matchingInstance.instanceName !== selectedInstance.instanceName ||
+          matchingInstance.status !== selectedInstance.status
+        ) {
+          setSelectedInstance(matchingInstance)
+        }
+      })
+      .catch((resolveError: unknown) => {
+        if (cancelled) return
+        console.error('Failed to resolve active instance for QR:', resolveError)
+        setResolvedInstance(selectedInstance ?? null)
+      })
+      .finally(() => {
+        if (!cancelled) setIsResolvingInstance(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [mapToSelectedInstance, selectedInstance, setSelectedInstance])
 
   useEffect(() => {
     if (!instanceName) {

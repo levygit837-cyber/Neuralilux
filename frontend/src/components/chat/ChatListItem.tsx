@@ -1,6 +1,6 @@
 import type { Conversation } from '@/types/chat'
 import { cn } from '@/lib/utils'
-import { Microphone, Image } from '@phosphor-icons/react'
+import { Microphone, Image as ImageGlyph } from '@phosphor-icons/react'
 import { useState } from 'react'
 
 interface ChatListItemProps {
@@ -98,7 +98,7 @@ export function ChatListItem({ conversation, isActive, onClick }: ChatListItemPr
                 <Microphone weight="fill" className="text-primary text-sm" />
               )}
               {conversation.lastMessage.includes('.jpg') && (
-                <Image weight="regular" className="text-content-muted text-sm" />
+                <ImageGlyph weight="regular" aria-hidden="true" className="text-content-muted text-sm" />
               )}
               <p className="text-sm truncate text-[13px]">{conversation.lastMessage}</p>
             </div>

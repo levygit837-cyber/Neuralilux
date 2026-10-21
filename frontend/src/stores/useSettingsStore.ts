@@ -21,20 +21,12 @@ const defaultSettings: Settings = {
     phone: '+55 11 99999-0000',
   },
   aiAgent: {
-    model: 'GPT-4o',
     temperature: 0.7,
     maxTokens: 4096,
     timeout: 30,
     memoryEnabled: true,
     autoReplyEnabled: true,
     debugMode: false,
-    inference: {
-      provider: 'gemini',
-      localModel: 'nemotron',
-      geminiApiKey: '',
-      geminiModel: 'gemini-3.1-flash-preview',
-      lmStudioUrl: 'http://localhost:1234',
-    },
   },
   whatsapp: {
     apiUrl: 'https://api.evolution.com',
@@ -87,6 +79,16 @@ export const useSettingsStore = create<SettingsStore>()(
     }),
     {
       name: 'neuralilux-settings-storage',
+      version: 1,
+      // v0 guardava model e inference (provider legado); o provider agora é o gateway atribuído.
+      migrate: (persisted) => {
+        const state = persisted as { settings?: { aiAgent?: Record<string, unknown> } }
+        if (state?.settings?.aiAgent) {
+          delete state.settings.aiAgent.model
+          delete state.settings.aiAgent.inference
+        }
+        return state as unknown as SettingsStore
+      },
       partialize: (state) => ({ settings: state.settings, activeTab: state.activeTab }),
     }
   )

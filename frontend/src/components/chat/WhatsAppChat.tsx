@@ -23,6 +23,9 @@ import { generateTempId, formatTimestamp } from '@/lib/utils'
 import type { Message } from '@/types/chat'
 import type { AgentListItem } from '@/types/agent'
 
+const NO_MESSAGES: Message[] = []
+const NO_AGENTS: AgentListItem[] = []
+
 export function WhatsAppChat() {
   const router = useRouter()
   const {
@@ -53,13 +56,13 @@ export function WhatsAppChat() {
   const pollingRef = useRef<NodeJS.Timeout | null>(null)
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const [isConnected, setIsConnected] = useState(false)
-  const [isInitialLoad, setIsInitialLoad] = useState(true)
   const [resolvedInstance, setResolvedInstance] = useState<SelectedInstance | null>(
     selectedInstance
   )
   const [isResolvingInstance, setIsResolvingInstance] = useState(true)
   const [agentEnabled, setAgentEnabled] = useState<boolean | null>(null)
-  const [availableAgents, setAvailableAgents] = useState<AgentListItem[]>([])
+  const [fetchedAgents, setFetchedAgents] = useState<AgentListItem[]>([])
+  const availableAgents = token ? fetchedAgents : NO_AGENTS
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
   const [selectedAgentName, setSelectedAgentName] = useState<string | null>(null)
   const [isAgentStatusLoading, setIsAgentStatusLoading] = useState(false)
@@ -70,7 +73,7 @@ export function WhatsAppChat() {
   const instanceName = resolvedInstance?.instanceName
 
   const activeConversation = conversations.find((c) => c.id === activeConversationId)
-  const activeMessages = activeConversationId ? messages[activeConversationId] || [] : []
+  const activeMessages = (activeConversationId && messages[activeConversationId]) || NO_MESSAGES
   const isTyping = activeConversationId ? typingIndicators[activeConversationId] || false : false
 
   const mapToSelectedInstance = useCallback((instance: EvolutionInstance): SelectedInstance => ({
@@ -79,49 +82,54 @@ export function WhatsAppChat() {
     status: instance.instance.state || instance.socket?.state || 'close',
   }), [])
 
-  const resolveInstance = useCallback(async () => {
-    setIsResolvingInstance(true)
+  useEffect(() => {
+    let cancelled = false
 
-    try {
-      const instances = await instanceService.fetchInstances()
-      const availableInstances = instances.map(mapToSelectedInstance)
+    instanceService
+      .fetchInstances()
+      .then((instances) => {
+        if (cancelled) return
+        const availableInstances = instances.map(mapToSelectedInstance)
 
-      if (availableInstances.length === 0) {
-        setResolvedInstance(null)
-        return
-      }
+        if (availableInstances.length === 0) {
+          setResolvedInstance(null)
+          return
+        }
 
-      const normalizedSelectedName = selectedInstance?.instanceName?.toLowerCase()
-      const matchingInstance =
-        availableInstances.find(
-          (instance) =>
-            instance.instanceId === selectedInstance?.instanceId ||
-            instance.instanceName.toLowerCase() === normalizedSelectedName
-        ) ||
-        availableInstances.find((instance) => instance.status === 'open') ||
-        availableInstances[0]
+        const normalizedSelectedName = selectedInstance?.instanceName?.toLowerCase()
+        const matchingInstance =
+          availableInstances.find(
+            (instance) =>
+              instance.instanceId === selectedInstance?.instanceId ||
+              instance.instanceName.toLowerCase() === normalizedSelectedName
+          ) ||
+          availableInstances.find((instance) => instance.status === 'open') ||
+          availableInstances[0]
 
-      setResolvedInstance(matchingInstance)
+        setResolvedInstance(matchingInstance)
 
-      if (
-        !selectedInstance ||
-        matchingInstance.instanceId !== selectedInstance.instanceId ||
-        matchingInstance.instanceName !== selectedInstance.instanceName ||
-        matchingInstance.status !== selectedInstance.status
-      ) {
-        setSelectedInstance(matchingInstance)
-      }
-    } catch (error) {
-      console.error('Failed to resolve active instance:', error)
-      setResolvedInstance(selectedInstance ?? null)
-    } finally {
-      setIsResolvingInstance(false)
+        if (
+          !selectedInstance ||
+          matchingInstance.instanceId !== selectedInstance.instanceId ||
+          matchingInstance.instanceName !== selectedInstance.instanceName ||
+          matchingInstance.status !== selectedInstance.status
+        ) {
+          setSelectedInstance(matchingInstance)
+        }
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return
+        console.error('Failed to resolve active instance:', error)
+        setResolvedInstance(selectedInstance ?? null)
+      })
+      .finally(() => {
+        if (!cancelled) setIsResolvingInstance(false)
+      })
+
+    return () => {
+      cancelled = true
     }
   }, [mapToSelectedInstance, selectedInstance, setSelectedInstance])
-
-  useEffect(() => {
-    void resolveInstance()
-  }, [resolveInstance])
 
   useEffect(() => {
     if (!isResolvingInstance && !resolvedInstance) {
@@ -130,19 +138,14 @@ export function WhatsAppChat() {
   }, [isResolvingInstance, resolvedInstance, router])
 
   useEffect(() => {
-    if (!token) {
-      setAvailableAgents([])
-      setSelectedAgentId(null)
-      setSelectedAgentName(null)
-      return
-    }
+    if (!token) return
 
     const loadAvailableAgents = async () => {
       setIsAgentsLoading(true)
 
       try {
         const response = await agentService.getAgents()
-        setAvailableAgents(response.items)
+        setFetchedAgents(response.items)
       } catch (error) {
         console.error('Failed to load available agents:', error)
         setAgentStatusError('Nao foi possivel carregar a lista de agentes disponiveis.')
@@ -161,19 +164,13 @@ export function WhatsAppChat() {
     })
   }, [])
 
+  // Rola instantaneamente na primeira carga de cada conversa e suavemente nas seguintes
+  const scrolledConversationRef = useRef<string | null>(null)
   useEffect(() => {
-    if (activeMessages.length > 0) {
-      scrollToBottom(isInitialLoad)
-      if (isInitialLoad) {
-        setIsInitialLoad(false)
-      }
-    }
-  }, [activeMessages, scrollToBottom, isInitialLoad])
-
-  // Reset initial load flag when conversation changes
-  useEffect(() => {
-    setIsInitialLoad(true)
-  }, [activeConversationId])
+    if (activeMessages.length === 0) return
+    scrollToBottom(scrolledConversationRef.current !== activeConversationId)
+    scrolledConversationRef.current = activeConversationId
+  }, [activeMessages, activeConversationId, scrollToBottom])
 
   // Load agent status on mount
   useEffect(() => {
@@ -470,7 +467,6 @@ export function WhatsAppChat() {
     instanceName,
     activeConversationId,
     isSending,
-    isConnected,
     addMessage,
     updateMessage,
     updateMessageStatus,

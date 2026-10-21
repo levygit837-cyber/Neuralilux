@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/Input'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 
 export function AIAgentCard() {
-  const { settings, updateAIAgent } = useSettingsStore()
+  const { settings, updateAIAgent, setActiveTab } = useSettingsStore()
   const [formData, setFormData] = useState(settings.aiAgent)
   const [isSaving, setIsSaving] = useState(false)
 
@@ -33,39 +33,42 @@ export function AIAgentCard() {
           <Bot className="h-5 w-5 text-indigo-500" />
         </div>
         <div>
-          <h3 className="text-lg font-semibold text-text-light">Modelo de IA</h3>
-          <p className="text-sm text-text-gray">Escolha e configure o modelo de inteligência artificial</p>
+          <h3 className="text-lg font-semibold text-text-light">Comportamento do Agent</h3>
+          <p className="text-sm text-text-gray">Ajustes de resposta; o modelo vem do Gateway atribuído</p>
         </div>
       </div>
 
       {/* Form */}
       <div className="space-y-4">
-        {/* Row: Modelo + Temperatura */}
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium text-text-light">Modelo</label>
-            <Input
-              value={formData.model}
-              onChange={(e) => handleChange('model', e.target.value)}
-              placeholder="GPT-4o"
-            />
+        {/* Modelo e provider vêm do Gateway atribuído */}
+        <p className="rounded-xl border border-border-color bg-input px-4 py-3 text-sm text-text-gray">
+          O modelo e o provider são os do Gateway atribuído ao Agent.{' '}
+          <button
+            type="button"
+            onClick={() => setActiveTab('gateways')}
+            className="font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            Abrir aba Gateways
+          </button>
+        </p>
+
+        {/* Temperatura */}
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <label htmlFor="agent-temperature" className="text-sm font-medium text-text-light">Temperatura</label>
+            <span className="text-sm font-semibold text-primary">{formData.temperature}</span>
           </div>
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-text-light">Temperatura</label>
-              <span className="text-sm font-semibold text-primary">{formData.temperature}</span>
-            </div>
-            <div className="flex h-11 items-center rounded-xl border border-border-color bg-input px-4">
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.1"
-                value={formData.temperature}
-                onChange={(e) => handleChange('temperature', parseFloat(e.target.value))}
-                className="w-full accent-primary"
-              />
-            </div>
+          <div className="flex h-11 items-center rounded-xl border border-border-color bg-input px-4">
+            <input
+              id="agent-temperature"
+              type="range"
+              min="0"
+              max="1"
+              step="0.1"
+              value={formData.temperature}
+              onChange={(e) => handleChange('temperature', parseFloat(e.target.value))}
+              className="w-full accent-primary"
+            />
           </div>
         </div>
 

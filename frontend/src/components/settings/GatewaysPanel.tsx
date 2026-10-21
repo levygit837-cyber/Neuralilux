@@ -18,7 +18,6 @@ import type {
 const AGENT_LABELS: Record<AgentType, { title: string; hint: string }> = {
   default: { title: 'Padrão', hint: 'Usado quando o agente não tem modelo próprio' },
   whatsapp_agent: { title: 'Agente do WhatsApp', hint: 'Atende os clientes nas conversas' },
-  super_agent: { title: 'Super agente', hint: 'Assistente do painel, com ferramentas' },
 }
 const AGENT_TYPES = Object.keys(AGENT_LABELS) as AgentType[]
 const EFFORTS: { value: ReasoningEffort | ''; label: string }[] = [
@@ -164,8 +163,7 @@ export function GatewaysPanel() {
           <div>
             <h3 id="gw-assign" className="text-lg font-semibold text-text-light">Modelo de cada agente</h3>
             <p className="text-sm text-text-gray">
-              Sem modelo atribuído, o agente usa os provedores padrão (Vertex e Gemini). Se o gateway falhar antes
-              da primeira resposta, o agente cai nesses provedores.
+              Cada agente usa o modelo de um Gateway. O tipo Padrão vale para o agente que não tem modelo próprio.
             </p>
           </div>
         </div>
@@ -189,7 +187,7 @@ export function GatewaysPanel() {
                   )
                 }
               >
-                <option value="">Provedores padrão</option>
+                <option value="">Sem modelo atribuído</option>
                 {activeModels.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.gatewayName} · {m.name}
@@ -225,7 +223,7 @@ export function GatewaysPanel() {
       {loading && <p className="text-sm text-text-gray">Carregando…</p>}
       {!loading && gateways.length === 0 && (
         <p className="rounded-xl border border-dashed border-border-color p-6 text-center text-sm text-text-gray">
-          Nenhum gateway cadastrado. Adicione a URL de uma API compatível com OpenAI.
+          Nenhum gateway cadastrado. Adicione a URL de um Gateway que fale o protocolo Anthropic Messages.
         </p>
       )}
 

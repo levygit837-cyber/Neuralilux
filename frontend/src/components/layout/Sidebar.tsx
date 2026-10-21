@@ -5,7 +5,6 @@ import { usePathname } from 'next/navigation'
 import { 
   SquaresFour, 
   ChatCircleDots, 
-  Robot, 
   Package, 
   SlidersHorizontal,
   Brain,
@@ -27,12 +26,6 @@ const NAV_ITEMS = [
     label: 'Chat',
     icon: ChatCircleDots,
     badge: '14',
-  },
-  {
-    href: ROUTES.AGENT,
-    label: 'Agentes IA',
-    icon: Robot,
-    badge: null,
   },
   {
     href: ROUTES.STOCK,

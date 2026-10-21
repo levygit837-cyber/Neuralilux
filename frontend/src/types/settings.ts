@@ -5,26 +5,13 @@ export interface CompanyProfile {
   phone: string
 }
 
-export type InferenceProvider = 'gemini' | 'lm_studio'
-export type LocalModel = 'nemotron' | 'qwen'
-
-export interface InferenceConfig {
-  provider: InferenceProvider
-  localModel: LocalModel
-  geminiApiKey: string
-  geminiModel: string
-  lmStudioUrl: string
-}
-
 export interface AIAgentConfig {
-  model: string
   temperature: number
   maxTokens: number
   timeout: number
   memoryEnabled: boolean
   autoReplyEnabled: boolean
   debugMode: boolean
-  inference: InferenceConfig
 }
 
 export interface WhatsAppConnection {

@@ -104,6 +104,10 @@ export default function EstoquePage() {
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Sem token não há fetch: o estado deriva de hasHydrated/token em vez de ser setado no effect.
+  const isLoggedOut = hasHydrated && !token
+  const displayedError = isLoggedOut ? 'Faça login para acessar o estoque.' : error
+  const showSkeleton = isLoading && !isLoggedOut
 
   const [categoryForm, setCategoryForm] = useState<CategoryFormState | null>(null)
   const [itemForm, setItemForm] = useState<ItemFormState | null>(null)
@@ -118,47 +122,58 @@ export default function EstoquePage() {
     [menu?.items, selectedCategoryId]
   )
 
+  const applyMenu = useCallback((payload: MenuManagementPayload, preferredCategoryId?: string | null) => {
+    setMenu(payload)
+    setSelectedCategoryId((current) => {
+      const nextSelection = preferredCategoryId ?? current
+      if (nextSelection && payload.categories.some((category) => category.id === nextSelection)) {
+        return nextSelection
+      }
+      return payload.categories[0]?.id ?? null
+    })
+    setError(null)
+  }, [])
+
   const loadMenu = useCallback(
     async (preferredCategoryId?: string | null) => {
-      if (!hasHydrated) {
-        return
-      }
-
-      if (!token) {
-        setMenu(null)
-        setError('Faça login para acessar o estoque.')
-        setIsLoading(false)
+      if (!hasHydrated || !token) {
         return
       }
 
       try {
-        const payload = await menuService.getMenu(token)
-        setMenu(payload)
-        setSelectedCategoryId((current) => {
-          const nextSelection = preferredCategoryId ?? current
-          if (nextSelection && payload.categories.some((category) => category.id === nextSelection)) {
-            return nextSelection
-          }
-          return payload.categories[0]?.id ?? null
-        })
-        setError(null)
+        applyMenu(await menuService.getMenu(token), preferredCategoryId)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Não foi possível carregar o estoque.')
       } finally {
         setIsLoading(false)
       }
     },
-    [hasHydrated, token]
+    [hasHydrated, token, applyMenu]
   )
 
   useEffect(() => {
-    if (!hasHydrated) {
+    if (!hasHydrated || !token) {
       return
     }
 
-    setIsLoading(true)
-    void loadMenu()
-  }, [hasHydrated, loadMenu])
+    let cancelled = false
+
+    menuService
+      .getMenu(token)
+      .then((payload) => {
+        if (!cancelled) applyMenu(payload)
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Não foi possível carregar o estoque.')
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [hasHydrated, token, applyMenu])
 
   const openNewCategoryModal = () => {
     setCategoryForm({
@@ -350,13 +365,13 @@ export default function EstoquePage() {
               </div>
             </section>
 
-            {error && (
+            {displayedError && (
               <div className="rounded-2xl border border-error/30 bg-error/10 px-4 py-3 text-sm text-error">
-                {error}
+                {displayedError}
               </div>
             )}
 
-            {isLoading ? (
+            {showSkeleton ? (
               <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
                 <div className="h-[520px] animate-pulse rounded-3xl bg-card" />
                 <div className="h-[520px] animate-pulse rounded-3xl bg-card" />
