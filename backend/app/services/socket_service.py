@@ -251,6 +251,21 @@ class ChatSocketService:
                 conv_room = self._conversation_room(instance_name, conversation_id)
                 await self.server.emit("tool_event", normalized_payload, room=conv_room)
                 await self.server.emit("tool_event", normalized_payload, room=room)
+        elif event_type == "human_handoff_requested":
+            conversation_id = payload.get("conversationId") or payload.get("conversation_id")
+            if conversation_id:
+                ticket_id = payload.get("ticketId") or payload.get("ticket_id")
+                normalized_payload = {
+                    **payload,
+                    "conversationId": conversation_id,
+                    "conversation_id": conversation_id,
+                    "ticketId": ticket_id,
+                    "ticket_id": ticket_id,
+                    "reason": payload.get("reason"),
+                }
+                conv_room = self._conversation_room(instance_name, conversation_id)
+                await self.server.emit("human_handoff_requested", normalized_payload, room=conv_room)
+                await self.server.emit("human_handoff_requested", normalized_payload, room=room)
 
 
 chat_socket_service = ChatSocketService()
