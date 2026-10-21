@@ -28,6 +28,8 @@ FINAL_ANSWER_INSTRUCTION = (
     "Limite de ferramentas atingido neste atendimento. Responda agora ao cliente com o que você já sabe, "
     "sem chamar ferramentas."
 )
+# Resposta fixa quando a chamada final de `max_steps` volta sem texto: o cliente não pode ficar sem retorno.
+MAX_STEPS_FALLBACK_REPLY = "Desculpe, não consegui concluir agora. Pode me dizer de novo o que você precisa?"
 
 
 class TurnObserver(Protocol):
@@ -89,8 +91,9 @@ async def run_turn(
             final = await client.create(
                 MessagesRequest(model=model, system=system, messages=messages, tools=tools, effort=effort)
             )
-            # Só o texto conta: um tool_use aqui não é executado.
-            return TurnResult(reply_text=_reply_text(final), tool_calls=tool_calls, steps=steps + 1)
+            # Só o texto conta: um tool_use aqui não é executado. Sem texto, resposta fixa.
+            reply_text = _reply_text(final) or MAX_STEPS_FALLBACK_REPLY
+            return TurnResult(reply_text=reply_text, tool_calls=tool_calls, steps=steps + 1)
         messages.append({"role": "user", "content": results})
 
 

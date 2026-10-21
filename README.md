@@ -90,7 +90,7 @@ completo, incluindo a conexão do WhatsApp por QR code, está em [docs/SETUP_GUI
 
 ## Limites atuais
 
-- o `docker-compose.yml` mantém defaults de desenvolvimento (chaves e senhas em texto puro) e o serviço `worker` assume LM Studio no host;
+- o `docker-compose.yml` mantém defaults de desenvolvimento (chaves e senhas em texto puro);
 - endpoints de tickets ainda exigem reforço de isolamento e autorização por empresa;
 - as suítes não foram reproduzidas em uma instalação limpa desta versão pública;
 - dependências frontend e defaults de desenvolvimento precisam de revisão antes de qualquer deploy;

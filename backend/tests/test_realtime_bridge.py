@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 import pytest
 from datetime import datetime, timezone
@@ -9,8 +10,10 @@ from app.agent.loop import TurnResult
 from app.core.database import Base, SessionLocal, engine
 from app.models.models import Agent, Contact, Conversation, Instance, Message, User
 from app.services.evolution_api import evolution_api
+from app.services.message_queue_service import message_queue_service
 from app.workers import whatsapp_consumer
 from app.workers.whatsapp_consumer import WhatsAppMessageConsumer
+from tests.conftest import TestingSessionLocal
 
 
 @pytest.fixture
@@ -499,8 +502,86 @@ async def test_save_message_to_database_triggers_agent_when_instance_is_enabled(
     assert agent_turn["sent"] == [
         {"instance_name": "evo-agent-on-1", "remote_jid": "5511555555555@s.whatsapp.net", "text": "Resposta"}
     ]
-    # O Summary roda numa task separada, disparada depois do envio.
-    await asyncio.gather(*list(whatsapp_consumer._summary_tasks))
     conversation = db.query(Conversation).filter(Conversation.remote_jid == "5511555555555@s.whatsapp.net").one()
     assert agent_turn["summaries"] == [conversation.id]
+
+
+class _FakeChannel:
+    def __init__(self):
+        self.acked, self.nacked = [], []
+
+    def basic_ack(self, delivery_tag):
+        self.acked.append(delivery_tag)
+
+    def basic_nack(self, delivery_tag, requeue):
+        self.nacked.append(delivery_tag)
+
+
+class _FakeMethod:
+    routing_key = "webhooks.evolution"
+    delivery_tag = 1
+
+
+def test_summary_termina_antes_do_worker_fechar_o_event_loop_da_mensagem(db, monkeypatch, agent_turn):
+    """O worker roda cada mensagem num event loop próprio e o fecha logo depois do callback.
+
+    Um Summary disparado com create_task morreria pendente; ele tem de terminar dentro do callback.
+    """
+    finished = []
+
+    async def slow_refresh_summary(conversation_id):
+        # Cede o loop algumas vezes, como faria a chamada real ao Gateway.
+        for _ in range(3):
+            await asyncio.sleep(0)
+        finished.append(conversation_id)
+
+    async def fake_publish(_event):
+        return None
+
+    monkeypatch.setattr(executor, "refresh_summary", slow_refresh_summary)
+    monkeypatch.setattr(whatsapp_consumer.realtime_event_bus, "publish", fake_publish)
+    monkeypatch.setattr(whatsapp_consumer, "SessionLocal", TestingSessionLocal)
+
+    user = User(id="user-loop-1", email="loop@example.com", hashed_password="hashed", is_active=True)
+    agent = Agent(id="agent-loop-1", name="Agente", system_prompt="", is_active=True, owner_id=user.id)
+    instance = Instance(
+        id="instance-loop-1",
+        name="Loop Instance",
+        evolution_instance_id="evo-loop-1",
+        status="connected",
+        is_active=True,
+        owner_id=user.id,
+        agent_id=agent.id,
+        agent_enabled=True,
+    )
+    db.add_all([user, agent, instance])
+    db.commit()
+
+    body = json.dumps(
+        {
+            "event": "messages.upsert",
+            "data": {
+                "instance": "evo-loop-1",
+                "data": {
+                    "key": {"remoteJid": "5511444444444@s.whatsapp.net", "fromMe": False, "id": "msg-loop-1"},
+                    "message": {"conversation": "Oi"},
+                    "pushName": "Contato Loop",
+                    "messageTimestamp": 1710006666,
+                },
+            },
+        }
+    )
+    channel = _FakeChannel()
+
+    try:
+        message_queue_service._process_message(
+            WhatsAppMessageConsumer().process_webhook_event, channel, _FakeMethod(), None, body
+        )
+    finally:
+        asyncio.set_event_loop(None)  # _process_message deixa o loop fechado como corrente
+
+    assert channel.acked == [1]
+    assert agent_turn["sent"]  # a resposta saiu antes do Summary
+    conversation = db.query(Conversation).filter(Conversation.remote_jid == "5511444444444@s.whatsapp.net").one()
+    assert finished == [conversation.id]
 

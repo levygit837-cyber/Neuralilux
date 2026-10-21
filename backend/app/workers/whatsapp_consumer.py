@@ -2,25 +2,19 @@
 WhatsApp Message Consumer Worker
 Handles async processing of WhatsApp messages via RabbitMQ
 """
-import asyncio
 import structlog
-import uuid
 from typing import Dict, Any
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.services.message_queue_service import message_queue_service
 from app.services.realtime_event_bus import realtime_event_bus
-from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models.models import Instance, Contact, Conversation, Message, Agent
 from app.agent import executor
 from app.services.evolution_api import evolution_api
 
 logger = structlog.get_logger()
-
-# Referências fortes às tarefas de Summary: sem elas o event loop pode coletá-las no meio.
-_summary_tasks: set[asyncio.Task[None]] = set()
 
 
 def _resolve_default_agent(db: Session, instance: Instance) -> Agent | None:
@@ -88,34 +82,6 @@ class WhatsAppMessageConsumer:
         self.mq = message_queue_service
         self._running = False
     
-    async def process_incoming_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
-        """Process an incoming WhatsApp message"""
-        try:
-            data = message.get("data", {})
-            logger.info(
-                "Processing incoming WhatsApp message",
-                message_id=data.get("message_id"),
-                instance=data.get("instance")
-            )
-            
-            # TODO: Implement full message processing pipeline
-            # 1. Save message to database
-            # 2. Check if instance has AI agent assigned
-            # 3. If agent exists, send to AI processing queue
-            # 4. Update conversation context
-            
-            logger.info("Incoming message processed", message_type=data.get("messageType"))
-            
-            return {
-                "status": "processed",
-                "message_id": data.get("message_id"),
-                "timestamp": datetime.utcnow().isoformat()
-            }
-            
-        except Exception as e:
-            logger.error("Error processing incoming message", error=str(e))
-            raise
-    
     async def process_outgoing_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
         """Process an outgoing message to be sent via WhatsApp"""
         try:
@@ -142,31 +108,6 @@ class WhatsAppMessageConsumer:
             
         except Exception as e:
             logger.error("Error processing outgoing message", error=str(e))
-            raise
-    
-    async def process_ai_request(self, message: Dict[str, Any]) -> Dict[str, Any]:
-        """Process an AI agent request"""
-        try:
-            data = message.get("data", {})
-            logger.info("Processing AI request", instance=data.get("instance"))
-            
-            # TODO: Implement AI processing
-            # 1. Get agent configuration for instance
-            # 2. Load conversation history
-            # 3. If RAG enabled, search relevant documents
-            # 4. Call AI model (OpenAI/Anthropic)
-            # 5. Queue response for sending
-            
-            logger.info("AI request processed")
-            
-            return {
-                "status": "processed",
-                "has_response": False,
-                "timestamp": datetime.utcnow().isoformat()
-            }
-            
-        except Exception as e:
-            logger.error("Error processing AI request", error=str(e))
             raise
     
     async def process_webhook_event(self, message: Dict[str, Any]) -> Dict[str, Any]:
@@ -613,18 +554,21 @@ class WhatsAppMessageConsumer:
                 text=result.reply_text,
             )
             log.info("Agent response sent", steps=result.steps, response_length=len(result.reply_text))
-            task = asyncio.create_task(executor.refresh_summary(conversation.id))
-            _summary_tasks.add(task)
-            task.add_done_callback(_summary_tasks.discard)
         except Exception:
             # Nunca derruba o worker: o erro fica no log e a próxima Message tenta de novo.
             log.exception("Unexpected error processing message with agent")
+            return
+
+        # Aguardado aqui, não em create_task: o worker abre um event loop por mensagem e o fecha
+        # logo depois do callback, destruindo qualquer task pendente. A resposta já foi enviada.
+        try:
+            await executor.refresh_summary(conversation.id)
+        except Exception:
+            log.exception("Summary refresh failed after reply")
     
     def register_consumers(self):
         """Register all consumer callbacks"""
-        self.mq.register_consumer("whatsapp.messages.incoming", self.process_incoming_message)
         self.mq.register_consumer("whatsapp.messages.send", self.process_outgoing_message)
-        self.mq.register_consumer("ai.processing", self.process_ai_request)
         self.mq.register_consumer("webhooks.evolution", self.process_webhook_event)
         logger.info("All WhatsApp consumers registered")
     

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from app.agent.contracts import Tool, ToolContext, ToolResult
-from app.agent.loop import run_turn
+from app.agent.loop import MAX_STEPS_FALLBACK_REPLY, run_turn
 from app.agent.tools import GENERIC_TOOL_ERROR, ToolRegistry
 from app.models.models import Company
 from tests.agent_fakes import FakeMessagesClient, FakePack, reply, text, tool_use
@@ -180,6 +180,22 @@ async def test_max_steps_faz_chamada_final_com_schemas_e_ignora_tool_use_dela():
     assert last_user["role"] == "user"
     assert last_user["content"][0] == {"type": "tool_result", "tool_use_id": "toolu_2", "content": "nada"}
     assert last_user["content"][-1]["type"] == "text"
+
+
+@pytest.mark.asyncio
+async def test_max_steps_sem_texto_na_chamada_final_responde_mensagem_fixa():
+    client = FakeMessagesClient(
+        [
+            reply(tool_use("buscar_cardapio", {}, "toolu_1")),
+            reply(tool_use("buscar_cardapio", {}, "toolu_2")),  # a chamada final também só pede Tool
+        ]
+    )
+
+    result = await _run(client, _registry(buscar_cardapio=_returning("nada")), max_steps=1)
+
+    assert result.reply_text == MAX_STEPS_FALLBACK_REPLY
+    assert result.steps == 2
+    assert len(result.tool_calls) == 1
 
 
 @pytest.mark.asyncio

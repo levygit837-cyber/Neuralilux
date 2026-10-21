@@ -19,7 +19,7 @@ from app.agent.contracts import Pack, Tool, ToolContext, ToolResultBlock, ToolUs
 
 logger = structlog.get_logger()
 
-GENERIC_TOOL_ERROR = "A ferramenta falhou ao executar. Não repita a mesma chamada; siga sem ela ou ofereça um Attendant."
+GENERIC_TOOL_ERROR = "A ferramenta falhou ao executar. Não repita a mesma chamada; siga sem ela ou ofereça um atendente."
 
 
 @dataclass(frozen=True)
