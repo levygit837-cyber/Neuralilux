@@ -1,15 +1,14 @@
 'use client'
 
 import { useEffect, useCallback, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { useChatStore } from '@/stores/useChatStore'
 import { agentService } from '@/services/agentService'
 import { chatService } from '@/services/chatService'
 import { socketService } from '@/services/socketService'
 import { evolutionSocketService } from '@/services/evolutionSocketService'
-import { instanceService, EvolutionInstance } from '@/services/instanceService'
+import { instanceService } from '@/services/instanceService'
 import { useAuthStore } from '@/stores/useAuthStore'
-import { useInstanceStore, SelectedInstance } from '@/stores/useInstanceStore'
+import { useResolvedInstance } from '@/hooks/useResolvedInstance'
 import { ChatSidebar } from './ChatSidebar'
 import { ChatHeader } from './ChatHeader'
 import { MessageBubble } from './MessageBubble'
@@ -18,16 +17,14 @@ import { EmptyChat } from './EmptyChat'
 import { TypingIndicator } from './TypingIndicator'
 import { ThinkingManager } from './ThinkingManager'
 import { SystemMessage } from './SystemMessage'
-import { POLLING_INTERVAL, TYPING_TIMEOUT, ROUTES } from '@/lib/constants'
+import { POLLING_INTERVAL, TYPING_TIMEOUT } from '@/lib/constants'
 import { generateTempId, formatTimestamp } from '@/lib/utils'
-import type { Message } from '@/types/chat'
-import type { AgentListItem } from '@/types/agent'
+import type { AgentListItem, Message } from '@/types/chat'
 
 const NO_MESSAGES: Message[] = []
 const NO_AGENTS: AgentListItem[] = []
 
 export function WhatsAppChat() {
-  const router = useRouter()
   const {
     conversations,
     messages,
@@ -51,20 +48,23 @@ export function WhatsAppChat() {
   } = useChatStore()
 
   const { token } = useAuthStore()
-  const { selectedInstance, setSelectedInstance } = useInstanceStore()
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const pollingRef = useRef<NodeJS.Timeout | null>(null)
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const [isConnected, setIsConnected] = useState(false)
-  const [resolvedInstance, setResolvedInstance] = useState<SelectedInstance | null>(
-    selectedInstance
-  )
-  const [isResolvingInstance, setIsResolvingInstance] = useState(true)
+  const { resolvedInstance, isResolvingInstance } = useResolvedInstance()
   const [agentEnabled, setAgentEnabled] = useState<boolean | null>(null)
   const [fetchedAgents, setFetchedAgents] = useState<AgentListItem[]>([])
   const availableAgents = token ? fetchedAgents : NO_AGENTS
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null)
-  const [selectedAgentName, setSelectedAgentName] = useState<string | null>(null)
+  // O vínculo guarda o token com que foi lido; sem token, ou com outro token, ele some no render.
+  const [agentBinding, setAgentBinding] = useState<{ token: string | null; id: string | null; name: string | null }>({
+    token: null,
+    id: null,
+    name: null,
+  })
+  const hasCurrentBinding = token !== null && agentBinding.token === token
+  const selectedAgentId = hasCurrentBinding ? agentBinding.id : null
+  const selectedAgentName = hasCurrentBinding ? agentBinding.name : null
   const [isAgentStatusLoading, setIsAgentStatusLoading] = useState(false)
   const [isAgentsLoading, setIsAgentsLoading] = useState(false)
   const [isBindingAgent, setIsBindingAgent] = useState(false)
@@ -75,67 +75,6 @@ export function WhatsAppChat() {
   const activeConversation = conversations.find((c) => c.id === activeConversationId)
   const activeMessages = (activeConversationId && messages[activeConversationId]) || NO_MESSAGES
   const isTyping = activeConversationId ? typingIndicators[activeConversationId] || false : false
-
-  const mapToSelectedInstance = useCallback((instance: EvolutionInstance): SelectedInstance => ({
-    instanceName: instance.instance.instanceName,
-    instanceId: instance.instance.instanceId,
-    status: instance.instance.state || instance.socket?.state || 'close',
-  }), [])
-
-  useEffect(() => {
-    let cancelled = false
-
-    instanceService
-      .fetchInstances()
-      .then((instances) => {
-        if (cancelled) return
-        const availableInstances = instances.map(mapToSelectedInstance)
-
-        if (availableInstances.length === 0) {
-          setResolvedInstance(null)
-          return
-        }
-
-        const normalizedSelectedName = selectedInstance?.instanceName?.toLowerCase()
-        const matchingInstance =
-          availableInstances.find(
-            (instance) =>
-              instance.instanceId === selectedInstance?.instanceId ||
-              instance.instanceName.toLowerCase() === normalizedSelectedName
-          ) ||
-          availableInstances.find((instance) => instance.status === 'open') ||
-          availableInstances[0]
-
-        setResolvedInstance(matchingInstance)
-
-        if (
-          !selectedInstance ||
-          matchingInstance.instanceId !== selectedInstance.instanceId ||
-          matchingInstance.instanceName !== selectedInstance.instanceName ||
-          matchingInstance.status !== selectedInstance.status
-        ) {
-          setSelectedInstance(matchingInstance)
-        }
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return
-        console.error('Failed to resolve active instance:', error)
-        setResolvedInstance(selectedInstance ?? null)
-      })
-      .finally(() => {
-        if (!cancelled) setIsResolvingInstance(false)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [mapToSelectedInstance, selectedInstance, setSelectedInstance])
-
-  useEffect(() => {
-    if (!isResolvingInstance && !resolvedInstance) {
-      router.push(ROUTES.HOME)
-    }
-  }, [isResolvingInstance, resolvedInstance, router])
 
   useEffect(() => {
     if (!token) return
@@ -184,8 +123,7 @@ export function WhatsAppChat() {
       try {
         const status = await instanceService.getAgentStatus(instanceName)
         setAgentEnabled(status.agent_enabled)
-        setSelectedAgentId(status.agent_id)
-        setSelectedAgentName(status.agent_name ?? null)
+        setAgentBinding({ token, id: status.agent_id, name: status.agent_name ?? null })
       } catch (error) {
         console.error('Failed to load agent status:', error)
         const message =
@@ -199,7 +137,7 @@ export function WhatsAppChat() {
     }
 
     void loadAgentStatus()
-  }, [instanceName])
+  }, [instanceName, token])
 
   // Handle agent toggle
   const handleToggleAgent = useCallback(async () => {
@@ -237,10 +175,11 @@ export function WhatsAppChat() {
 
       try {
         const response = await instanceService.updateAgentBinding(instanceName, nextAgentId)
-        setSelectedAgentId(response.agent_id)
-        setSelectedAgentName(
-          response.agent_name ?? availableAgents.find((agent) => agent.id === response.agent_id)?.name ?? null
-        )
+        setAgentBinding({
+          token,
+          id: response.agent_id,
+          name: response.agent_name ?? availableAgents.find((agent) => agent.id === response.agent_id)?.name ?? null,
+        })
         setAgentEnabled(response.agent_enabled)
       } catch (error) {
         console.error('Failed to bind agent:', error)
@@ -253,7 +192,7 @@ export function WhatsAppChat() {
         setIsBindingAgent(false)
       }
     },
-    [instanceName, isBindingAgent, selectedAgentId, availableAgents]
+    [instanceName, isBindingAgent, selectedAgentId, availableAgents, token]
   )
 
   // Initialize Evolution API WebSocket connection (real-time WhatsApp events)

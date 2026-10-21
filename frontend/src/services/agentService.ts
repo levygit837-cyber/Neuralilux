@@ -1,5 +1,5 @@
 import { API_BASE_URL } from '@/lib/constants'
-import type { AgentListItem } from '@/types/agent'
+import type { AgentListItem } from '@/types/chat'
 
 const getAuthHeaders = () => {
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null

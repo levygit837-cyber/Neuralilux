@@ -99,7 +99,9 @@ export default function EstoquePage() {
   const token = useAuthStore((state) => state.token)
   const hasHydrated = useAuthStore((state) => state.hasHydrated)
 
-  const [menu, setMenu] = useState<MenuManagementPayload | null>(null)
+  const [fetchedMenu, setFetchedMenu] = useState<MenuManagementPayload | null>(null)
+  // Sem token o cardápio buscado antes não vale mais: deriva no render em vez de limpar no effect.
+  const menu = token ? fetchedMenu : null
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
@@ -122,58 +124,47 @@ export default function EstoquePage() {
     [menu?.items, selectedCategoryId]
   )
 
-  const applyMenu = useCallback((payload: MenuManagementPayload, preferredCategoryId?: string | null) => {
-    setMenu(payload)
-    setSelectedCategoryId((current) => {
-      const nextSelection = preferredCategoryId ?? current
-      if (nextSelection && payload.categories.some((category) => category.id === nextSelection)) {
-        return nextSelection
-      }
-      return payload.categories[0]?.id ?? null
-    })
-    setError(null)
-  }, [])
-
+  // Única rota de carga do cardápio, usada pelo effect e pelos handlers de mutação.
+  // `isCancelled` evita aplicar resposta de um token/montagem anterior.
   const loadMenu = useCallback(
-    async (preferredCategoryId?: string | null) => {
+    (preferredCategoryId?: string | null, isCancelled: () => boolean = () => false): Promise<void> => {
       if (!hasHydrated || !token) {
-        return
+        return Promise.resolve()
       }
 
-      try {
-        applyMenu(await menuService.getMenu(token), preferredCategoryId)
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Não foi possível carregar o estoque.')
-      } finally {
-        setIsLoading(false)
-      }
+      return menuService
+        .getMenu(token)
+        .then((payload) => {
+          if (isCancelled()) return
+          setFetchedMenu(payload)
+          setSelectedCategoryId((current) => {
+            const nextSelection = preferredCategoryId ?? current
+            if (nextSelection && payload.categories.some((category) => category.id === nextSelection)) {
+              return nextSelection
+            }
+            return payload.categories[0]?.id ?? null
+          })
+          setError(null)
+        })
+        .catch((err: unknown) => {
+          if (isCancelled()) return
+          setError(err instanceof Error ? err.message : 'Não foi possível carregar o estoque.')
+        })
+        .finally(() => {
+          if (!isCancelled()) setIsLoading(false)
+        })
     },
-    [hasHydrated, token, applyMenu]
+    [hasHydrated, token]
   )
 
   useEffect(() => {
-    if (!hasHydrated || !token) {
-      return
-    }
-
     let cancelled = false
-
-    menuService
-      .getMenu(token)
-      .then((payload) => {
-        if (!cancelled) applyMenu(payload)
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Não foi possível carregar o estoque.')
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false)
-      })
+    void loadMenu(null, () => cancelled)
 
     return () => {
       cancelled = true
     }
-  }, [hasHydrated, token, applyMenu])
+  }, [loadMenu])
 
   const openNewCategoryModal = () => {
     setCategoryForm({

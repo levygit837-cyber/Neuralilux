@@ -1,6 +1,6 @@
 import { Avatar } from '@/components/ui/Avatar'
 import { Phone, VideoCamera, MagnifyingGlass, DotsThreeVertical, Robot, Check } from '@phosphor-icons/react'
-import type { AgentListItem } from '@/types/agent'
+import type { AgentListItem } from '@/types/chat'
 
 interface ChatHeaderProps {
   name: string

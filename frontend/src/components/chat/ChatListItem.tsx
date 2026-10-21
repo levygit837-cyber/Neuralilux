@@ -2,6 +2,7 @@ import type { Conversation } from '@/types/chat'
 import { cn } from '@/lib/utils'
 import { Microphone, Image as ImageGlyph } from '@phosphor-icons/react'
 import { useState } from 'react'
+import { AvatarImage } from '@/components/ui/AvatarImage'
 
 interface ChatListItemProps {
   conversation: Conversation
@@ -37,23 +38,26 @@ export function ChatListItem({ conversation, isActive, onClick }: ChatListItemPr
           <div className="relative w-12 h-12 rounded-full bg-brand-base border border-brand-border flex items-center justify-center overflow-hidden">
             <div className="grid grid-cols-2 gap-0.5 w-full h-full p-1">
               {conversation.groupAvatars.slice(0, 4).map((avatar, index) => (
-                <img
-                  key={index}
-                  src={avatar}
-                  alt=""
-                  className="w-full h-full object-cover rounded-full"
-                  onError={() => setImageError(true)}
-                />
+                <div key={index} className="relative h-full w-full overflow-hidden rounded-full">
+                  <AvatarImage
+                    src={avatar}
+                    alt=""
+                    sizes="24px"
+                    className="object-cover"
+                    onError={() => setImageError(true)}
+                  />
+                </div>
               ))}
             </div>
           </div>
         ) : (
           <div className="relative w-12 h-12 rounded-full border-2 border-brand-base overflow-hidden">
             {conversation.avatar && !imageError ? (
-              <img
+              <AvatarImage
                 src={conversation.avatar}
                 alt={conversation.name}
-                className="w-full h-full object-cover"
+                sizes="48px"
+                className="object-cover"
                 onError={() => setImageError(true)}
               />
             ) : (

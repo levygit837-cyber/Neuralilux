@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { cn } from '@/lib/utils'
+import { AvatarImage } from '@/components/ui/AvatarImage'
 
 interface AvatarProps extends React.HTMLAttributes<HTMLDivElement> {
   src?: string
@@ -12,6 +13,12 @@ const sizeClasses = {
   sm: 'h-8 w-8 text-xs',
   md: 'h-12 w-12 text-base',
   lg: 'h-16 w-16 text-xl',
+}
+
+const avatarSizes = {
+  sm: '32px',
+  md: '48px',
+  lg: '64px',
 }
 
 const Avatar = React.forwardRef<HTMLDivElement, AvatarProps>(
@@ -29,10 +36,11 @@ const Avatar = React.forwardRef<HTMLDivElement, AvatarProps>(
         {...props}
       >
         {src && !imageError ? (
-          <img
+          <AvatarImage
             src={src}
             alt={alt || 'Avatar'}
-            className="aspect-square h-full w-full object-cover"
+            sizes={avatarSizes[size]}
+            className="object-cover"
             onError={() => setImageError(true)}
           />
         ) : (

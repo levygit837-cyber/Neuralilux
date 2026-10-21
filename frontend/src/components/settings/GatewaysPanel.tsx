@@ -5,21 +5,17 @@ import { Network, Plus, Trash2, Pencil, Play, Download, KeyRound } from 'lucide-
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { gatewayService } from '@/services/gatewayService'
-import type {
-  AgentType,
-  Gateway,
-  GatewayAssignment,
-  GatewayModel,
-  GatewayModelInput,
-  ProbeResult,
-  ReasoningEffort,
+import {
+  AGENT_LABELS,
+  AGENT_TYPES,
+  type Gateway,
+  type GatewayAssignment,
+  type GatewayModel,
+  type GatewayModelInput,
+  type ProbeResult,
+  type ReasoningEffort,
 } from '@/types/gateway'
 
-const AGENT_LABELS: Record<AgentType, { title: string; hint: string }> = {
-  default: { title: 'Padrão', hint: 'Usado quando o agente não tem modelo próprio' },
-  whatsapp_agent: { title: 'Agente do WhatsApp', hint: 'Atende os clientes nas conversas' },
-}
-const AGENT_TYPES = Object.keys(AGENT_LABELS) as AgentType[]
 const EFFORTS: { value: ReasoningEffort | ''; label: string }[] = [
   { value: '', label: 'Padrão do modelo' },
   { value: 'low', label: 'Baixo' },

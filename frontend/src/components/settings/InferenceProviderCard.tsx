@@ -5,13 +5,7 @@ import { Cpu, Network } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { gatewayService } from '@/services/gatewayService'
 import { useSettingsStore } from '@/stores/useSettingsStore'
-import type { AgentType, GatewayAssignment } from '@/types/gateway'
-
-const AGENT_TITLES: Record<AgentType, string> = {
-  default: 'Padrão',
-  whatsapp_agent: 'Agente do WhatsApp',
-}
-const AGENT_TYPES = Object.keys(AGENT_TITLES) as AgentType[]
+import { AGENT_LABELS, AGENT_TYPES, type GatewayAssignment } from '@/types/gateway'
 
 export function InferenceProviderCard() {
   const setActiveTab = useSettingsStore((state) => state.setActiveTab)
@@ -63,7 +57,7 @@ export function InferenceProviderCard() {
               key={agentType}
               className="flex items-center justify-between rounded-xl border border-border-color bg-input px-4 py-3"
             >
-              <span className="text-sm font-medium text-text-light">{AGENT_TITLES[agentType]}</span>
+              <span className="text-sm font-medium text-text-light">{AGENT_LABELS[agentType].title}</span>
               <span className="text-sm text-text-gray">
                 {loading
                   ? 'Carregando...'

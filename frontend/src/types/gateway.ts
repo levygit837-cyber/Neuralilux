@@ -1,6 +1,12 @@
 export type ReasoningEffort = 'low' | 'medium' | 'high'
 export type AgentType = 'default' | 'whatsapp_agent'
 
+export const AGENT_LABELS: Record<AgentType, { title: string; hint: string }> = {
+  default: { title: 'Padrão', hint: 'Usado quando o agente não tem modelo próprio' },
+  whatsapp_agent: { title: 'Agente do WhatsApp', hint: 'Atende os clientes nas conversas' },
+}
+export const AGENT_TYPES = Object.keys(AGENT_LABELS) as AgentType[]
+
 export interface GatewayModel {
   id: string
   gateway_id: string
