@@ -37,10 +37,12 @@ O `docker-compose.yml` é **local e ignorado pelo git**, porque pode conter cred
 ```bash
 cp docker-compose.example.yml docker-compose.yml
 docker compose --env-file backend/.env up -d
-docker compose ps    # todos "healthy" (a Evolution pode levar alguns segundos)
+docker compose ps    # postgres, redis e rabbitmq "healthy"; a Evolution leva alguns segundos para subir
 ```
 
-O PostgreSQL cria o banco `neuralilux` e, pelo script [`scripts/init-multiple-databases.sh`](../scripts/init-multiple-databases.sh), o banco e o usuário da Evolution.
+O PostgreSQL cria o banco `neuralilux` e, pelo script [`scripts/init-multiple-databases.sh`](../scripts/init-multiple-databases.sh), o banco e o usuário da Evolution. O script só roda na **primeira** criação do volume `postgres_data`.
+
+Com Colima (ou qualquer Docker em VM), o repositório precisa estar num caminho que a VM enxerga, como dentro do seu `$HOME`. Num clone em `/tmp`, o arquivo é montado como diretório vazio, o script não roda e a Evolution reinicia em loop com `P1000 Authentication failed`. Veja o [troubleshooting](operations.md#a-evolution-reinicia-em-loop).
 
 Quem já tem um `docker-compose.yml` próprio só precisa garantir, no serviço `evolution-api`:
 
@@ -84,7 +86,7 @@ python scripts/reencrypt_gateway_secrets.py
 SEED_DEV_SUPERUSER=1 python scripts/seed_data.py
 ```
 
-O seed cria os Business Types, a Company de exemplo "Macedos" (restaurante) com cardápio, horários, fuso, pedido mínimo e uma Delivery Zone, o usuário de desenvolvimento `usuario@teste.com` (senha `teste123`, só para dev), um Agent por Company e o Gateway `Kiro-backend`, atribuído ao tipo `default`. É idempotente.
+O seed cria os Business Types, a Company "Empresa Teste" e a Company "Macedos" (restaurante) com cardápio, horários, fuso, pedido mínimo e uma Delivery Zone, o usuário de desenvolvimento `usuario@teste.com` (vinculado à Macedos, senha `teste123`, só para dev), um Agent por Company e o Gateway `Kiro-backend`, atribuído ao tipo `default`. É idempotente.
 
 `SEED_DEV_SUPERUSER=1` promove o usuário de dev a superuser, requisito para criar e editar Gateways. Sem a variável, ele fica como usuário comum. Para um usuário real:
 
@@ -157,7 +159,7 @@ Reexecutar o seed não religa uma Instance que o operador desligou. O Agent da I
 ## 7. Conferir de ponta a ponta
 
 1. Mande "oi, qual o horário?" de outro número para o WhatsApp conectado.
-2. No log do worker devem aparecer `Message saved to database`, `Turn finished` e `Agent response sent`.
+2. No log do worker devem aparecer `Message saved to database`, `Turn finished` e `Agent response sent`. Com a Instance ainda não conectada ao WhatsApp, o `Turn finished` aparece (o Agent responde de fato pelo Gateway), mas o envio falha com `Evolution API request error`; conecte o QR code antes de esperar a resposta no celular.
 3. O dashboard mostra a Message, o indicador de `thinking_event` e a resposta.
 
 Se algo não responde, veja o [troubleshooting](operations.md#troubleshooting).

@@ -61,6 +61,7 @@ Siga a ordem; o primeiro que bater é a causa. Mensagens em `código` aparecem n
 | `Instance has no Company, Agent cannot run` | `instances.company_id` nulo. | Passo "Ligar a Instance à Company" em [setup.md](setup.md#ligar-a-instance-à-company-e-ao-agent). |
 | `Conversation in Handoff, Agent stays silent` | A Conversation está em Handoff. | Atenda e chame `release-control` (veja acima). |
 | `Turn failed` e o Contact recebe "Desculpe, tive um problema…" | Exceção dentro do Turn; o stack trace vem logo antes. | Causas comuns abaixo. |
+| `Unexpected error processing message with agent` com `EvolutionAPIError` logo depois de `Turn finished` | O Turn rodou, mas o envio pela Evolution falhou: Instance não conectada ao WhatsApp, Evolution fora do ar ou `EVOLUTION_API_URL`/`EVOLUTION_API_KEY` errados. A Message do Contact fica gravada; a resposta não. | Conecte a Instance (QR code) e confira `GET {EVOLUTION_API_URL}/instance/fetchInstances` com o header `apikey`. |
 
 Causas comuns de `Turn failed`:
 
@@ -68,6 +69,11 @@ Causas comuns de `Turn failed`:
 - `LLMNotConfiguredError` com a chave do Gateway: a chave não abre. `SECRET_KEY` mudou, ou o banco tem chaves de antes do HKDF; rode `python scripts/reencrypt_gateway_secrets.py` (a primeira vem de [setup.md](setup.md)) ou regrave a chave do Gateway.
 - `LLMProviderError`: o Gateway respondeu fora do formato, deu 5xx ou estourou o timeout (60 s por padrão, 3 tentativas). Teste com `POST /gateways/models/{id}/test`.
 - Gateway em `localhost` com a API em container: dentro do container use `http://host.docker.internal:<porta>`.
+
+### A Evolution reinicia em loop
+
+- **`P1000 Authentication failed … credentials for evolution`** no log do `evolution-api`: o usuário e o banco `evolution` não existem porque o `scripts/init-multiple-databases.sh` não rodou. Ele só roda na primeira criação do volume do Postgres, e só se o Docker conseguir montá-lo como arquivo. Com Colima, mantenha o repositório dentro do `$HOME`. Depois de corrigir o caminho, recrie o volume (**apaga os dados locais do Postgres**): `docker compose down -v && docker compose --env-file backend/.env up -d`.
+- **`required variable EVOLUTION_API_KEY is missing`** ao subir o compose: faltou `--env-file backend/.env` ou a variável está vazia no `.env`.
 
 ### O webhook não chega à fila
 
