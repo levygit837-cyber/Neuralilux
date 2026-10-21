@@ -37,9 +37,15 @@ pip install -r requirements.txt
 
 cp .env.example .env   # ajuste EVOLUTION_API_KEY, SECRET_KEY e a chave do LLM
 
+# Banco já existente com Gateways gravados antes do HKDF: PASSO ÚNICO OBRIGATÓRIO, antes de subir a app
+python scripts/reencrypt_gateway_secrets.py
+
 # Banco novo: aplicar migrations (baseline 0001) e popular dados
 alembic upgrade head
-python scripts/seed_data.py
+python scripts/seed_data.py   # SEED_DEV_SUPERUSER=1 promove o usuário de dev a superuser
+
+# Primeiro superusuário (só superuser edita Gateways)
+SUPERUSER_EMAIL=admin@empresa.com SUPERUSER_PASSWORD='...' python scripts/create_superuser.py
 
 # API (entrypoint com Socket.IO) e worker
 uvicorn app.main:socket_app --host 0.0.0.0 --port 8000 --reload
@@ -48,16 +54,29 @@ python scripts/run_worker.py
 
 ## Gateways de inferência
 
-Qualquer API compatível com OpenAI (`POST {base_url}/chat/completions`) pode ser cadastrada em
-**Configurações > Gateways** ou em `/api/v1/gateways`. Cada gateway tem modelos nomeados
-(id no gateway, `reasoning_effort`, `max_tokens`, `temperature`, suporte a ferramentas) e cada tipo de agente
-(`default`, `whatsapp_agent`) aponta para um modelo. Sem atribuição, valem Vertex e Gemini.
+Todo modelo é acessado por um Gateway que fala o protocolo Anthropic Messages (`POST {base_url}/v1/messages`,
+ADR 0002). Cadastre-o em **Configurações > Gateways** ou em `/api/v1/gateways`; `base_url` é a raiz, sem `/v1`
+(`http://localhost:5580`). Cada Gateway tem modelos nomeados (id no Gateway, `reasoning_effort`, `max_tokens`,
+`temperature`) e cada tipo de agente (`default`, `whatsapp_agent`) aponta para um modelo. Sem atribuição própria
+vale `default`; sem `default` a inferência falha com `LLMNotConfiguredError`.
 
-- `seed_data.py` cadastra o gateway `Kiro-backend` (`claude-sonnet-5.5`, effort `low`) e o atribui a `default`.
-- A chave de API é criptografada com uma chave derivada de `SECRET_KEY`; trocar `SECRET_KEY` exige regravar as chaves.
-- Se o gateway falhar antes do primeiro token, o agente cai nos provedores padrão; depois do primeiro token o erro sobe, para não duplicar texto.
-- O cliente normaliza mensagens e ferramentas do formato Gemini para OpenAI, separa `reasoning_content` de `content`,
-  junta `tool_calls` em streaming e aceita `<tool_call>{json}</tool_call>` emitido como texto.
+- `seed_data.py` cadastra o Gateway `Kiro-backend` (`claude-sonnet-5.5`, effort `low`) e o atribui a `default`.
+- Cliente (`app/llm/client.py`): `effort` vai em `output_config.effort`; timeout de 60 s por padrão; retry
+  (3 tentativas, backoff exponencial) em 429, 5xx e timeout. Resposta fora do formato vira `LLMProviderError`.
+- Probe (`POST /gateways/models/{id}/test`, `max_tokens: 8`) e `GET /gateways/{id}/remote-models`
+  (`GET {base_url}/v1/models`; 404 devolve os modelos cadastrados) usam tentativa única e timeout de 15 s.
+- Criar, editar, apagar, atribuir e testar Gateways exige **superuser** (`base_url` é alvo de SSRF); leitura exige
+  só login. `base_url` aceita apenas `http`/`https`, sem usuário/senha. Mudar a origem (esquema, host ou porta)
+  exige informar `api_key` de novo (`""` apaga a salva).
+- Primeiro superusuário: `scripts/create_superuser.py` (e-mail/senha por `SUPERUSER_EMAIL`/`SUPERUSER_PASSWORD`
+  ou `--email`/`--password`; idempotente, promove usuário existente, nunca imprime a senha).
+  Em dev, `SEED_DEV_SUPERUSER=1 python scripts/seed_data.py` promove o usuário `usuario@teste.com`.
+- A chave de API é criptografada com Fernet derivada de `SECRET_KEY` via HKDF
+  (`info=b"neuralilux-gateway-secrets"`). Trocar `SECRET_KEY` exige regravar as chaves. A app recusa subir com a
+  `SECRET_KEY` de exemplo quando `ENVIRONMENT != development`.
+- **Passo único ao atualizar de versões anteriores ao HKDF:** rode `python scripts/reencrypt_gateway_secrets.py`
+  **antes de iniciar a app**. Converte as chaves gravadas com SHA-256 puro; é idempotente (segunda execução
+  converte 0). Sem isso, essas chaves não abrem e o Gateway responde `LLMNotConfiguredError`.
 
 ## Endpoints Principais
 

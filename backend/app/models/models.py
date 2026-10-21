@@ -496,7 +496,7 @@ class InferenceGateway(Base):
     name = Column(String(100), nullable=False, unique=True)
     base_url = Column(String(500), nullable=False)  # raiz da API, ex.: http://host:5580/v1
     api_key_encrypted = Column(Text, nullable=True)  # Fernet; NUNCA devolver pela API
-    timeout_seconds = Column(Integer, nullable=False, default=120)
+    timeout_seconds = Column(Integer, nullable=False, default=60)
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

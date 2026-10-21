@@ -64,3 +64,26 @@ export interface ProbeResult {
   thinking?: boolean
   error?: string
 }
+
+/** Timeout padrão de um Gateway novo; o backend usa o mesmo valor (60 s). */
+export const DEFAULT_GATEWAY_TIMEOUT_SECONDS = 60
+
+/** Origem (esquema + host + porta) de uma URL, normalizada como o backend. `null` se não for uma URL. */
+export function originOf(url: string): string | null {
+  try {
+    return new URL(url.trim()).origin
+  } catch {
+    return null
+  }
+}
+
+/**
+ * `true` quando `next` aponta para outra origem que `previous`. A chave salva só pode seguir para a mesma origem;
+ * o backend exige `api_key` de novo (ou `''` para apagar) quando a origem muda. URL incompleta não conta.
+ */
+export function originChanged(next: string, previous?: string): boolean {
+  if (!previous) return false
+  const to = originOf(next)
+  const from = originOf(previous)
+  return to !== null && from !== null && to !== from
+}

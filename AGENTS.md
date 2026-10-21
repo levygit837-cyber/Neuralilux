@@ -12,6 +12,8 @@ Agente de atendimento por WhatsApp com IA (FastAPI + Next.js + Evolution API). V
 
 - Testes backend: `cd backend && rm -f test.db && env -u DATABASE_URL ./venv/bin/python -m pytest tests unit_tests --ignore=tests/e2e && rm -f test.db`
 - Migrações: `cd backend && ./venv/bin/alembic upgrade head` (cadeia fixa em `docs/agents/migrations.md`).
+- Re-criptografar chaves de Gateway (HKDF): `cd backend && ./venv/bin/python scripts/reencrypt_gateway_secrets.py`. Passo único obrigatório ao atualizar um banco existente, antes de subir a app; idempotente.
+- Criar/promover superusuário (só superuser edita Gateways): `cd backend && SUPERUSER_EMAIL=... SUPERUSER_PASSWORD=... ./venv/bin/python scripts/create_superuser.py`. Em dev, `SEED_DEV_SUPERUSER=1` no `seed_data.py` promove o usuário de teste.
 - Frontend: `cd frontend && npx eslint . && npx tsc --noEmit && npx next build`
 - Instalar deps Python: `PIP_CONFIG_FILE=/dev/null ./venv/bin/pip install --index-url https://pypi.org/simple -r requirements.txt`
 

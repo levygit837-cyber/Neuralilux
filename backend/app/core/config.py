@@ -1,5 +1,9 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 from typing import List
+
+
+_INSECURE_SECRET_KEY_PREFIX = "change-me-in-production"
 
 
 class Settings(BaseSettings):
@@ -57,7 +61,7 @@ class Settings(BaseSettings):
     VERTEX_TIMEOUT: float = 30.0
 
     # Gateway local "Kiro-backend" (semeado na primeira execucao; depois editavel pela API/UI)
-    KIRO_GATEWAY_URL: str = "http://localhost:5580/v1"
+    KIRO_GATEWAY_URL: str = "http://localhost:5580"  # raiz; o cliente acrescenta /v1/messages
     KIRO_GATEWAY_API_KEY: str | None = None
 
     # Agent Configuration (Global defaults)
@@ -105,6 +109,14 @@ class Settings(BaseSettings):
     REALTIME_REDIS_CHANNEL: str = "neuralilux:realtime:events"
     TOOL_EVENT_PREVIEW_LIMIT: int = 240
     TOOL_EVENT_INCLUDE_RAW_PAYLOADS: bool = False
+
+    @model_validator(mode="after")
+    def _refuse_example_secret_key(self) -> "Settings":
+        if self.ENVIRONMENT != "development" and self.SECRET_KEY.startswith(_INSECURE_SECRET_KEY_PREFIX):
+            raise ValueError(
+                "SECRET_KEY de exemplo nao pode ser usada com ENVIRONMENT != development; defina uma chave forte"
+            )
+        return self
 
     class Config:
         env_file = ".env"
