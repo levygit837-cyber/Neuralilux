@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
@@ -17,6 +16,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import structlog
 
 from app.agent.contracts import Tool, ToolContext, ToolResult
+from app.agent.memory import search_history
 from app.models.models import Company, Conversation, DeliveryZone, Instance, Message, Ticket
 
 logger = structlog.get_logger()
@@ -28,7 +28,8 @@ DEFAULT_TIMEZONE = "America/Sao_Paulo"
 DAY_KEYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 DAY_LABELS = ("segunda", "terca", "quarta", "quinta", "sexta", "sabado", "domingo")
 
-SearchHistory = Callable[..., list[dict[str, str]]]
+# Ticket.agent_type é obrigatório; o Agent é um só por Company, então o valor é neutro.
+HANDOFF_AGENT_TYPE = "whatsapp_agent"
 
 
 def utc_now() -> datetime:
@@ -166,7 +167,7 @@ async def _transferir_atendente(ctx: ToolContext, args: dict[str, Any]) -> ToolR
         conversation_id=conversation.id,
         instance_id=conversation.instance_id,
         contact_id=conversation.contact_id,  # FK de contacts.id, nunca o remote_jid
-        agent_type=conversation.active_agent_type or "sales",
+        agent_type=HANDOFF_AGENT_TYPE,
         reason=reason,
         content=last_incoming.content if last_incoming else reason,
         status="open",
@@ -203,29 +204,18 @@ async def _transferir_atendente(ctx: ToolContext, args: dict[str, Any]) -> ToolR
 # ---------- buscar_historico ----------
 
 
-def _default_search_history() -> SearchHistory:
-    from app.agent.memory import search_history
-
-    return search_history
-
-
-def _make_buscar_historico(search_history: SearchHistory | None):
-    async def handler(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
-        query = str(args.get("consulta") or "").strip()
-        if not query:
-            return _error("Informe o que buscar no histórico.")
-        search = search_history or _default_search_history()
-        results = search(ctx.db, ctx.contact_id, ctx.instance_id, query)
-        return _ok({"resultados": results})
-
-    return handler
+async def _buscar_historico(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
+    query = str(args.get("consulta") or "").strip()
+    if not query:
+        return _error("Informe o que buscar no histórico.")
+    return _ok({"resultados": search_history(ctx.db, ctx.contact_id, ctx.instance_id, query)})
 
 
 # ---------- registro ----------
 
 
-def core_tools(search_history: SearchHistory | None = None) -> list[Tool]:
-    """As 3 Tools do núcleo. `search_history` é injetável; o padrão é `app.agent.memory.search_history`."""
+def core_tools() -> list[Tool]:
+    """As 3 Tools do núcleo."""
     return [
         Tool(
             name="info_empresa",
@@ -264,6 +254,6 @@ def core_tools(search_history: SearchHistory | None = None) -> list[Tool]:
                 "required": ["consulta"],
                 "additionalProperties": False,
             },
-            handler=_make_buscar_historico(search_history),
+            handler=_buscar_historico,
         ),
     ]
