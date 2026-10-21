@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Boolean, Text, Integer, Float, ForeignKey, Numeric, Enum, UniqueConstraint
+from sqlalchemy import Column, String, DateTime, Boolean, Text, Integer, Float, ForeignKey, Index, Numeric, Enum, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -252,6 +252,16 @@ class Message(Base):
     is_from_me = Column(Boolean, default=False)
     timestamp = Column(DateTime(timezone=True), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # History Search (ADR 0003). A expressão tem de ser idêntica à de `memory.search_history` e à da
+    # migração 0004; declarada aqui para o autogenerate do Alembic não propor remover o índice.
+    __table_args__ = (
+        Index(
+            "ix_messages_content_fts",
+            text("to_tsvector('portuguese', coalesce(content,''))"),
+            postgresql_using="gin",
+        ).ddl_if(dialect="postgresql"),
+    )
 
     # Relationships
     instance = relationship("Instance", back_populates="messages")
@@ -514,3 +524,15 @@ class GatewayAssignment(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     gateway_model = relationship("GatewayModel")
+
+
+class ConversationMemorySummary(Base):
+    """Summary acumulado das Messages que já saíram da Recent Window (ADR 0003)."""
+    __tablename__ = "conversation_summaries"
+
+    conversation_id = Column(String, ForeignKey("conversations.id"), primary_key=True)
+    summary = Column(Text, nullable=False)
+    # Última Message coberta pelo Summary; só o que vem depois conta para o próximo refresh.
+    covered_until_message_id = Column(String, ForeignKey("messages.id"), nullable=False)
+    message_count = Column(Integer, nullable=False)  # Messages cobertas até agora
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
