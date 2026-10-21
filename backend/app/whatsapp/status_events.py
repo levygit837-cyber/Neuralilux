@@ -73,7 +73,10 @@ async def publish_message(
 
 
 def find_instance(db: Session, instance_name: str) -> Optional[Instance]:
-    """A Instance cadastrada; nome desconhecido nunca cria registro."""
+    """A Instance ativa pelo nome da Evolution (a chave do webhook); nome desconhecido nunca cria registro.
+
+    Não é o lookup das rotas HTTP: `app.api.access.resolve_instance` resolve a referência do cliente.
+    """
     return db.query(Instance).filter(
         Instance.evolution_instance_id == instance_name,
         Instance.is_active == True  # noqa: E712

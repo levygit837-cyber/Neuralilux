@@ -1,8 +1,9 @@
 """
 Instances: Agent da Instance (liga/desliga as respostas automáticas e vincula o Agent).
 
-Cada rota faz upsert da Instance local para o usuário (`upsert_instance_for_user`): dono e Company
-vêm do usuário, o Agent ativo da Company é ligado e Instance de outro dono responde 403.
+Nenhuma destas rotas cria Instance: resolvem a linha local pelo helper de acesso (`get_instance_for_user`),
+com 404 se ela não existe e 403 se é de outro dono ou sem dono. Quem registra a Instance é
+`POST /instances/{name}`. O GET não escreve nada.
 
 - GET   /{instance_id}/agent-status
 - PATCH /{instance_id}/agent-status
@@ -15,7 +16,7 @@ from sqlalchemy import or_
 from pydantic import BaseModel
 import structlog
 
-from app.api.access import upsert_instance_for_user
+from app.api.access import get_instance_for_user
 from app.api.deps import get_current_user, get_db
 from app.models import User, Instance, Agent
 
@@ -73,9 +74,7 @@ async def get_agent_status(
     - Returns the current agent_enabled status.
     """
     try:
-        instance = upsert_instance_for_user(db, instance_id, current_user)
-        db.commit()
-        db.refresh(instance)
+        instance = get_instance_for_user(db, instance_id, current_user)
 
         return {
             "instance_id": instance.id,
@@ -109,7 +108,7 @@ async def update_agent_status(
     - **agent_enabled**: Boolean to enable/disable agent responses.
     """
     try:
-        instance = upsert_instance_for_user(db, instance_id, current_user)
+        instance = get_instance_for_user(db, instance_id, current_user)
 
         if status_update.agent_enabled:
             if not instance.agent_id:
@@ -169,7 +168,7 @@ async def update_agent_binding(
     - **agent_id**: Agent ID to bind. Send null to unbind.
     """
     try:
-        instance = upsert_instance_for_user(db, instance_id, current_user)
+        instance = get_instance_for_user(db, instance_id, current_user)
 
         agent_name = None
         message = "Agent unbound successfully"

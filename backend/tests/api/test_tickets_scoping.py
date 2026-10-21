@@ -78,3 +78,18 @@ def test_superuser_may_assign_across_companies(client, world):
     bob_id = user_id(world["db"], "bob@example.com")
     response = client.post(f"/api/v1/tickets/{world['ticket_a']}/assign", params={"user_id": bob_id}, headers=world["admin"])
     assert response.status_code == 200
+
+
+def test_assign_on_an_instance_without_company_is_refused_to_regular_users(client, db):
+    dono = make_user(client, db, "dono@example.com")
+    make_user(client, db, "outro@example.com")
+    ticket = make_ticket(db, make_instance(db, "inst-sem-company", "dono@example.com"))
+
+    response = client.post(
+        f"/api/v1/tickets/{ticket.id}/assign",
+        params={"user_id": user_id(db, "outro@example.com")},
+        headers=dono,
+    )
+
+    assert response.status_code == 403
+    assert client.get(f"/api/v1/tickets/{ticket.id}", headers=dono).json()["assigned_to"] is None

@@ -1,7 +1,6 @@
 """Dependências compartilhadas das rotas: sessão do banco e usuário autenticado."""
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from jose import JWTError
 from sqlalchemy.orm import Session
 
 from app.core import database
@@ -28,14 +27,11 @@ def _user_from_token(token: str, db: Session):
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-    try:
-        payload = decode_access_token(token)
-        if payload is None:
-            raise credentials_exception
-        email: str = payload.get("sub")
-        if email is None:
-            raise credentials_exception
-    except JWTError:
+    payload = decode_access_token(token)  # None se o token é inválido ou expirou
+    if payload is None:
+        raise credentials_exception
+    email: str | None = payload.get("sub")
+    if email is None:
         raise credentials_exception
 
     user = get_user_by_email(db, email=email)

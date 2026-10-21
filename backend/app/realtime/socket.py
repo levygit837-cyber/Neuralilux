@@ -9,10 +9,11 @@ from typing import Any, Optional
 import socketio
 import structlog
 
+from app.api.access import can_access_instance, resolve_instance
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.core.security import decode_access_token
-from app.models import Instance, User
+from app.models import User
 from app.whatsapp.evolution_client import evolution_api
 
 logger = structlog.get_logger()
@@ -143,32 +144,21 @@ class ChatSocketService:
             db.close()
 
     def _user_can_access_instance(self, user_id: str, instance_name: str) -> bool:
+        """Mesma regra das rotas HTTP (`app.api.access`): dono ou superusuário; sem Instance mapeada, nega."""
         db = SessionLocal()
         try:
-            user = db.query(User).filter(User.id == user_id).first()
-            instance = (
-                db.query(Instance)
-                .filter(
-                    Instance.evolution_instance_id == instance_name,
-                    Instance.is_active == True,
-                )
-                .first()
-            )
+            user = db.query(User).filter(User.id == user_id, User.is_active == True).first()  # noqa: E712
             if not user:
                 return False
-
+            instance = resolve_instance(db, instance_name)
             if not instance:
                 logger.warning(
-                    "Realtime subscription without mapped instance; allowing authenticated fallback",
+                    "Realtime subscription to unknown instance denied",
                     user_id=user_id,
                     instance_name=instance_name,
                 )
-                return True
-
-            if instance.owner_id is None:
-                return True
-
-            return bool(user.is_superuser or instance.owner_id == user_id)
+                return False
+            return can_access_instance(instance, user)
         finally:
             db.close()
 

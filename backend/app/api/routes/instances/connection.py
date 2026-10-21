@@ -11,10 +11,16 @@ alcançam Instances do usuário (superusuário: todas), via `app.api.access`.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 import structlog
 
-from app.api.access import get_instance_for_user, upsert_instance_for_user
+from app.api.access import (
+    check_create_access,
+    get_instance_for_user,
+    instance_ids_for_user,
+    upsert_instance_for_user,
+)
 from app.api.deps import get_current_user, get_db
 from app.models import Instance, User
 from app.whatsapp.evolution_client import evolution_api, EvolutionAPIError
@@ -27,6 +33,12 @@ router = APIRouter()
 def _evolution_name(instance: Instance) -> str:
     """Nome da Instance na Evolution (`POST /{name}` grava o mesmo valor em name e evolution_instance_id)."""
     return instance.evolution_instance_id or instance.name
+
+
+def _is_already_exists(error: EvolutionAPIError) -> bool:
+    """A Evolution recusa criar um nome que já existe (hoje com 403 e \"already in use\"; aceita também 409)."""
+    message = error.message.lower()
+    return error.status_code in (403, 409) and ("already in use" in message or "already exists" in message)
 
 
 def _evolution_instance_name(inst: dict) -> str:
@@ -47,8 +59,9 @@ async def list_instances(
     """
     try:
         query = db.query(Instance).filter(Instance.is_active == True)  # noqa: E712
-        if not current_user.is_superuser:
-            query = query.filter(Instance.owner_id == current_user.id)
+        user_instance_ids = instance_ids_for_user(db, current_user)
+        if user_instance_ids is not None:
+            query = query.filter(Instance.id.in_(user_instance_ids))
         local_instances = query.order_by(Instance.created_at, Instance.id).all()
 
         evolution_by_name: dict[str, dict] = {}
@@ -254,11 +267,19 @@ async def delete_instance_endpoint(
 
     - **instance_id**: The instance id, Evolution instance name or name.
     - Permanently deletes the instance in the Evolution and deactivates the local Instance
-      (the row stays, since Conversations and Messages reference it).
+      (the row stays, since Conversations and Messages reference it). If the Evolution no longer
+      has it (404), the local Instance is still deactivated.
     """
     instance = get_instance_for_user(db, instance_id, current_user)
     try:
-        result = await evolution_api.delete_instance(_evolution_name(instance))
+        try:
+            result = await evolution_api.delete_instance(_evolution_name(instance))
+        except EvolutionAPIError as e:
+            if e.status_code != status.HTTP_404_NOT_FOUND:
+                raise
+            # Já não existe na Evolution: o que falta é só desativar a linha local.
+            logger.info("Instance already gone from Evolution API", instance_id=instance_id)
+            result = {"status": "NOT_FOUND"}
 
         instance.is_active = False
         instance.agent_enabled = False
@@ -295,16 +316,41 @@ async def create_or_connect_instance(
     """
     Create a new WhatsApp instance in Evolution API, register it locally and connect it.
 
+    Esta é a única rota que cria ou assume a linha local da Instance.
+
     - **instance_id**: Name for the new Evolution API instance.
-    - Upserts the local Instance with the user as owner and the user's Company; binds the
-      Company's active Agent when there is one.
-    - An Instance that belongs to another user returns 403 before anything reaches the Evolution.
-    - Creates the instance and returns QR code for connection.
+    - 403 (antes de falar com a Evolution) se já existe uma linha local de outro dono ou sem dono e o
+      usuário não é superusuário.
+    - A linha local só é gravada DEPOIS de a Evolution criar a Instance, com o usuário como dono, a
+      Company do usuário e o Agent ativo da Company (se houver).
+    - Se a Evolution responde que o nome já existe: só o superusuário importa a Instance (upsert da
+      linha local); qualquer outro recebe 409.
+    - Criação concorrente do mesmo nome: 409.
     """
     try:
+        existing = check_create_access(db, instance_id, current_user)
+
+        try:
+            create_result = await evolution_api.create_instance(instance_id)
+        except EvolutionAPIError as e:
+            if not _is_already_exists(e):
+                raise
+            if not current_user.is_superuser:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Instance {instance_id} already exists",
+                )
+            create_result = {"status": "ALREADY_EXISTS"}
+
         instance = upsert_instance_for_user(db, instance_id, current_user)
-        create_result = await evolution_api.create_instance(instance_id)
-        db.commit()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Instance {instance_id} was created concurrently",
+            )
 
         qr_code = None
         try:
