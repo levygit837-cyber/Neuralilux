@@ -6,8 +6,9 @@ from sqlalchemy import or_
 from typing import Optional
 import structlog
 
+from app.api.access import instance_ids_for_user
 from app.api.deps import get_current_user, get_db
-from app.models import User, Instance, Contact
+from app.models import User, Contact
 from app.schemas.contact import ContactResponse, PaginatedContacts
 
 logger = structlog.get_logger()
@@ -37,13 +38,8 @@ async def list_contacts(
     query = db.query(Contact)
 
     # Filter by instances the user owns (unless superuser)
-    if not current_user.is_superuser:
-        user_instance_ids = [
-            inst.id for inst in db.query(Instance.id).filter(
-                Instance.owner_id == current_user.id,
-                Instance.is_active == True,
-            ).all()
-        ]
+    user_instance_ids = instance_ids_for_user(db, current_user)
+    if user_instance_ids is not None:
         query = query.filter(Contact.instance_id.in_(user_instance_ids))
 
     if instance_id:

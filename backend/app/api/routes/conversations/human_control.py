@@ -7,7 +7,7 @@ from pydantic import BaseModel
 import structlog
 
 from app.api.deps import get_current_user, get_db
-from app.api.routes.conversations.access import _get_instance_for_user
+from app.api.access import get_instance_for_user
 from app.models import User, Conversation
 
 logger = structlog.get_logger()
@@ -48,7 +48,7 @@ async def take_conversation_control(
         )
 
     # Verify user has access to this conversation's instance
-    _get_instance_for_user(db, conversation.instance_id, current_user)
+    get_instance_for_user(db, conversation.instance_id, current_user)
 
     # Update conversation state
     conversation.human_in_loop = True
@@ -92,7 +92,7 @@ async def release_conversation_control(
         )
 
     # Verify user has access to this conversation's instance
-    _get_instance_for_user(db, conversation.instance_id, current_user)
+    get_instance_for_user(db, conversation.instance_id, current_user)
 
     # Update conversation state
     conversation.human_in_loop = False
@@ -133,7 +133,7 @@ async def get_human_control_status(
         )
 
     # Verify user has access to this conversation's instance
-    _get_instance_for_user(db, conversation.instance_id, current_user)
+    get_instance_for_user(db, conversation.instance_id, current_user)
 
     message = (
         "Conversation is currently under human control. AI agent is paused."

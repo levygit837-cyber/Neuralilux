@@ -1,4 +1,4 @@
-from app.models import Company, MenuCatalog, MenuCategory, MenuItem
+from app.models import Company, MenuCatalog, MenuCategory, MenuItem, User
 
 
 def _auth_headers_for_company(client, db, company_name: str = "Empresa Estoque"):
@@ -17,9 +17,11 @@ def _auth_headers_for_company(client, db, company_name: str = "Empresa Estoque")
             "email": email,
             "password": password,
             "full_name": "Usuário Estoque",
-            "company_id": company_id,
         },
     )
+    # Registro público não escolhe Company: o vínculo é feito direto no banco.
+    db.query(User).filter(User.email == email).update({"company_id": company_id})
+    db.commit()
 
     response = client.post(
         "/api/v1/auth/login",

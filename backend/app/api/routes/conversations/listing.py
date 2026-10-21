@@ -10,9 +10,9 @@ from typing import Optional
 from datetime import datetime
 import structlog
 
+from app.api.access import get_instance_for_user, instance_ids_for_user
 from app.api.deps import get_current_user, get_db
-from app.api.routes.conversations.access import _get_instance_for_user
-from app.models import User, Instance, Contact, Conversation, Message
+from app.models import User, Contact, Conversation, Message
 from app.schemas.conversation import ConversationResponse, PaginatedConversations
 from app.schemas.message import (
     ConversationSendMessageRequest,
@@ -53,13 +53,8 @@ async def list_conversations(
     query = db.query(Conversation)
 
     # Filter by instances the user owns (unless superuser)
-    if not current_user.is_superuser:
-        user_instance_ids = [
-            inst.id for inst in db.query(Instance.id).filter(
-                Instance.owner_id == current_user.id,
-                Instance.is_active == True,
-            ).all()
-        ]
+    user_instance_ids = instance_ids_for_user(db, current_user)
+    if user_instance_ids is not None:
         query = query.filter(Conversation.instance_id.in_(user_instance_ids))
 
     if instance_id:
@@ -129,7 +124,7 @@ async def get_conversation_messages(
         )
 
     # Validate ownership through instance
-    _get_instance_for_user(db, conversation.instance_id, current_user)
+    get_instance_for_user(db, conversation.instance_id, current_user)
 
     query = db.query(Message).filter(
         Message.conversation_id == conversation_id,
@@ -175,7 +170,7 @@ async def send_conversation_message(
         )
 
     # Validate ownership through instance
-    instance = _get_instance_for_user(db, conversation.instance_id, current_user)
+    instance = get_instance_for_user(db, conversation.instance_id, current_user)
 
     if instance.status != "connected":
         raise HTTPException(

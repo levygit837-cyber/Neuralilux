@@ -1,6 +1,9 @@
 """
 Instances: Agent da Instance (liga/desliga as respostas automáticas e vincula o Agent).
 
+Cada rota faz upsert da Instance local para o usuário (`upsert_instance_for_user`): dono e Company
+vêm do usuário, o Agent ativo da Company é ligado e Instance de outro dono responde 403.
+
 - GET   /{instance_id}/agent-status
 - PATCH /{instance_id}/agent-status
 - PATCH /{instance_id}/agent-binding
@@ -12,42 +15,13 @@ from sqlalchemy import or_
 from pydantic import BaseModel
 import structlog
 
+from app.api.access import upsert_instance_for_user
 from app.api.deps import get_current_user, get_db
 from app.models import User, Instance, Agent
 
 logger = structlog.get_logger()
 
 router = APIRouter()
-
-
-def _get_or_create_instance_for_agent_status(
-    db: Session,
-    instance_id: str,
-    current_user: User,
-) -> tuple[Instance, bool]:
-    instance = db.query(Instance).filter(
-        (Instance.evolution_instance_id == instance_id) | (Instance.name == instance_id)
-    ).first()
-
-    if instance:
-        if current_user and instance.owner_id is None:
-            instance.owner_id = current_user.id
-        if not instance.name:
-            instance.name = instance_id
-        if not instance.evolution_instance_id:
-            instance.evolution_instance_id = instance_id
-        return instance, False
-
-    instance = Instance(
-        name=instance_id,
-        evolution_instance_id=instance_id,
-        status="disconnected",
-        is_active=True,
-        owner_id=current_user.id if current_user else None,
-        agent_enabled=False,
-    )
-    db.add(instance)
-    return instance, True
 
 
 def _is_agent_auto_reply_active(instance: Instance) -> bool:
@@ -99,11 +73,9 @@ async def get_agent_status(
     - Returns the current agent_enabled status.
     """
     try:
-        instance, created = _get_or_create_instance_for_agent_status(db, instance_id, current_user)
-
-        if created or db.is_modified(instance):
-            db.commit()
-            db.refresh(instance)
+        instance = upsert_instance_for_user(db, instance_id, current_user)
+        db.commit()
+        db.refresh(instance)
 
         return {
             "instance_id": instance.id,
@@ -137,7 +109,7 @@ async def update_agent_status(
     - **agent_enabled**: Boolean to enable/disable agent responses.
     """
     try:
-        instance, _ = _get_or_create_instance_for_agent_status(db, instance_id, current_user)
+        instance = upsert_instance_for_user(db, instance_id, current_user)
 
         if status_update.agent_enabled:
             if not instance.agent_id:
@@ -197,7 +169,7 @@ async def update_agent_binding(
     - **agent_id**: Agent ID to bind. Send null to unbind.
     """
     try:
-        instance, _ = _get_or_create_instance_for_agent_status(db, instance_id, current_user)
+        instance = upsert_instance_for_user(db, instance_id, current_user)
 
         agent_name = None
         message = "Agent unbound successfully"

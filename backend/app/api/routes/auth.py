@@ -3,7 +3,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta
 
-from app.api.deps import get_current_user, get_db
+from app.api.deps import get_current_user, get_db, get_optional_user
 from app.core.config import settings
 from app.core.security import create_access_token
 from app.schemas.user import UserCreate, UserResponse, Token
@@ -13,8 +13,20 @@ router = APIRouter()
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def register(user: UserCreate, db: Session = Depends(get_db)):
-    """Register a new user"""
+async def register(
+    user: UserCreate,
+    db: Session = Depends(get_db),
+    caller=Depends(get_optional_user),
+):
+    """Register a new user.
+
+    Registro público não escolhe Company: com `company_id`, só um superusuário autenticado cria o usuário.
+    """
+    if user.company_id is not None and not (caller and caller.is_superuser):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only a superuser can register a user into a Company",
+        )
     try:
         db_user = create_user(db, user)
         return db_user
