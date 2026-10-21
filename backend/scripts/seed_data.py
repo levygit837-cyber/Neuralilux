@@ -165,18 +165,39 @@ def create_or_update_test_user(db: Session, company_id: str):
     return user
 
 
-def create_delivery_zones(db: Session):
-    """Create sample delivery zones (antes inseridas por uma migration)."""
-    if db.query(DeliveryZone).count() > 0:
-        return []
-    zones = [
-        DeliveryZone(name="Centro", neighborhoods=["Centro", "Centro Histórico"], delivery_fee=5.00, minimum_order_value=30.00),
-        DeliveryZone(name="Zona Norte", neighborhoods=["Vila Nova", "Jardim das Flores", "Parque Industrial"], delivery_fee=8.00, minimum_order_value=30.00),
-        DeliveryZone(name="Zona Sul", neighborhoods=["Vila Maria", "Jardim América", "Parque das Nações"], delivery_fee=10.00, minimum_order_value=30.00),
-    ]
-    db.add_all(zones)
+MACEDOS_BUSINESS_HOURS = {
+    "mon": [["18:00", "23:00"]],
+    "tue": [["18:00", "23:00"]],
+    "wed": [["18:00", "23:00"]],
+    "thu": [["18:00", "23:00"]],
+    "fri": [["18:00", "00:00"]],
+    "sat": [["18:00", "00:00"]],
+    "sun": [["18:00", "23:00"]],
+}
+
+
+def configure_company_operations(db: Session, company: Company):
+    """Horários, fuso, pedido mínimo e uma zona de entrega de exemplo para a Company (idempotente)."""
+    if not company.business_hours:
+        company.business_hours = MACEDOS_BUSINESS_HOURS
+    if not company.timezone or company.timezone == "America/Sao_Paulo":
+        company.timezone = "America/Fortaleza"  # o default da coluna não conta como configuração
+    if company.minimum_order is None:
+        company.minimum_order = 30.00
+
+    created = []
+    if db.query(DeliveryZone).filter(DeliveryZone.company_id == company.id).count() == 0:
+        zone = DeliveryZone(
+            company_id=company.id,
+            name="Centro",
+            neighborhoods=["Centro", "Centro Histórico"],
+            delivery_fee=5.00,
+            minimum_order_value=0,
+        )
+        db.add(zone)
+        created.append(zone.name)
     db.commit()
-    return [z.name for z in zones]
+    return created
 
 
 def main():
@@ -205,9 +226,7 @@ def main():
         else:
             print("All product types already exist")
 
-        print("\nCreating delivery zones...")
-        zones = create_delivery_zones(db)
-        print(f"Created: {', '.join(zones)}" if zones else "Delivery zones already exist")
+        # As zonas de entrega pertencem a uma Company: são criadas depois da importação do cardápio da Macedos.
 
         # Create test company
         print("\nCreating test company...")
@@ -218,6 +237,11 @@ def main():
         print("\nImporting Macedos menu...")
         catalog = sync_macedos_menu_from_json(db)
         print(f"Imported catalog: {catalog.name}")
+
+        print("\nConfiguring Macedos operations (hours, timezone, delivery zone)...")
+        macedos = db.query(Company).filter(Company.id == catalog.company_id).one()
+        zones = configure_company_operations(db, macedos)
+        print(f"Created zones: {', '.join(zones)}" if zones else "Delivery zones already exist")
 
         print("\nEnsuring test user is bound to Macedos...")
         user = create_or_update_test_user(db, catalog.company_id)
