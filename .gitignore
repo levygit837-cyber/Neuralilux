@@ -80,6 +80,7 @@ evolution-api/store/
 # Logs e arquivos temporários
 *.txt
 !requirements.txt
+!requirements-dev.txt
 # Arquivos de IA / Assistants
 .aidesigner/
 .aider/
