@@ -84,6 +84,9 @@ class Company(Base):
     email = Column(String(100))
     whatsapp = Column(String(20))
     pix_key = Column(String(500))  # Chave Pix para pagamentos
+    business_hours = Column(JSONB)  # {"mon": [["11:00", "23:00"]], ...}; intervalo que cruza a meia-noite é aceito
+    timezone = Column(String(64), nullable=False, default="America/Sao_Paulo", server_default="America/Sao_Paulo")
+    minimum_order = Column(Numeric(10, 2))  # Pedido mínimo (soma dos itens) da Company
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
@@ -282,6 +285,9 @@ class CustomerOrder(Base):
     customer_address = Column(Text)
     customer_phone = Column(String(30))
     payment_method = Column(String(100))
+    delivery_type = Column(String(20))  # "entrega" | "retirada"
+    delivery_fee = Column(Numeric(10, 2), nullable=False, default=0, server_default="0")  # taxa da zona, já somada em total_amount
+    change_for = Column(Numeric(10, 2))  # troco_para (pagamento em dinheiro)
     total_amount = Column(Numeric(10, 2), nullable=False, default=0)
     opened_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     closed_at = Column(DateTime(timezone=True))
@@ -323,6 +329,7 @@ class DeliveryZone(Base):
     __tablename__ = "delivery_zones"
 
     id = Column(String, primary_key=True, default=generate_uuid)
+    company_id = Column(String, ForeignKey("companies.id"), nullable=True, index=True)  # NULL: zona legada, ignorada pelo Pack
     name = Column(String(200), nullable=False)  # Nome da zona (ex: "Centro", "Zona Norte")
     neighborhoods = Column(JSONB, nullable=False)  # Lista de bairros nesta zona
     delivery_fee = Column(Numeric(10, 2), nullable=False)  # Taxa de entrega
