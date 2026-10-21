@@ -18,7 +18,6 @@ from app.models.models import GatewayAssignment, GatewayModel, InferenceGateway
 logger = structlog.get_logger()
 
 DEFAULT_AGENT_TYPE = "default"
-AGENT_TYPES = ("default", "whatsapp_agent", "super_agent")
 KIRO_GATEWAY_NAME = "Kiro-backend"
 KIRO_MODEL_ID = "claude-sonnet-5.5"
 
@@ -31,17 +30,26 @@ def invalidate() -> None:
     _cache.clear()
 
 
-def build_client(gateway: InferenceGateway) -> GatewayMessagesClient:
-    """Cliente para um Gateway cadastrado. `LLMNotConfiguredError` se a chave nao abre."""
+def build_client(
+    gateway: InferenceGateway, *, timeout: float | None = None, max_attempts: int | None = None
+) -> GatewayMessagesClient:
+    """Cliente para um Gateway cadastrado. `LLMNotConfiguredError` se a chave nao abre.
+
+    `timeout` e `max_attempts` sobrescrevem o timeout salvo e o retry padrao (usado por probe e listagem).
+    """
     try:
         api_key = decrypt_secret(gateway.api_key_encrypted) if gateway.api_key_encrypted else None
     except SecretDecryptionError as exc:
         raise LLMNotConfiguredError(f"Gateway '{gateway.name}': {exc}") from exc
+    options: dict = {}
+    if max_attempts is not None:
+        options["max_attempts"] = max_attempts
     return GatewayMessagesClient(
         base_url=gateway.base_url,
         api_key=api_key,
-        timeout=float(gateway.timeout_seconds or DEFAULT_TIMEOUT_SECONDS),
+        timeout=timeout if timeout is not None else float(gateway.timeout_seconds or DEFAULT_TIMEOUT_SECONDS),
         gateway_name=gateway.name,
+        **options,
     )
 
 

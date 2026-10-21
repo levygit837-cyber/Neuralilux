@@ -136,6 +136,11 @@ def create_test_company(db: Session):
     return company
 
 
+def _dev_superuser() -> bool:
+    """`SEED_DEV_SUPERUSER=1` promove o usuario de dev a superuser (necessario para editar Gateways)."""
+    return os.environ.get("SEED_DEV_SUPERUSER") == "1"
+
+
 def create_or_update_test_user(db: Session, company_id: str):
     """Ensure the default test user points to the target company with the expected password."""
     existing = db.query(User).filter(User.email == "usuario@teste.com").first()
@@ -144,7 +149,7 @@ def create_or_update_test_user(db: Session, company_id: str):
         existing.company_id = company_id
         existing.hashed_password = get_password_hash("teste123")
         existing.is_active = True
-        existing.is_superuser = False
+        existing.is_superuser = _dev_superuser()
         db.commit()
         db.refresh(existing)
         print("Test user updated")
@@ -156,7 +161,7 @@ def create_or_update_test_user(db: Session, company_id: str):
         full_name="Usuário Teste",
         company_id=company_id,
         is_active=True,
-        is_superuser=False
+        is_superuser=_dev_superuser()
     )
 
     db.add(user)

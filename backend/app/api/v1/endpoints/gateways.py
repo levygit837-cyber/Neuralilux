@@ -4,6 +4,7 @@ Leitura exige usuario autenticado. Criar, editar, apagar, atribuir e testar exig
 globais e `base_url` e um alvo de SSRF (ADR 0002). A chave de API e criptografada em repouso e nunca e devolvida.
 """
 from typing import List
+from urllib.parse import urlparse
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -31,6 +32,17 @@ from app.schemas.gateway import (
 )
 
 logger = structlog.get_logger()
+
+# Probe e listagem de modelos seguram a requisicao do operador: tentativa unica e timeout curto.
+_ADMIN_CALL_OPTIONS = {"timeout": 15.0, "max_attempts": 1}
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def _origin(url: str) -> tuple[str, str | None, int | None]:
+    """(scheme, host, porta) normalizados: so a origem decide para onde a chave salva e enviada."""
+    parsed = urlparse(url)
+    scheme = parsed.scheme.lower()
+    return scheme, parsed.hostname, parsed.port or _DEFAULT_PORTS.get(scheme)
 
 router = APIRouter()
 
@@ -167,7 +179,7 @@ async def test_model(model_id: str, db: Session = Depends(get_db), _: User = Dep
     model = _get_model(db, model_id)
     model_name, effort = model.model_id, model.reasoning_effort
     try:
-        client = registry.build_client(model.gateway)
+        client = registry.build_client(model.gateway, **_ADMIN_CALL_OPTIONS)
     except LLMNotConfiguredError as exc:
         return ProbeResponse(ok=False, error=str(exc))
     db.close()  # libera a conexao durante a chamada de rede
@@ -223,11 +235,12 @@ def update_gateway(
     gateway = _get_gateway(db, gateway_id)
     changes = body.model_dump(exclude_unset=True)
     new_url = changes.get("base_url")
-    if new_url is not None and new_url != gateway.base_url and "api_key" not in changes:
-        # A chave salva seguiria para o novo host: exige informar a chave de novo (ou "" para apagar).
+    if new_url is not None and _origin(new_url) != _origin(gateway.base_url) and "api_key" not in changes:
+        # A chave salva seguiria para outra origem: exige informar a chave de novo (ou "" para apagar).
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "Alterar base_url exige informar api_key novamente (use string vazia para remover a chave salva)",
+            "Alterar a origem (esquema, host ou porta) do base_url exige informar api_key novamente "
+            "(use string vazia para remover a chave salva)",
         )
     if "api_key" in changes:
         key = changes.pop("api_key")
@@ -278,7 +291,7 @@ async def list_remote_models(
     gateway = _get_gateway(db, gateway_id)
     registered = [m.model_id for m in gateway.models]
     try:
-        client = registry.build_client(gateway)
+        client = registry.build_client(gateway, **_ADMIN_CALL_OPTIONS)
     except LLMNotConfiguredError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc))
     db.close()

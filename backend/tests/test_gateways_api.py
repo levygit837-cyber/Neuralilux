@@ -153,7 +153,7 @@ def test_non_superuser_is_forbidden_on_every_mutation_and_probe(client, auth_hea
     ]
 
     assert [r.status_code for r in attempts] == [403] * len(attempts)
-    assert client.get(f"{BASE}/{gateway_id}", headers=auth_headers).json()["timeout_seconds"] == 120
+    assert client.get(f"{BASE}/{gateway_id}", headers=auth_headers).json()["timeout_seconds"] == 60
 
 
 def test_non_superuser_can_still_read_gateways_without_secrets(client, auth_headers, user_headers):
@@ -243,15 +243,22 @@ def test_patching_same_base_url_keeps_saved_api_key_without_resending_it(client,
 @pytest.fixture
 def mock_gateway(monkeypatch):
     """Faz `registry.build_client` devolver um cliente sobre `httpx.MockTransport`."""
-    box = {"requests": [], "handler": lambda r: httpx.Response(500)}
+    box = {"requests": [], "handler": lambda r: httpx.Response(500), "build_kwargs": []}
 
-    def build(gateway):
+    def build(gateway, **kwargs):
+        box["build_kwargs"].append(kwargs)
+
         def handle(request):
             box["requests"].append(request)
             return box["handler"](request)
 
         return GatewayMessagesClient(
-            base_url=gateway.base_url, api_key="k", backoff_seconds=0, transport=httpx.MockTransport(handle)
+            base_url=gateway.base_url,
+            api_key="k",
+            gateway_name=gateway.name,
+            backoff_seconds=0,
+            transport=httpx.MockTransport(handle),
+            **kwargs,
         )
 
     monkeypatch.setattr(registry, "build_client", build)
@@ -320,3 +327,71 @@ def test_remote_models_other_errors_are_bad_gateway(client, auth_headers, mock_g
     mock_gateway["handler"] = lambda r: httpx.Response(403, text="no")
 
     assert client.get(f"{BASE}/{gateway_id}/remote-models", headers=auth_headers).status_code == 502
+
+
+# --- origem (scheme + netloc), nao a URL inteira, decide se a chave salva precisa ser reenviada ---- #
+
+def test_changing_only_the_path_keeps_saved_api_key_without_resending_it(client, auth_headers, db):
+    gateway_id = _create_gateway(client, auth_headers).json()["id"]
+    before = db.query(InferenceGateway).one().api_key_encrypted
+
+    response = client.patch(f"{BASE}/{gateway_id}", json={"base_url": "http://localhost:5580/outro"}, headers=auth_headers)
+
+    assert response.status_code == 200 and response.json()["base_url"] == "http://localhost:5580/outro"
+    db.expire_all()
+    assert db.query(InferenceGateway).one().api_key_encrypted == before
+
+
+@pytest.mark.parametrize(
+    "new_url",
+    ["https://localhost:5580/v1", "http://localhost:5581/v1", "http://127.0.0.1:5580/v1", "http://evil.test/v1"],
+)
+def test_changing_scheme_host_or_port_requires_new_api_key(client, auth_headers, db, new_url):
+    gateway_id = _create_gateway(client, auth_headers).json()["id"]
+    before = db.query(InferenceGateway).one().api_key_encrypted
+
+    response = client.patch(f"{BASE}/{gateway_id}", json={"base_url": new_url}, headers=auth_headers)
+
+    assert response.status_code == 422
+    db.expire_all()
+    assert db.query(InferenceGateway).one().api_key_encrypted == before
+
+
+def test_changing_only_host_letter_case_is_the_same_origin(client, auth_headers):
+    gateway_id = _create_gateway(client, auth_headers, base_url="http://Gateway.Test/v1").json()["id"]
+
+    response = client.patch(f"{BASE}/{gateway_id}", json={"base_url": "http://gateway.test/v1"}, headers=auth_headers)
+
+    assert response.status_code == 200
+
+
+# --- timeout: padrao 60 s; probe e remote-models em tentativa unica com 15 s ---- #
+
+def test_gateway_timeout_defaults_to_60_seconds(client, auth_headers, db):
+    response = _create_gateway(client, auth_headers)
+
+    assert response.json()["timeout_seconds"] == 60
+    assert db.query(InferenceGateway).one().timeout_seconds == 60
+
+
+def test_model_probe_uses_single_attempt_and_15s_timeout(client, auth_headers, mock_gateway):
+    gateway_id = _create_gateway(client, auth_headers).json()["id"]
+    model_id = _create_model(client, auth_headers, gateway_id).json()["id"]
+    mock_gateway["handler"] = lambda r: httpx.Response(503, text="down")
+
+    body = client.post(f"{BASE}/models/{model_id}/test", headers=auth_headers).json()
+
+    assert body["ok"] is False and "HTTP 503" in body["error"]
+    assert len(mock_gateway["requests"]) == 1  # sem retry
+    assert mock_gateway["build_kwargs"] == [{"timeout": 15.0, "max_attempts": 1}]
+
+
+def test_remote_models_uses_single_attempt_and_15s_timeout(client, auth_headers, mock_gateway):
+    gateway_id = _create_gateway(client, auth_headers).json()["id"]
+    mock_gateway["handler"] = lambda r: httpx.Response(429, text="slow")
+
+    response = client.get(f"{BASE}/{gateway_id}/remote-models", headers=auth_headers)
+
+    assert response.status_code == 502
+    assert len(mock_gateway["requests"]) == 1
+    assert mock_gateway["build_kwargs"] == [{"timeout": 15.0, "max_attempts": 1}]

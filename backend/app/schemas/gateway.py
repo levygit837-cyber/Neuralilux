@@ -61,7 +61,7 @@ class GatewayCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     base_url: str = Field(..., max_length=500)
     api_key: Optional[str] = Field(None, max_length=500)
-    timeout_seconds: int = Field(120, ge=1, le=900)
+    timeout_seconds: int = Field(60, ge=1, le=900)
     is_active: bool = True
 
     _check_url = field_validator("base_url")(_clean_base_url)

@@ -213,6 +213,84 @@ async def test_error_message_never_contains_api_key():
     assert "sk-secret" not in str(info.value)
 
 
+# --- resposta malformada: sempre LLMProviderError, nunca KeyError/ValueError/TypeError ---- #
+
+def _json_200(body):
+    return lambda r: httpx.Response(200, json=body)
+
+
+def _msg(content, **extra):
+    body = {"content": content, "stop_reason": "end_turn", "model": "m", "usage": {"output_tokens": 1}}
+    body.update(extra)
+    return body
+
+
+MALFORMED_BODIES = {
+    "json_list": [],
+    "json_null": None,
+    "content_missing": {"stop_reason": "end_turn"},
+    "content_not_list": _msg("texto solto"),
+    "block_not_object": _msg(["texto solto"]),
+    "tool_use_without_id": _msg([{"type": "tool_use", "name": "buscar", "input": {}}], stop_reason="tool_use"),
+    "tool_use_without_name": _msg([{"type": "tool_use", "id": "t1", "input": {}}], stop_reason="tool_use"),
+    "tool_use_id_not_string": _msg([{"type": "tool_use", "id": 7, "name": "buscar", "input": {}}]),
+    "tool_use_input_not_object": _msg([{"type": "tool_use", "id": "t1", "name": "buscar", "input": "pizza"}]),
+    "text_without_text": _msg([{"type": "text"}]),
+    "usage_non_numeric": _msg([{"type": "text", "text": "ok"}], usage={"output_tokens": "muitos"}),
+    "usage_list": _msg([{"type": "text", "text": "ok"}], usage={"output_tokens": [1]}),
+    "usage_not_object": _msg([{"type": "text", "text": "ok"}], usage="1"),
+    "stop_reason_not_string": _msg([{"type": "text", "text": "ok"}], stop_reason=5),
+}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", MALFORMED_BODIES.values(), ids=MALFORMED_BODIES.keys())
+async def test_malformed_json_response_is_a_provider_error_and_not_retried(body):
+    gw = Gateway(_json_200(body))
+    with pytest.raises(LLMProviderError):
+        await gw.client().create(REQUEST)
+    assert len(gw.requests) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("raw", ["", "<html>502</html>", "{truncado"])
+async def test_non_json_body_is_a_provider_error(raw):
+    gw = Gateway(lambda r: httpx.Response(200, text=raw))
+    with pytest.raises(LLMProviderError):
+        await gw.client().create(REQUEST)
+
+
+@pytest.mark.asyncio
+async def test_missing_usage_and_stop_reason_use_safe_defaults():
+    gw = Gateway(_json_200({"content": [{"type": "text", "text": "ok"}]}))
+    response = await gw.client().create(REQUEST)
+
+    assert (response.stop_reason, response.output_tokens, response.model) == ("end_turn", 0, REQUEST.model)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", [[], None, {"data": "x"}, {"sem": "data"}, "texto"])
+async def test_list_models_malformed_body_is_a_provider_error(body):
+    gw = Gateway(_json_200(body))
+    with pytest.raises(LLMProviderError):
+        await gw.client().list_models()
+
+
+@pytest.mark.asyncio
+async def test_list_models_non_json_body_is_a_provider_error():
+    gw = Gateway(lambda r: httpx.Response(200, text="<html/>"))
+    with pytest.raises(LLMProviderError):
+        await gw.client().list_models()
+
+
+@pytest.mark.asyncio
+async def test_max_attempts_one_disables_retry():
+    gw = Gateway(status(503))
+    with pytest.raises(LLMProviderError):
+        await gw.client(max_attempts=1).create(REQUEST)
+    assert len(gw.requests) == 1
+
+
 # --- probe e listagem de modelos ---------------------------------------------- #
 
 @pytest.mark.asyncio

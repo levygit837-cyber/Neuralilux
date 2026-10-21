@@ -12,7 +12,7 @@ import httpx
 from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt, wait_exponential
 
 from app.agent.contracts import ContentBlock, MessagesRequest, MessagesResponse
-from app.llm.errors import LLMError, LLMProviderError, LLMRateLimitError, LLMTimeoutError
+from app.llm.errors import LLMProviderError, LLMRateLimitError, LLMTimeoutError
 
 ANTHROPIC_VERSION = "2023-06-01"
 DEFAULT_TIMEOUT_SECONDS = 60.0
@@ -39,6 +39,7 @@ class GatewayMessagesClient:
         timeout: float = DEFAULT_TIMEOUT_SECONDS,
         gateway_name: str = "gateway",
         backoff_seconds: float = 1.0,
+        max_attempts: int = MAX_ATTEMPTS,
         transport: httpx.AsyncBaseTransport | None = None,
     ):
         self._root = _LEGACY_V1_SUFFIX.sub("", base_url.rstrip("/"))
@@ -46,6 +47,7 @@ class GatewayMessagesClient:
         self._timeout = timeout
         self._name = gateway_name
         self._backoff = backoff_seconds
+        self._max_attempts = max_attempts
         self._transport = transport
 
     # --- API publica -------------------------------------------------------- #
@@ -74,7 +76,7 @@ class GatewayMessagesClient:
         data = await self._request("GET", "/v1/models")
         items = data.get("data") if isinstance(data, dict) else None
         if not isinstance(items, list):
-            raise LLMProviderError(f"{self._name}: lista de modelos invalida")
+            raise self._malformed("lista de modelos sem `data`")
         return [item["id"] for item in items if isinstance(item, dict) and isinstance(item.get("id"), str)]
 
     # --- mapeamento --------------------------------------------------------- #
@@ -97,30 +99,54 @@ class GatewayMessagesClient:
         return payload
 
     def _parse(self, data: Any, requested_model: str) -> MessagesResponse:
+        """Valida o corpo; qualquer desvio do formato vira `LLMProviderError` (nunca KeyError/TypeError)."""
         if not isinstance(data, dict) or not isinstance(data.get("content"), list):
-            raise LLMProviderError(f"{self._name}: resposta sem `content`")
+            raise self._malformed("sem `content`")
         blocks: list[ContentBlock] = []
         for block in data["content"]:
-            kind = block.get("type") if isinstance(block, dict) else None
+            if not isinstance(block, dict):
+                raise self._malformed("bloco de `content` nao e objeto")
+            kind = block.get("type")
             if kind == "text":
-                blocks.append({"type": "text", "text": block.get("text", "")})
+                text = block.get("text")
+                if not isinstance(text, str):
+                    raise self._malformed("bloco `text` sem `text`")
+                blocks.append({"type": "text", "text": text})
             elif kind == "tool_use":
-                blocks.append(
-                    {
-                        "type": "tool_use",
-                        "id": block["id"],
-                        "name": block["name"],
-                        "input": block.get("input") or {},
-                    }
-                )
+                block_id, name, tool_input = block.get("id"), block.get("name"), block.get("input", {})
+                if not isinstance(block_id, str) or not block_id or not isinstance(name, str) or not name:
+                    raise self._malformed("bloco `tool_use` sem `id`/`name`")
+                if tool_input is None:
+                    tool_input = {}
+                if not isinstance(tool_input, dict):
+                    raise self._malformed("`tool_use.input` nao e objeto")
+                blocks.append({"type": "tool_use", "id": block_id, "name": name, "input": tool_input})
             # `thinking` e demais tipos nao fazem parte do contrato do loop.
-        usage = data.get("usage") or {}
+
+        stop_reason = data.get("stop_reason") or "end_turn"
+        if not isinstance(stop_reason, str):
+            raise self._malformed("`stop_reason` nao e texto")
+        model = data.get("model") or requested_model
+        if not isinstance(model, str):
+            raise self._malformed("`model` nao e texto")
         return MessagesResponse(
-            content=blocks,
-            stop_reason=data.get("stop_reason") or "end_turn",
-            model=data.get("model") or requested_model,
-            output_tokens=int(usage.get("output_tokens") or 0),
+            content=blocks, stop_reason=stop_reason, model=model, output_tokens=self._output_tokens(data.get("usage"))
         )
+
+    def _output_tokens(self, usage: Any) -> int:
+        if usage is None:
+            return 0
+        if not isinstance(usage, dict):
+            raise self._malformed("`usage` nao e objeto")
+        tokens = usage.get("output_tokens")
+        if tokens is None:
+            return 0
+        if isinstance(tokens, bool) or not isinstance(tokens, int):
+            raise self._malformed("`usage.output_tokens` nao e inteiro")
+        return tokens
+
+    def _malformed(self, detail: str) -> LLMProviderError:
+        return LLMProviderError(f"{self._name}: resposta malformada ({detail})")
 
     # --- transporte --------------------------------------------------------- #
 
@@ -138,7 +164,7 @@ class GatewayMessagesClient:
     async def _request(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
         retrying = AsyncRetrying(
             retry=retry_if_exception(_is_transient),
-            stop=stop_after_attempt(MAX_ATTEMPTS),
+            stop=stop_after_attempt(self._max_attempts),
             wait=wait_exponential(multiplier=self._backoff, max=10),
             reraise=True,
         )
@@ -167,5 +193,3 @@ class GatewayMessagesClient:
         except ValueError as exc:
             raise LLMProviderError(f"{self._name}: resposta nao e JSON") from exc
 
-
-__all__ = ["GatewayMessagesClient", "LLMError"]
