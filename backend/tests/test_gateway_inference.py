@@ -242,12 +242,12 @@ def test_registry_prefers_specific_assignment_then_default(db):
     specific = GatewayModel(name="s", model_id="specific", gateway_id=db.query(InferenceGateway).one().id)
     db.add(specific)
     db.flush()
-    db.add(GatewayAssignment(agent_type="super_agent", gateway_model_id=specific.id))
+    db.add(GatewayAssignment(agent_type="whatsapp_agent", gateway_model_id=specific.id))
     db.commit()
     gateway_registry.invalidate()
 
-    assert gateway_registry.get_assigned_service("super_agent").model == "specific"
-    assert gateway_registry.get_assigned_service("whatsapp_agent").model == "m1"  # cai no default
+    assert gateway_registry.get_assigned_service("whatsapp_agent").model == "specific"
+    assert gateway_registry.get_assigned_service("default").model == "m1"
 
 
 def test_registry_inactive_model_means_no_gateway(db):

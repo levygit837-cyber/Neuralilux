@@ -20,10 +20,6 @@ class Settings(BaseSettings):
     EVOLUTION_API_KEY: str = "3v0lut10n_4P1_K3y_S3cur3_2026!"
     EVOLUTION_WEBSOCKET_ENABLED: bool = False
 
-    # Qdrant
-    QDRANT_URL: str = "http://localhost:6333"
-    QDRANT_API_KEY: str | None = None
-
     # RabbitMQ
     RABBITMQ_URL: str = "amqp://neuralilux:rabbitmq_password@localhost:5672/neuralilux"
 
@@ -70,17 +66,6 @@ class Settings(BaseSettings):
     AGENT_ENABLED_BY_DEFAULT: bool = False
     AGENT_RESPONSE_MAX_TOKENS: int = 250
     AGENT_INFERENCE_PROVIDER: str = "vertex"  # "lm_studio", "gemini", or "vertex" (global fallback)
-
-    # Super Agent Configuration
-    SUPER_AGENT_INFERENCE_PROVIDER: str = "vertex"  # "lm_studio", "gemini", or "vertex"
-    SUPER_AGENT_LM_STUDIO_MODEL: str = "qwen3.5-4b-claude-4.6-opus-reasoning-distilled-v2"
-    SUPER_AGENT_LM_STUDIO_MAX_TOKENS: int = 2048
-    SUPER_AGENT_LM_STUDIO_TEMPERATURE: float = 0.7
-
-    # Super Agent Vertex Configuration
-    SUPER_AGENT_VERTEX_MODEL: str = "gemini-3.1-flash-lite-preview"
-    SUPER_AGENT_VERTEX_MAX_TOKENS: int = 2048
-    SUPER_AGENT_VERTEX_TEMPERATURE: float = 0.7
 
     # WhatsApp Agent Configuration
     WHATSAPP_AGENT_INFERENCE_PROVIDER: str = "vertex"  # "lm_studio", "gemini", or "vertex"

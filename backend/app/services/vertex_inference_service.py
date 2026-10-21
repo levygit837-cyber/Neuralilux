@@ -340,7 +340,7 @@ class VertexInferenceService:
         on_response_token: Any = None,
     ) -> Dict[str, Any]:
         """
-        Streaming chat completion with tool calling for SuperAgent compatibility.
+        Streaming chat completion with tool calling.
 
         Streams the response via callbacks so that thinking/reasoning tokens
         can be forwarded to the frontend in real-time via *on_thinking_token*,

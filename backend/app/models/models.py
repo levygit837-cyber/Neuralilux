@@ -231,7 +231,6 @@ class Agent(Base):
     # Relationships
     owner = relationship("User", back_populates="agents")
     instances = relationship("Instance", back_populates="agent")
-    documents = relationship("Document", back_populates="agent")
 
 
 class Message(Base):
@@ -321,24 +320,6 @@ class DeliveryZone(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-
-class Document(Base):
-    __tablename__ = "documents"
-
-    id = Column(String, primary_key=True, default=generate_uuid)
-    agent_id = Column(String, ForeignKey("agents.id"))
-    filename = Column(String, nullable=False)
-    file_path = Column(String, nullable=False)
-    file_type = Column(String)
-    file_size = Column(Integer)
-    is_processed = Column(Boolean, default=False)
-    chunk_count = Column(Integer, default=0)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-    # Relationships
-    agent = relationship("Agent", back_populates="documents")
 
 
 class Product(Base):
@@ -433,106 +414,6 @@ class MenuItem(Base):
     category = relationship("MenuCategory", back_populates="items")
 
 
-# ============== Super Agent Models ==============
-
-
-class SuperAgentSession(Base):
-    """Session management for the Super Agent (Business Assistant)."""
-    __tablename__ = "super_agent_sessions"
-
-    id = Column(String, primary_key=True, default=generate_uuid)
-    company_id = Column(String, ForeignKey("companies.id"), nullable=False, index=True)
-    user_id = Column(String, ForeignKey("users.id"), nullable=False, index=True)
-    title = Column(String(200))
-    is_active = Column(Boolean, default=True)
-    interaction_count = Column(Integer, default=0)
-    last_checkpoint_at = Column(Integer, default=0)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-    # Relationships
-    company = relationship("Company")
-    user = relationship("User")
-    messages = relationship("SuperAgentMessage", back_populates="session", order_by="SuperAgentMessage.created_at")
-    checkpoints = relationship("SuperAgentCheckpoint", back_populates="session")
-
-
-class SuperAgentMessage(Base):
-    """Messages within a Super Agent session."""
-    __tablename__ = "super_agent_messages"
-
-    id = Column(String, primary_key=True, default=generate_uuid)
-    session_id = Column(String, ForeignKey("super_agent_sessions.id"), nullable=False, index=True)
-    role = Column(String(20), nullable=False)  # "user", "assistant", "system", "tool"
-    content = Column(Text)
-    tool_name = Column(String(100))
-    tool_input = Column(JSONB)
-    tool_output = Column(Text)
-    thinking_content = Column(Text)
-    extra_data = Column(JSONB)  # Renamed from 'metadata' (reserved in SQLAlchemy)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    # Relationships
-    session = relationship("SuperAgentSession", back_populates="messages")
-
-
-class SuperAgentCheckpoint(Base):
-    """Checkpoints every 5 interactions for session recovery."""
-    __tablename__ = "super_agent_checkpoints"
-
-    id = Column(String, primary_key=True, default=generate_uuid)
-    session_id = Column(String, ForeignKey("super_agent_sessions.id"), nullable=False, index=True)
-    interaction_number = Column(Integer, nullable=False)
-    summary = Column(Text)
-    context_snapshot = Column(JSONB)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    # Relationships
-    session = relationship("SuperAgentSession", back_populates="checkpoints")
-
-    __table_args__ = (
-        UniqueConstraint("session_id", "interaction_number", name="uq_checkpoint_session_number"),
-    )
-
-
-class SuperAgentKnowledge(Base):
-    """Cross-session knowledge base for the Super Agent."""
-    __tablename__ = "super_agent_knowledge"
-
-    id = Column(String, primary_key=True, default=generate_uuid)
-    company_id = Column(String, ForeignKey("companies.id"), nullable=False, index=True)
-    category = Column(String(100), nullable=False, index=True)
-    key = Column(String(200), nullable=False)
-    value = Column(Text, nullable=False)
-    source_session_id = Column(String, ForeignKey("super_agent_sessions.id"), nullable=True)
-    confidence = Column(Integer, default=100)
-    access_count = Column(Integer, default=0)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-    # Relationships
-    company = relationship("Company")
-    source_session = relationship("SuperAgentSession")
-
-    __table_args__ = (
-        UniqueConstraint("company_id", "category", "key", name="uq_knowledge_company_category_key"),
-    )
-
-
-class SuperAgentDocument(Base):
-    """Documents created by the Super Agent."""
-    __tablename__ = "super_agent_documents"
-
-    id = Column(String, primary_key=True, default=generate_uuid)
-    session_id = Column(String, ForeignKey("super_agent_sessions.id"), nullable=False, index=True)
-    company_id = Column(String, ForeignKey("companies.id"), nullable=False, index=True)
-    filename = Column(String(255), nullable=False)
-    file_type = Column(String(20), nullable=False)  # "pdf", "txt", "json", "markdown"
-    content = Column(Text)
-    content_base64 = Column(Text)
-    file_size = Column(Integer)
-
-
 # ============== WhatsApp Agent Models ==============
 
 
@@ -579,30 +460,6 @@ class PaymentRecord(Base):
     conversation = relationship("Conversation", foreign_keys=[conversation_id])
 
 
-class RuleCategory(str, enum.Enum):
-    POLICY = "politica"
-    PROCEDURE = "procedimento"
-    FAQ = "faq"
-    COMPLIANCE = "compliance"
-    GENERAL = "general"
-
-
-class CompanyRule(Base):
-    __tablename__ = "company_rules"
-
-    id = Column(String, primary_key=True, default=generate_uuid)
-    company_id = Column(String, ForeignKey("companies.id"), nullable=False, index=True)
-    title = Column(String(500), nullable=False)
-    content = Column(Text, nullable=False)
-    category = Column(String(50), nullable=False, default=RuleCategory.GENERAL.value)
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-    # Relationships
-    company = relationship("Company")
-
-
 class InferenceGateway(Base):
     """Gateway OpenAI-compatible (`/chat/completions`) cadastrado pelo usuario."""
     __tablename__ = "inference_gateways"
@@ -647,7 +504,7 @@ class GatewayModel(Base):
 
 
 class GatewayAssignment(Base):
-    """Qual modelo de gateway atende cada tipo de agente (default | whatsapp_agent | super_agent)."""
+    """Qual modelo de gateway atende cada tipo de agente (default | whatsapp_agent)."""
     __tablename__ = "gateway_assignments"
 
     agent_type = Column(String(50), primary_key=True)

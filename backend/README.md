@@ -28,7 +28,7 @@ backend/
 ## Setup Local
 
 Requer Python 3.11 ou 3.12 e a infra do `docker-compose.yml` no ar
-(`docker compose up -d postgres redis rabbitmq qdrant evolution-api`).
+(`docker compose up -d postgres redis rabbitmq evolution-api`).
 
 ```bash
 python3.12 -m venv venv
@@ -51,7 +51,7 @@ python scripts/run_worker.py
 Qualquer API compatível com OpenAI (`POST {base_url}/chat/completions`) pode ser cadastrada em
 **Configurações > Gateways** ou em `/api/v1/gateways`. Cada gateway tem modelos nomeados
 (id no gateway, `reasoning_effort`, `max_tokens`, `temperature`, suporte a ferramentas) e cada tipo de agente
-(`default`, `whatsapp_agent`, `super_agent`) aponta para um modelo. Sem atribuição, valem Vertex e Gemini.
+(`default`, `whatsapp_agent`) aponta para um modelo. Sem atribuição, valem Vertex e Gemini.
 
 - `seed_data.py` cadastra o gateway `Kiro-backend` (`claude-sonnet-5.5`, effort `low`) e o atribui a `default`.
 - A chave de API é criptografada com uma chave derivada de `SECRET_KEY`; trocar `SECRET_KEY` exige regravar as chaves.

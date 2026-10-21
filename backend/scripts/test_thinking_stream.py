@@ -287,7 +287,7 @@ async def test_inference_service_stream():
     try:
         from app.services.inference_service import get_inference_service
 
-        svc = get_inference_service("super_agent")
+        svc = get_inference_service("whatsapp_agent")
 
         thinking_tokens = []
 

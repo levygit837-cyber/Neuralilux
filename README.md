@@ -31,7 +31,6 @@ O projeto é um protótipo técnico legado, não uma plataforma validada para pr
 - roteamento entre agentes de vendas e atendimento;
 - ferramentas ligadas ao fluxo principal para cardápio, pedido, horário e entrega;
 - configuração de provedores de inferência, fallback e eventos de streaming;
-- regras e documentos por empresa, ingestão de conteúdo e recuperação via Qdrant;
 - dashboard Next.js para instâncias, conversas, agente, estoque e configurações.
 
 Há implementações isoladas de ticket e pagamento, mas elas não fecham hoje uma jornada completa pelo
@@ -45,8 +44,8 @@ WhatsApp / Evolution API
           ▼
 FastAPI ── webhooks ── roteador Sales/SAC ── tools operacionais
    │                         │
-   ├── PostgreSQL            ├── provedores de inferência + fallback
-   ├── Redis / RabbitMQ      └── RAG por empresa / Qdrant
+   ├── PostgreSQL            └── provedores de inferência + fallback
+   ├── Redis / RabbitMQ
    │
    └── Socket.IO / REST ── dashboard Next.js
 ```
@@ -55,9 +54,7 @@ FastAPI ── webhooks ── roteador Sales/SAC ── tools operacionais
 backend/app/
 ├── agents/          # grafo, prompts, memória, outputs e tools
 ├── api/v1/          # autenticação, instâncias, conversas e configuração
-├── rag/             # ingestão, recuperação e vector store
-├── services/        # Evolution API, inferência, catálogo e tempo real
-└── super_agents/    # workspace experimental de agente e tool runtime
+└── services/        # Evolution API, inferência, catálogo e tempo real
 
 frontend/src/
 ├── app/             # rotas do dashboard
@@ -71,8 +68,8 @@ frontend/src/
 Pré-requisitos: Docker, Python 3.11 ou 3.12, Node 20.9+ (exigência do Next 16) e uma chave de LLM (Gemini por padrão).
 
 ```bash
-# 1. Infra: PostgreSQL, Redis, RabbitMQ, Qdrant e Evolution API
-docker compose up -d postgres redis rabbitmq qdrant evolution-api
+# 1. Infra: PostgreSQL, Redis, RabbitMQ e Evolution API
+docker compose up -d postgres redis rabbitmq evolution-api
 
 # 2. Backend
 cd backend
@@ -94,7 +91,7 @@ completo, incluindo a conexão do WhatsApp por QR code, está em [docs/SETUP_GUI
 ## Limites atuais
 
 - o `docker-compose.yml` mantém defaults de desenvolvimento (chaves e senhas em texto puro) e o serviço `worker` assume LM Studio no host;
-- endpoints de RAG e tickets ainda exigem reforço de isolamento e autorização por empresa;
+- endpoints de tickets ainda exigem reforço de isolamento e autorização por empresa;
 - as suítes não foram reproduzidas em uma instalação limpa desta versão pública;
 - dependências frontend e defaults de desenvolvimento precisam de revisão antes de qualquer deploy;
 - a navegação móvel e a acessibilidade ainda não passaram por validação completa;

@@ -201,20 +201,3 @@ def mock_inference_service():
     mock_service.chat_completion = AsyncMock()
     return mock_service
 
-
-@pytest.fixture
-def mock_super_realtime_event_bus():
-    """Mock super agent realtime event bus for testing"""
-    mock_bus = MagicMock()
-    mock_bus.publish = AsyncMock()
-    return mock_bus
-
-
-@pytest.fixture
-def mock_super_inference_service():
-    """Mock super agent inference service for testing"""
-    mock_service = MagicMock()
-    mock_service.astream_chat_completion_with_thinking = AsyncMock()
-    mock_service.chat_completion = AsyncMock()
-    return mock_service
-
