@@ -1,6 +1,7 @@
-"""CRUD de gateways de inferencia (OpenAI-compatible), seus modelos e a atribuicao por tipo de agente.
+"""CRUD de Gateways de inferencia (protocolo Anthropic Messages), seus modelos e a atribuicao por tipo de agente.
 
-Todas as rotas exigem usuario autenticado. A chave de API e criptografada em repouso e nunca e devolvida.
+Leitura exige usuario autenticado. Criar, editar, apagar, atribuir e testar exigem superuser: Gateways sao
+globais e `base_url` e um alvo de SSRF (ADR 0002). A chave de API e criptografada em repouso e nunca e devolvida.
 """
 from typing import List
 
@@ -10,8 +11,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.api.v1.endpoints.auth import get_current_user
-from app.core.crypto import SecretDecryptionError, encrypt_secret
+from app.core.crypto import encrypt_secret
 from app.core.database import get_db
+from app.llm import registry
+from app.llm.errors import LLMError, LLMNotConfiguredError, LLMProviderError
 from app.models.models import GatewayAssignment, GatewayModel, InferenceGateway, User
 from app.schemas.gateway import (
     AgentType,
@@ -26,12 +29,16 @@ from app.schemas.gateway import (
     ProbeResponse,
     RemoteModelsResponse,
 )
-from app.services import gateway_registry
-from app.services.inference_service import InferenceServiceError
 
 logger = structlog.get_logger()
 
 router = APIRouter()
+
+
+def require_superuser(current_user: User = Depends(get_current_user)) -> User:
+    if not current_user.is_superuser:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Apenas superusuarios podem alterar ou testar gateways")
+    return current_user
 
 
 def _gateway_response(gateway: InferenceGateway) -> GatewayResponse:
@@ -79,7 +86,7 @@ def _commit(db: Session, conflict_detail: str) -> None:
     except IntegrityError:
         db.rollback()
         raise HTTPException(status.HTTP_409_CONFLICT, conflict_detail)
-    gateway_registry.invalidate()
+    registry.invalidate()
 
 
 # --- atribuicoes (rotas estaticas antes de /{gateway_id}) ------------------- #
@@ -100,7 +107,7 @@ def set_assignment(
     agent_type: AgentType,
     body: AssignmentUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_superuser),
 ):
     model = _get_model(db, body.gateway_model_id)
     if not (model.is_active and model.gateway.is_active):
@@ -119,7 +126,7 @@ def set_assignment(
 
 @router.delete("/assignments/{agent_type}", status_code=status.HTTP_204_NO_CONTENT)
 def clear_assignment(
-    agent_type: AgentType, db: Session = Depends(get_db), _: User = Depends(get_current_user)
+    agent_type: AgentType, db: Session = Depends(get_db), _: User = Depends(require_superuser)
 ):
     assignment = db.get(GatewayAssignment, agent_type)
     if assignment is not None:
@@ -134,7 +141,7 @@ def update_model(
     model_id: str,
     body: GatewayModelUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_superuser),
 ):
     model = _get_model(db, model_id)
     for field, value in body.model_dump(exclude_unset=True).items():
@@ -147,7 +154,7 @@ def update_model(
 
 
 @router.delete("/models/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_model(model_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def delete_model(model_id: str, db: Session = Depends(get_db), _: User = Depends(require_superuser)):
     model = _get_model(db, model_id)
     db.query(GatewayAssignment).filter(GatewayAssignment.gateway_model_id == model.id).delete()
     db.delete(model)
@@ -155,17 +162,18 @@ def delete_model(model_id: str, db: Session = Depends(get_db), _: User = Depends
 
 
 @router.post("/models/{model_id}/test", response_model=ProbeResponse)
-async def test_model(model_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    """Uma chamada minima ao gateway com a configuracao salva (URL, chave, modelo, effort)."""
+async def test_model(model_id: str, db: Session = Depends(get_db), _: User = Depends(require_superuser)):
+    """Uma chamada minima (`max_tokens: 8`) ao Gateway com a configuracao salva (URL, chave, modelo, effort)."""
     model = _get_model(db, model_id)
+    model_name, effort = model.model_id, model.reasoning_effort
     try:
-        service = gateway_registry.build_service(model)
-    except SecretDecryptionError as exc:
+        client = registry.build_client(model.gateway)
+    except LLMNotConfiguredError as exc:
         return ProbeResponse(ok=False, error=str(exc))
     db.close()  # libera a conexao durante a chamada de rede
     try:
-        result = await service.probe()
-    except InferenceServiceError as exc:
+        result = await client.probe(model=model_name, effort=effort)
+    except LLMError as exc:
         return ProbeResponse(ok=False, error=str(exc))
     return ProbeResponse(ok=True, **result)
 
@@ -185,7 +193,7 @@ def list_gateways(db: Session = Depends(get_db), _: User = Depends(get_current_u
 
 @router.post("/", response_model=GatewayResponse, status_code=status.HTTP_201_CREATED)
 def create_gateway(
-    body: GatewayCreate, db: Session = Depends(get_db), _: User = Depends(get_current_user)
+    body: GatewayCreate, db: Session = Depends(get_db), _: User = Depends(require_superuser)
 ):
     gateway = InferenceGateway(
         name=body.name.strip(),
@@ -210,10 +218,17 @@ def update_gateway(
     gateway_id: str,
     body: GatewayUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_superuser),
 ):
     gateway = _get_gateway(db, gateway_id)
     changes = body.model_dump(exclude_unset=True)
+    new_url = changes.get("base_url")
+    if new_url is not None and new_url != gateway.base_url and "api_key" not in changes:
+        # A chave salva seguiria para o novo host: exige informar a chave de novo (ou "" para apagar).
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "Alterar base_url exige informar api_key novamente (use string vazia para remover a chave salva)",
+        )
     if "api_key" in changes:
         key = changes.pop("api_key")
         gateway.api_key_encrypted = encrypt_secret(key) if key else None
@@ -227,7 +242,7 @@ def update_gateway(
 
 
 @router.delete("/{gateway_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_gateway(gateway_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def delete_gateway(gateway_id: str, db: Session = Depends(get_db), _: User = Depends(require_superuser)):
     gateway = _get_gateway(db, gateway_id)
     model_ids = [m.id for m in gateway.models]
     if model_ids:
@@ -245,7 +260,7 @@ def create_model(
     gateway_id: str,
     body: GatewayModelCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_superuser),
 ):
     _get_gateway(db, gateway_id)
     model = GatewayModel(gateway_id=gateway_id, **body.model_dump())
@@ -257,25 +272,21 @@ def create_model(
 
 @router.get("/{gateway_id}/remote-models", response_model=RemoteModelsResponse)
 async def list_remote_models(
-    gateway_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)
+    gateway_id: str, db: Session = Depends(get_db), _: User = Depends(require_superuser)
 ):
-    """Ids que o gateway anuncia em `GET /models`, para preencher o cadastro de modelos."""
+    """Ids que o Gateway anuncia em `GET {base_url}/v1/models`; sem essa rota (404), os modelos cadastrados."""
     gateway = _get_gateway(db, gateway_id)
+    registered = [m.model_id for m in gateway.models]
     try:
-        from app.core.crypto import decrypt_secret
-        from app.services.gateway_inference_service import GatewayInferenceService
-
-        service = GatewayInferenceService(
-            base_url=gateway.base_url,
-            model="",
-            api_key=decrypt_secret(gateway.api_key_encrypted) if gateway.api_key_encrypted else None,
-            timeout=float(gateway.timeout_seconds),
-            gateway_name=gateway.name,
-        )
-    except SecretDecryptionError as exc:
+        client = registry.build_client(gateway)
+    except LLMNotConfiguredError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc))
     db.close()
     try:
-        return RemoteModelsResponse(models=await service.list_models())
-    except InferenceServiceError as exc:
+        return RemoteModelsResponse(models=await client.list_models())
+    except LLMProviderError as exc:
+        if exc.status_code == 404:
+            return RemoteModelsResponse(models=registered)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc))
+    except LLMError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc))

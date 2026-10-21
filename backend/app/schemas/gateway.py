@@ -11,8 +11,17 @@ AgentType = Literal["default", "whatsapp_agent"]
 def _clean_base_url(value: str) -> str:
     value = value.strip().rstrip("/")
     parsed = urlparse(value)
-    if parsed.scheme not in ("http", "https") or not parsed.netloc:
-        raise ValueError("base_url deve ser uma URL http(s) completa, ex.: http://localhost:5580/v1")
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise ValueError("base_url deve ser uma URL http(s) completa, ex.: http://localhost:5580")
+    if "@" in parsed.netloc:
+        raise ValueError("base_url nao pode conter usuario ou senha (userinfo)")
+    return value
+
+
+def _clean_name(value: str) -> str:
+    value = value.strip()
+    if not value:
+        raise ValueError("name nao pode ser vazio")
     return value
 
 
@@ -56,6 +65,7 @@ class GatewayCreate(BaseModel):
     is_active: bool = True
 
     _check_url = field_validator("base_url")(_clean_base_url)
+    _check_name = field_validator("name")(_clean_name)
 
 
 class GatewayUpdate(BaseModel):
@@ -71,6 +81,11 @@ class GatewayUpdate(BaseModel):
     @classmethod
     def _check_url(cls, value: Optional[str]) -> Optional[str]:
         return None if value is None else _clean_base_url(value)
+
+    @field_validator("name")
+    @classmethod
+    def _check_name(cls, value: Optional[str]) -> Optional[str]:
+        return None if value is None else _clean_name(value)
 
 
 class GatewayResponse(BaseModel):
