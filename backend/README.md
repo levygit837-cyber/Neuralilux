@@ -35,14 +35,14 @@ python3.12 -m venv venv
 source venv/bin/activate
 pip install -r requirements-dev.txt   # runtime + ferramentas de teste/lint; produção usa só requirements.txt
 
-cp .env.example .env   # ajuste EVOLUTION_API_KEY e SECRET_KEY; o modelo é configurado como Gateway
+cp .env.example .env   # ajuste EVOLUTION_API_KEY, EVOLUTION_WEBHOOK_TOKEN e SECRET_KEY; o modelo é configurado como Gateway
 
 # Banco já existente com Gateways gravados antes do HKDF: PASSO ÚNICO OBRIGATÓRIO, antes de subir a app
 python scripts/reencrypt_gateway_secrets.py
 
 # Banco novo: aplicar migrations (baseline 0001) e popular dados
 alembic upgrade head
-python scripts/seed_data.py   # SEED_DEV_SUPERUSER=1 promove o usuário de dev a superuser
+python scripts/seed_data.py   # cria um Agent por Company e liga as Instances da Company; SEED_DEV_SUPERUSER=1 promove o usuário de dev a superuser
 
 # Primeiro superusuário (só superuser edita Gateways)
 SUPERUSER_EMAIL=admin@empresa.com SUPERUSER_PASSWORD='...' python scripts/create_superuser.py
@@ -95,7 +95,7 @@ O Agent roda num loop próprio em `app/agent/` (ADR 0001), sem framework de agen
 - `POST /api/v1/auth/login` - Login
 - `GET /api/v1/instances` - Listar instâncias
 - `POST /api/v1/messages/send` - Enviar mensagem
-- `POST /api/v1/webhooks/evolution` - Webhook Evolution API
+- `POST /api/v1/webhooks/evolution?token=...` - Webhook Evolution API (401 sem `?token=` igual a `EVOLUTION_WEBHOOK_TOKEN`, ADR 0006)
 
 ## Testes
 
@@ -113,3 +113,15 @@ pytest tests/test_auth.py
 ## Documentação da API
 
 Acesse `/docs` quando o servidor estiver rodando.
+
+## Webhook da Evolution
+
+A Evolution chama o backend com o token na query string. No `docker-compose.yml` local (ignorado pelo git), use:
+
+```yaml
+- WEBHOOK_GLOBAL_URL=http://host.docker.internal:8000/api/v1/webhooks/evolution?token=${EVOLUTION_WEBHOOK_TOKEN}
+```
+
+Exporte o mesmo `EVOLUTION_WEBHOOK_TOKEN` do `backend/.env` ao subir o compose. Logs de acesso não podem registrar a query string.
+
+O worker (`scripts/run_worker.py`) usa `aio-pika` num único event loop, com `RABBITMQ_PREFETCH=8` mensagens em paralelo e ordem garantida por Conversation. Instance desconhecida é descartada: cadastre a Instance antes de conectar o número.

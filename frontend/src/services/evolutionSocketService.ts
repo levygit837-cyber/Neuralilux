@@ -6,8 +6,8 @@ import type { Message, MessageStatus } from '@/types/chat'
 
 const EVOLUTION_API_URL =
   process.env.NEXT_PUBLIC_EVOLUTION_API_URL || 'http://localhost:8081'
-const EVOLUTION_API_KEY =
-  process.env.NEXT_PUBLIC_EVOLUTION_API_KEY || '3v0lut10n_4P1_K3y_S3cur3_2026!'
+// Sem fallback no código: a chave vem de NEXT_PUBLIC_EVOLUTION_API_KEY (veja .env.example).
+const EVOLUTION_API_KEY = process.env.NEXT_PUBLIC_EVOLUTION_API_KEY ?? ''
 
 interface EvolutionEventPayload {
   event: string
