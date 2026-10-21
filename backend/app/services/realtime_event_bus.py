@@ -21,6 +21,7 @@ class RealtimeEventBus:
     def __init__(self) -> None:
         self._redis: Optional[Redis] = None
         self._pub_redis: Optional[Redis] = None
+        self._pub_loop: Optional[asyncio.AbstractEventLoop] = None
         self._pubsub = None
         self._listener_task: Optional[asyncio.Task] = None
 
@@ -34,12 +35,16 @@ class RealtimeEventBus:
         return self._redis
 
     async def publish(self, event: dict[str, Any]) -> None:
-        if self._pub_redis is None:
+        # O cliente Redis fica preso ao event loop que o criou. Um cliente de outro loop (já fechado)
+        # é descartado sem aclose(), que falharia no loop morto, e um novo é criado neste.
+        loop = asyncio.get_running_loop()
+        if self._pub_redis is None or self._pub_loop is not loop:
             self._pub_redis = Redis.from_url(
                 settings.REDIS_URL,
                 encoding="utf-8",
                 decode_responses=True,
             )
+            self._pub_loop = loop
         await self._pub_redis.publish(
             settings.REALTIME_REDIS_CHANNEL,
             json.dumps(event, default=str),
@@ -93,8 +98,10 @@ class RealtimeEventBus:
             self._pubsub = None
 
         if self._pub_redis:
-            await self._pub_redis.aclose()
+            if self._pub_loop is asyncio.get_running_loop():
+                await self._pub_redis.aclose()
             self._pub_redis = None
+            self._pub_loop = None
 
         if self._redis:
             await self._redis.aclose()
