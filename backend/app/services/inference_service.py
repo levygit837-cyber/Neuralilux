@@ -984,7 +984,7 @@ class FallbackInferenceService:
         Initialize fallback inference service.
 
         Args:
-            agent_type: Type of agent ("whatsapp_agent", "super_agent", or "default")
+            agent_type: Type of agent ("whatsapp_agent" or "default")
         """
         self.agent_type = agent_type
         self.primary_service = self._get_primary_service()
@@ -1014,13 +1014,7 @@ class FallbackInferenceService:
         from app.core.config import settings
         from app.services.vertex_inference_service import VertexInferenceService
 
-        if self.agent_type == "super_agent":
-            return VertexInferenceService(
-                model=settings.SUPER_AGENT_VERTEX_MODEL,
-                max_tokens=settings.SUPER_AGENT_VERTEX_MAX_TOKENS,
-                temperature=settings.SUPER_AGENT_VERTEX_TEMPERATURE,
-            )
-        elif self.agent_type == "whatsapp_agent":
+        if self.agent_type == "whatsapp_agent":
             return VertexInferenceService(
                 model=settings.WHATSAPP_AGENT_VERTEX_MODEL,
                 max_tokens=settings.WHATSAPP_AGENT_VERTEX_MAX_TOKENS,
@@ -1553,7 +1547,7 @@ def get_inference_service_with_fallback(agent_type: str = "default"):
     with retry logic.
 
     Args:
-        agent_type: Type of agent ("whatsapp_agent", "super_agent", or "default")
+        agent_type: Type of agent ("whatsapp_agent" or "default")
 
     Returns:
         FallbackInferenceService instance
@@ -1571,7 +1565,6 @@ def get_inference_service(agent_type: str = "default"):
     
     Args:
         agent_type: Type of agent requesting the service
-            - "super_agent": Uses SUPER_AGENT_INFERENCE_PROVIDER settings
             - "whatsapp_agent": Uses WHATSAPP_AGENT_INFERENCE_PROVIDER settings
             - "default": Uses global AGENT_INFERENCE_PROVIDER setting (fallback)
     
@@ -1581,10 +1574,7 @@ def get_inference_service(agent_type: str = "default"):
     from app.core.config import settings
     
     # Determine provider based on agent type
-    if agent_type == "super_agent":
-        provider = settings.SUPER_AGENT_INFERENCE_PROVIDER.lower()
-        logger.info("Getting inference service for Super Agent", provider=provider)
-    elif agent_type == "whatsapp_agent":
+    if agent_type == "whatsapp_agent":
         provider = settings.WHATSAPP_AGENT_INFERENCE_PROVIDER.lower()
         logger.info("Getting inference service for WhatsApp Agent", provider=provider)
     else:
@@ -1598,17 +1588,7 @@ def get_inference_service(agent_type: str = "default"):
             VertexInferenceServiceError,
         )
         try:
-            if agent_type == "super_agent":
-                logger.info(
-                    "Using Vertex AI inference service for Super Agent",
-                    model=settings.SUPER_AGENT_VERTEX_MODEL,
-                )
-                return VertexInferenceService(
-                    model=settings.SUPER_AGENT_VERTEX_MODEL,
-                    max_tokens=settings.SUPER_AGENT_VERTEX_MAX_TOKENS,
-                    temperature=settings.SUPER_AGENT_VERTEX_TEMPERATURE,
-                )
-            elif agent_type == "whatsapp_agent":
+            if agent_type == "whatsapp_agent":
                 logger.info(
                     "Using Vertex AI inference service for WhatsApp Agent",
                     model=settings.WHATSAPP_AGENT_VERTEX_MODEL,
@@ -1641,13 +1621,6 @@ def get_inference_service(agent_type: str = "default"):
                 "Gemini provider selected but GEMINI_API_KEY not configured, falling back to LM Studio",
                 agent_type=agent_type,
             )
-            # Fallback to LM Studio with agent-specific model if available
-            if agent_type == "super_agent":
-                return InferenceService(
-                    model=settings.SUPER_AGENT_LM_STUDIO_MODEL,
-                    max_tokens=settings.SUPER_AGENT_LM_STUDIO_MAX_TOKENS,
-                    temperature=settings.SUPER_AGENT_LM_STUDIO_TEMPERATURE,
-                )
             return InferenceService()
         
         # Use agent-specific Gemini model if configured
@@ -1669,17 +1642,6 @@ def get_inference_service(agent_type: str = "default"):
         return gemini_inference_service
     else:
         # LM Studio provider
-        if agent_type == "super_agent":
-            logger.info(
-                "Using LM Studio inference service for Super Agent",
-                model=settings.SUPER_AGENT_LM_STUDIO_MODEL,
-            )
-            return InferenceService(
-                model=settings.SUPER_AGENT_LM_STUDIO_MODEL,
-                max_tokens=settings.SUPER_AGENT_LM_STUDIO_MAX_TOKENS,
-                temperature=settings.SUPER_AGENT_LM_STUDIO_TEMPERATURE,
-            )
-        
         if agent_type == "whatsapp_agent":
             logger.info(
                 "Using LM Studio inference service for WhatsApp Agent",

@@ -37,31 +37,20 @@ class ChatSocketService:
             auth: Optional[dict[str, Any]] = None,
         ):
             token = (auth or {}).get("token")
-            guest_agent_chat = bool((auth or {}).get("guestAgentChat"))
             user = self._get_user_from_token(token) if token else None
 
-            if token and not user and not guest_agent_chat:
-                logger.warning("Frontend socket authentication failed", sid=sid)
-                return False
-
-            if not token and not guest_agent_chat:
+            if not user:
                 logger.warning("Frontend socket authentication failed", sid=sid)
                 return False
 
             await self.server.save_session(
                 sid,
                 {
-                    "user_id": user.id if user else None,
-                    "email": user.email if user else None,
-                    "guest_agent_chat": guest_agent_chat,
+                    "user_id": user.id,
+                    "email": user.email,
                 },
             )
-            logger.info(
-                "Frontend socket connected",
-                sid=sid,
-                user_id=user.id if user else None,
-                guest_agent_chat=guest_agent_chat,
-            )
+            logger.info("Frontend socket connected", sid=sid, user_id=user.id)
 
         @self.server.event
         async def disconnect(sid: str):
@@ -135,26 +124,6 @@ class ChatSocketService:
                 logger.error("Socket send_message failed", error=str(exc), instance_name=instance_name)
                 return {"ok": False}
 
-        @self.server.on("join_agent_chat")
-        async def join_agent_chat(sid: str, data: dict[str, Any]):
-            session_id = data.get("sessionId")
-            if not session_id:
-                return {"ok": False}
-
-            await self.server.enter_room(sid, self._agent_chat_room(session_id))
-            logger.info("Frontend socket joined agent chat room", sid=sid, session_id=session_id)
-            return {"ok": True}
-
-        @self.server.on("leave_agent_chat")
-        async def leave_agent_chat(sid: str, data: dict[str, Any]):
-            session_id = data.get("sessionId")
-            if not session_id:
-                return {"ok": False}
-
-            await self.server.leave_room(sid, self._agent_chat_room(session_id))
-            logger.info("Frontend socket left agent chat room", sid=sid, session_id=session_id)
-            return {"ok": True}
-
     def _get_user_from_token(self, token: Optional[str]) -> Optional[User]:
         if not token:
             return None
@@ -209,9 +178,6 @@ class ChatSocketService:
     def _conversation_room(self, instance_name: str, conversation_id: str) -> str:
         return f"conversation:{instance_name}:{conversation_id}"
 
-    def _agent_chat_room(self, session_id: str) -> str:
-        return f"agent_chat:{session_id}"
-
     async def emit_realtime_event(self, event: dict[str, Any]) -> None:
         instance_name = event.get("instance_name")
         if not instance_name:
@@ -242,9 +208,6 @@ class ChatSocketService:
                 }
                 conv_room = self._conversation_room(instance_name, conversation_id)
                 await self.server.emit("thinking_event", normalized_payload, room=conv_room)
-                # Also emit to agent chat room (session_id = conversation_id for agent chat)
-                agent_room = self._agent_chat_room(conversation_id)
-                await self.server.emit("thinking_event", normalized_payload, room=agent_room)
                 # Also emit to instance room as fallback
                 await self.server.emit("thinking_event", normalized_payload, room=room)
         elif event_type == "tool_event":
@@ -287,8 +250,6 @@ class ChatSocketService:
                 }
                 conv_room = self._conversation_room(instance_name, conversation_id)
                 await self.server.emit("tool_event", normalized_payload, room=conv_room)
-                agent_room = self._agent_chat_room(conversation_id)
-                await self.server.emit("tool_event", normalized_payload, room=agent_room)
                 await self.server.emit("tool_event", normalized_payload, room=room)
 
 

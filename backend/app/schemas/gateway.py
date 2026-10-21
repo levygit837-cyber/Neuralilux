@@ -5,7 +5,7 @@ from urllib.parse import urlparse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 ReasoningEffort = Literal["low", "medium", "high"]
-AgentType = Literal["default", "whatsapp_agent", "super_agent"]
+AgentType = Literal["default", "whatsapp_agent"]
 
 
 def _clean_base_url(value: str) -> str:

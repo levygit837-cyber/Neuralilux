@@ -35,15 +35,6 @@ class TestFallbackInferenceBasic:
         assert service.max_retries == 3
 
     @pytest.mark.asyncio
-    async def test_fallback_service_super_agent(self):
-        """Test FallbackInferenceService for super_agent."""
-        service = FallbackInferenceService(agent_type="super_agent")
-        
-        assert service.agent_type == "super_agent"
-        assert service.primary_service is not None
-        assert service.secondary_service is not None
-
-    @pytest.mark.asyncio
     async def test_fallback_service_default(self):
         """Test FallbackInferenceService for default agent."""
         service = FallbackInferenceService(agent_type="default")

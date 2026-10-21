@@ -18,7 +18,7 @@ from app.services.gateway_inference_service import GatewayInferenceService
 logger = structlog.get_logger()
 
 DEFAULT_AGENT_TYPE = "default"
-AGENT_TYPES = ("default", "whatsapp_agent", "super_agent")
+AGENT_TYPES = ("default", "whatsapp_agent")
 KIRO_GATEWAY_NAME = "Kiro-backend"
 
 _CACHE_TTL_SECONDS = 5.0

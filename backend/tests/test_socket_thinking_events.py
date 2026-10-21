@@ -26,7 +26,8 @@ async def test_emit_realtime_event_normalizes_thinking_payload_for_frontend():
         emit_mock = chat_socket_service.server.emit
         chat_socket_service.server.emit = original_emit
 
-    assert emit_mock.await_count == 3
+    rooms = [call.kwargs["room"] for call in emit_mock.await_args_list]
+    assert rooms == ["conversation:company-123:session-abc", "instance:company-123"]
 
     first_payload = emit_mock.await_args_list[0].args[1]
     assert first_payload["conversationId"] == "session-abc"
@@ -55,7 +56,8 @@ async def test_emit_realtime_event_normalizes_response_payload_for_frontend():
         emit_mock = chat_socket_service.server.emit
         chat_socket_service.server.emit = original_emit
 
-    assert emit_mock.await_count == 3
+    rooms = [call.kwargs["room"] for call in emit_mock.await_args_list]
+    assert rooms == ["conversation:company-123:session-abc", "instance:company-123"]
 
     first_payload = emit_mock.await_args_list[0].args[1]
     assert first_payload["conversationId"] == "session-abc"
