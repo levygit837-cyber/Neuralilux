@@ -90,6 +90,7 @@ class Company(Base):
     business_type = relationship("BusinessType", back_populates="companies")
     users = relationship("User", back_populates="company")
     instances = relationship("Instance", back_populates="company")
+    agents = relationship("Agent", back_populates="company")
     products = relationship("Product", back_populates="company")  # DEPRECATED
     menu_catalogs = relationship("MenuCatalog", back_populates="company")
 
@@ -191,7 +192,6 @@ class Conversation(Base):
     last_message_at = Column(DateTime(timezone=True))
     last_message_preview = Column(Text)
     assigned_agent_id = Column(String, ForeignKey("agents.id"), nullable=True)
-    active_agent_type = Column(String, default="sales", nullable=False)  # "sales", "sac"
     human_in_loop = Column(Boolean, default=False, nullable=False)  # True when human took control
     human_handoff_reason = Column(Text, nullable=True)  # Reason for human handoff
     ticket_id = Column(String, ForeignKey("tickets.id", use_alter=True, name="fk_conversations_ticket_id"), nullable=True)  # Reference to ticket
@@ -216,18 +216,18 @@ class Agent(Base):
     name = Column(String, nullable=False)
     description = Column(Text)
     system_prompt = Column(Text, nullable=False)
-    model = Column(String, default="gpt-4-turbo-preview")
-    temperature = Column(Integer, default=70)  # 0-100
+    company_id = Column(String, ForeignKey("companies.id"), nullable=True, index=True)  # um Agent por Company
+    model = Column(String, nullable=True)  # o modelo vem do Gateway; só sobrescreve se preenchido
+    temperature = Column(Float, nullable=True)  # None: usa a do Gateway
     max_tokens = Column(Integer, default=1000)
-    use_rag = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
-    agent_type = Column(String, default="sales", nullable=False)  # "sales", "sac"
     owner_id = Column(String, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
     owner = relationship("User", back_populates="agents")
+    company = relationship("Company", back_populates="agents")
     instances = relationship("Instance", back_populates="agent")
 
 

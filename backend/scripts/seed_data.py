@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal, engine, Base
-from app.models.models import BusinessType, ProductType, Company, User, DeliveryZone
+from app.models.models import Agent, BusinessType, ProductType, Company, Instance, User, DeliveryZone
 from app.core.security import get_password_hash
 from app.services.menu_catalog_service import sync_macedos_menu_from_json
 from app.llm.registry import ensure_default_gateway, reencrypt_gateway_secrets
@@ -170,6 +170,35 @@ def create_or_update_test_user(db: Session, company_id: str):
     return user
 
 
+def create_company_agents(db: Session):
+    """Um Agent por Company, ligado às Instances da Company que ainda não têm Agent (idempotente).
+
+    O comportamento vem do núcleo e do Pack do Business Type; `system_prompt` é só o registro
+    exigido pela coluna. Instance sem Company e Instance já ligada a outro Agent ficam como estão.
+    """
+    created = []
+    for company in db.query(Company).order_by(Company.name).all():
+        agent = db.query(Agent).filter(Agent.company_id == company.id).order_by(Agent.created_at).first()
+        if agent is None:
+            owner = db.query(User).filter(User.company_id == company.id).order_by(User.email).first()
+            agent = Agent(
+                name=f"Atendente {company.name}",
+                description=f"Agent de atendimento de {company.name}",
+                system_prompt=f"Atendente de {company.name}",
+                company_id=company.id,
+                owner_id=owner.id if owner else None,
+                is_active=True,
+            )
+            db.add(agent)
+            db.flush()
+            created.append(company.name)
+        db.query(Instance).filter(
+            Instance.company_id == company.id, Instance.agent_id.is_(None)
+        ).update({Instance.agent_id: agent.id}, synchronize_session="fetch")
+    db.commit()
+    return created
+
+
 MACEDOS_BUSINESS_HOURS = {
     "mon": [["18:00", "23:00"]],
     "tue": [["18:00", "23:00"]],
@@ -256,6 +285,10 @@ def main():
             print(f"  Name: {user.full_name}")
             print(f"  Password: teste123")
             print(f"  Company: {target_company.name if target_company else catalog.company_id}")
+
+        print("\nCreating one Agent per company and binding the company's instances...")
+        agents = create_company_agents(db)
+        print(f"Created agents for: {', '.join(agents)}" if agents else "All companies already have an Agent")
 
         print("\nRegistering default inference gateway (Kiro-backend)...")
         gateway = ensure_default_gateway(db)
