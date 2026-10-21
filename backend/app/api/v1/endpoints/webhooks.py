@@ -1,12 +1,29 @@
-from fastapi import APIRouter, Request, HTTPException
-import structlog
 import base64
+import hmac
 from typing import Any
 
+import structlog
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+
+from app.core.config import settings
 from app.services.message_queue_service import message_queue_service
 
-router = APIRouter()
 logger = structlog.get_logger()
+
+
+def require_webhook_token(token: str = Query("")) -> None:
+    """Recusa a chamada sem `?token=` igual a EVOLUTION_WEBHOOK_TOKEN (ADR 0006).
+
+    Token não configurado recusa tudo: um token vazio nunca é uma credencial válida.
+    """
+    expected = settings.EVOLUTION_WEBHOOK_TOKEN.encode()
+    # Bytes, não str: compare_digest levanta TypeError com str não-ASCII.
+    if not expected or not hmac.compare_digest(token.encode(), expected):
+        logger.warning("Evolution webhook rejected: missing or invalid token")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook token")
+
+
+router = APIRouter(dependencies=[Depends(require_webhook_token)])
 
 
 def _convert_bytes_to_base64(obj: Any) -> Any:
@@ -64,7 +81,7 @@ async def evolution_webhook(request: Request, event_type: str = None):
         safe_payload = _convert_bytes_to_base64(payload)
 
         # Publish webhook event to RabbitMQ for async processing
-        message_queue_service.publish_webhook_event(safe_payload)
+        await message_queue_service.publish_webhook_event(safe_payload)
 
         return {"status": "received", "event": final_event}
 

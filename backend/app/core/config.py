@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Neuralilux"
     VERSION: str = "0.1.0"
     ENVIRONMENT: str = "development"
-    DEBUG: bool = True
+    DEBUG: bool = False
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg://neuralilux:neuralilux_password@localhost:5434/neuralilux"
@@ -21,11 +21,13 @@ class Settings(BaseSettings):
 
     # Evolution API
     EVOLUTION_API_URL: str = "http://localhost:8081"
-    EVOLUTION_API_KEY: str = "3v0lut10n_4P1_K3y_S3cur3_2026!"
+    EVOLUTION_API_KEY: str = ""  # sem default: vem do ambiente
+    EVOLUTION_WEBHOOK_TOKEN: str = ""  # ?token= do webhook (ADR 0006); vazio recusa toda chamada
     EVOLUTION_WEBSOCKET_ENABLED: bool = False
 
     # RabbitMQ
     RABBITMQ_URL: str = "amqp://neuralilux:rabbitmq_password@localhost:5672/neuralilux"
+    RABBITMQ_PREFETCH: int = 8  # mensagens simultâneas por consumer
 
     # JWT
     SECRET_KEY: str = "change-me-in-production-use-strong-secret-key-here"
