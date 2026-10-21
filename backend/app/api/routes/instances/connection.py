@@ -41,6 +41,21 @@ def _is_already_exists(error: EvolutionAPIError) -> bool:
     return error.status_code in (403, 409) and ("already in use" in message or "already exists" in message)
 
 
+async def _delete_orphan_in_evolution(instance_name: str) -> None:
+    """Best-effort: remove da Evolution a Instance que esta requisição criou e cuja linha local não foi gravada.
+
+    Falha só é logada: quem chama segue com o 409 e nunca o esconde.
+    """
+    try:
+        await evolution_api.delete_instance(instance_name)
+    except Exception as e:  # noqa: BLE001 - limpeza não pode mascarar o erro original
+        logger.error(
+            "Failed to delete orphan instance from Evolution API after local commit conflict",
+            instance_id=instance_name,
+            error=getattr(e, "message", str(e)),
+        )
+
+
 def _evolution_instance_name(inst: dict) -> str:
     nested = inst.get("instance") or {}
     return inst.get("name") or inst.get("instanceName") or nested.get("instanceName") or ""
@@ -325,11 +340,13 @@ async def create_or_connect_instance(
       Company do usuário e o Agent ativo da Company (se houver).
     - Se a Evolution responde que o nome já existe: só o superusuário importa a Instance (upsert da
       linha local); qualquer outro recebe 409.
-    - Criação concorrente do mesmo nome: 409.
+    - Criação concorrente do mesmo nome: 409. Se esta requisição criou a Instance na Evolution e o commit
+      local falhou, ela tenta apagar a Instance órfã na Evolution (best-effort; falha só é logada).
     """
     try:
         existing = check_create_access(db, instance_id, current_user)
 
+        created_here = True  # só esta requisição criou a Instance na Evolution (não foi "já existe")
         try:
             create_result = await evolution_api.create_instance(instance_id)
         except EvolutionAPIError as e:
@@ -341,12 +358,15 @@ async def create_or_connect_instance(
                     detail=f"Instance {instance_id} already exists",
                 )
             create_result = {"status": "ALREADY_EXISTS"}
+            created_here = False
 
         instance = upsert_instance_for_user(db, instance_id, current_user)
         try:
             db.commit()
         except IntegrityError:
             db.rollback()
+            if created_here:
+                await _delete_orphan_in_evolution(instance_id)
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Instance {instance_id} was created concurrently",

@@ -231,9 +231,20 @@ def test_superuser_imports_an_instance_that_already_exists_in_evolution(client, 
 
 def test_concurrent_create_returns_409_and_rolls_back(client, db, evolution, monkeypatch):
     headers = make_user(client, db, "dono@example.com")
+    _race_on_commit(monkeypatch)  # duas linhas com o mesmo evolution_instance_id: o commit estoura como na corrida real
 
+    response = client.post("/api/v1/instances/inst-corrida", headers=headers)
+
+    assert response.status_code == 409
+    assert _count(db) == 0
+    assert client.get("/api/v1/instances/", headers=headers).status_code == 200  # a sessão segue utilizável
+    # Esta requisição criou a Instance na Evolution e a linha local não foi gravada: apaga o órfão.
+    evolution["create_instance"].assert_awaited_once()
+    evolution["delete_instance"].assert_awaited_once_with("inst-corrida")
+
+
+def _race_on_commit(monkeypatch):
     def racing_upsert(session, name, user):
-        # Duas linhas com o mesmo evolution_instance_id: o commit estoura como na corrida real.
         for _ in range(2):
             instance = Instance(name=name, evolution_instance_id=name, owner_id=user.id, is_active=True)
             session.add(instance)
@@ -241,11 +252,30 @@ def test_concurrent_create_returns_409_and_rolls_back(client, db, evolution, mon
 
     monkeypatch.setattr("app.api.routes.instances.connection.upsert_instance_for_user", racing_upsert)
 
+
+def test_failed_orphan_cleanup_is_logged_and_never_masks_the_409(client, db, evolution, monkeypatch):
+    headers = make_user(client, db, "dono@example.com")
+    _race_on_commit(monkeypatch)
+    evolution["delete_instance"].side_effect = EvolutionAPIError("boom", status_code=500)
+
     response = client.post("/api/v1/instances/inst-corrida", headers=headers)
 
     assert response.status_code == 409
+    assert "created concurrently" in response.json()["detail"]
+    evolution["delete_instance"].assert_awaited_once_with("inst-corrida")
     assert _count(db) == 0
-    assert client.get("/api/v1/instances/", headers=headers).status_code == 200  # a sessão segue utilizável
+
+
+def test_conflict_on_an_instance_that_already_existed_in_evolution_does_not_delete_it(client, db, evolution, monkeypatch):
+    company = make_company(db, "Importada")
+    admin = make_user(client, db, "admin@example.com", company=company, superuser=True)
+    evolution["create_instance"].side_effect = ALREADY_IN_USE  # não foi esta requisição que a criou
+    _race_on_commit(monkeypatch)
+
+    response = client.post("/api/v1/instances/inst-x", headers=admin)
+
+    assert response.status_code == 409
+    evolution["delete_instance"].assert_not_called()
 
 
 # --- Instance sem dono (legado): só o superusuário assume -----------------------------------------------

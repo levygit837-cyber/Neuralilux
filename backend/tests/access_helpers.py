@@ -51,7 +51,7 @@ def make_instance(db, name: str, owner_email: str | None, company=None, **extra)
     return instance
 
 
-def make_ticket(db, instance: Instance, reason: str = "Reclamação") -> Ticket:
+def make_conversation(db, instance: Instance) -> Conversation:
     contact = Contact(
         instance_id=instance.id,
         phone_number=f"55{instance.id[:8]}",
@@ -65,10 +65,15 @@ def make_ticket(db, instance: Instance, reason: str = "Reclamação") -> Ticket:
     )
     db.add(conversation)
     db.commit()
+    return conversation
+
+
+def make_ticket(db, instance: Instance, reason: str = "Reclamação") -> Ticket:
+    conversation = make_conversation(db, instance)
     ticket = Ticket(
         conversation_id=conversation.id,
         instance_id=instance.id,
-        contact_id=contact.id,
+        contact_id=conversation.contact_id,
         agent_type="sac",
         reason=reason,
         content="Conteúdo",
@@ -87,6 +92,7 @@ def fake_evolution(monkeypatch, instances: list | None = None) -> dict[str, Asyn
         "disconnect_instance": AsyncMock(return_value={"status": "SUCCESS"}),
         "delete_instance": AsyncMock(return_value={"status": "SUCCESS"}),
         "create_instance": AsyncMock(return_value={"instance": {"instanceName": "x"}}),
+        "send_text_message": AsyncMock(return_value={"key": {"id": "wamid-1"}}),
     }
     for name, mock in mocks.items():
         monkeypatch.setattr(evolution_api, name, mock)
