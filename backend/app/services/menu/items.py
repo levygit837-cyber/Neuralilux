@@ -6,7 +6,7 @@ from typing import Any, Optional
 from sqlalchemy.orm import Session
 
 from app.models import MenuItem
-from app.schemas.menu import MenuItemCreate, MenuItemUpdate
+from app.schemas.catalog import MenuItemCreate, MenuItemUpdate
 from app.services.menu.common import (
     _assert_unique_sku,
     _ensure_company_id,

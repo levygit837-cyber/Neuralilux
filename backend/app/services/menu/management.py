@@ -7,7 +7,7 @@ from typing import Any, Optional
 from sqlalchemy.orm import Session
 
 from app.models import MenuCategory, MenuItem
-from app.schemas.menu import MenuCategoryCreate, MenuCategoryUpdate
+from app.schemas.catalog import MenuCategoryCreate, MenuCategoryUpdate
 from app.services.menu.common import (
     _assert_unique_category_name,
     _ensure_company_id,

@@ -13,13 +13,12 @@ import structlog
 from app.api.deps import get_current_user, get_db
 from app.api.routes.conversations.access import _get_instance_for_user
 from app.models import User, Instance, Contact, Conversation, Message
-from app.schemas.whatsapp import (
-    ConversationResponse,
-    PaginatedConversations,
+from app.schemas.conversation import ConversationResponse, PaginatedConversations
+from app.schemas.message import (
     ConversationSendMessageRequest,
-    SendMessageResponse,
     MessageResponse,
     PaginatedMessages,
+    SendMessageResponse,
 )
 from app.whatsapp.evolution_client import evolution_api, EvolutionAPIError
 

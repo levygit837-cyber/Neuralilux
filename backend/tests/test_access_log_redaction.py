@@ -1,7 +1,7 @@
 """O token do webhook vai na query string (ADR 0006): o access log do uvicorn não pode gravá-lo."""
 import logging
 
-from app.main import RedactWebhookToken
+from app.core.logging import RedactWebhookToken
 
 
 def _render(path: str) -> str:

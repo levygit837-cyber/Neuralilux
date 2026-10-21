@@ -8,7 +8,7 @@ import structlog
 
 from app.api.deps import get_current_user, get_db
 from app.models import User, Instance, Contact
-from app.schemas.whatsapp import ContactResponse, PaginatedContacts
+from app.schemas.contact import ContactResponse, PaginatedContacts
 
 logger = structlog.get_logger()
 

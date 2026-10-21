@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.api.deps import get_db
-from app.schemas.menu import (
+from app.schemas.catalog import (
     MenuCategoryCreate,
     MenuCategoryResponse,
     MenuCategoryUpdate,

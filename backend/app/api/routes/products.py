@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from app.api.deps import get_db
-from app.schemas.product import ProductCreate, ProductUpdate, ProductResponse
+from app.schemas.catalog import ProductCreate, ProductUpdate, ProductResponse
 from app.services.product_service import (
     create_product,
     get_product,
