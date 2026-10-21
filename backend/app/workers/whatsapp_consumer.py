@@ -14,13 +14,8 @@ from app.services.realtime_event_bus import realtime_event_bus
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models.models import Instance, Contact, Conversation, Message, Agent
-from app.agents.exceptions import (
-    AgentNotEnabledError,
-    AgentNotAssignedError,
-    AgentInactiveError,
-    MessageProcessingError,
-    InstanceNotFoundError,
-)
+from app.agent import executor
+from app.services.evolution_api import evolution_api
 
 logger = structlog.get_logger()
 
@@ -389,8 +384,7 @@ class WhatsAppMessageConsumer:
                     db=db,
                     instance=instance,
                     conversation=conversation,
-                    remote_jid=remote_jid,
-                    contact_name=contact.name or phone_number,
+                    contact=contact,
                     content=content,
                 )
             else:
@@ -583,182 +577,43 @@ class WhatsAppMessageConsumer:
         db: Session,
         instance: Instance,
         conversation: Conversation,
-        remote_jid: str,
-        contact_name: str,
+        contact: Contact,
         content: str,
     ) -> None:
-        """
-        Tenta processar a mensagem com o agente AI se a instância tem um agente atribuído.
-        """
-        correlation_id = str(uuid.uuid4())
-        
+        """Roda um Turn do Agent para a Message recebida e envia a resposta, se houver."""
+        log = logger.bind(instance_id=instance.id, conversation_id=str(conversation.id))
         try:
-            logger.info(
-                "Checking agent for instance",
-                correlation_id=correlation_id,
-                instance_id=instance.id,
-                instance_name=instance.name,
-                agent_enabled=instance.agent_enabled,
-                agent_id=instance.agent_id,
-                conversation_id=str(conversation.id)
-            )
-
-            # Verificar se o agente está habilitado para esta instância
             if not instance.agent_enabled:
-                logger.info(
-                    "Agent disabled for this instance",
-                    correlation_id=correlation_id,
-                    instance_id=instance.id,
-                    instance_name=instance.name
-                )
-                raise AgentNotEnabledError(
-                    "Agent is not enabled for this instance",
-                    context={
-                        "instance_id": str(instance.id),
-                        "instance_name": instance.name,
-                        "conversation_id": str(conversation.id)
-                    }
-                )
+                log.info("Agent disabled for this instance")
+                return
 
-            # Verificar se a instância tem um agente atribuído
             agent = None
-            if not instance.agent_id:
-                # Tentar resolver automaticamente um agent
-                logger.info(
-                    "No agent assigned, attempting auto-resolution",
-                    correlation_id=correlation_id,
-                    instance_id=instance.id,
-                    instance_name=instance.name
-                )
+            if instance.agent_id:
+                agent = db.query(Agent).filter(Agent.id == instance.agent_id, Agent.is_active == True).first()
+            else:
                 agent = _resolve_default_agent(db, instance)
-                
                 if agent:
-                    # Atualizar instância com o agent resolvido
                     instance.agent_id = agent.id
                     db.commit()
-                    logger.info(
-                        "Auto-resolved agent assigned to instance",
-                        correlation_id=correlation_id,
-                        instance_id=instance.id,
-                        agent_id=agent.id,
-                        agent_name=agent.name
-                    )
-                else:
-                    logger.error(
-                        "No agent available for auto-resolution",
-                        correlation_id=correlation_id,
-                        instance_id=instance.id,
-                        instance_name=instance.name,
-                        owner_id=instance.owner_id
-                    )
-                    raise AgentNotAssignedError(
-                        "No agent assigned to this instance and no default agent available",
-                        context={
-                            "instance_id": str(instance.id),
-                            "instance_name": instance.name,
-                            "owner_id": instance.owner_id,
-                            "conversation_id": str(conversation.id)
-                        }
-                    )
-            else:
-                # Buscar agent atribuído
-                agent = db.query(Agent).filter(
-                    Agent.id == instance.agent_id,
-                    Agent.is_active == True
-                ).first()
-
-            # Verificar se o agente existe e está ativo
             if not agent:
-                logger.error(
-                    "Agent not found or inactive",
-                    correlation_id=correlation_id,
-                    instance_id=instance.id,
-                    agent_id=instance.agent_id
-                )
-                raise AgentInactiveError(
-                    f"Agent {instance.agent_id} not found or inactive",
-                    context={
-                        "instance_id": str(instance.id),
-                        "instance_name": instance.name,
-                        "agent_id": instance.agent_id,
-                        "conversation_id": str(conversation.id)
-                    }
-                )
+                log.error("No active Agent for this instance; message not answered", agent_id=instance.agent_id)
+                return
 
-            logger.info(
-                "Processing message with AI agent",
-                correlation_id=correlation_id,
-                agent_id=agent.id,
-                agent_name=agent.name,
-                conversation_id=str(conversation.id)
+            result = await executor.handle_incoming(db, conversation, contact, instance, content)
+            if not result.reply_text:
+                log.info("Agent returned no response", steps=result.steps)
+                return
+
+            await evolution_api.send_text_message(
+                instance_name=instance.evolution_instance_id or instance.name,
+                remote_jid=conversation.remote_jid,
+                text=result.reply_text,
             )
-
-            # Processar com o agente
-            from app.agents.agent_executor import whatsapp_agent
-
-            response = await whatsapp_agent.process_message(
-                conversation_id=str(conversation.id),
-                instance_id=str(instance.id),
-                instance_name=instance.name or instance.evolution_instance_id or "",
-                remote_jid=remote_jid,
-                contact_name=contact_name,
-                message=content,
-            )
-
-            if response:
-                logger.info(
-                    "Agent response sent",
-                    correlation_id=correlation_id,
-                    conversation_id=str(conversation.id),
-                    response_length=len(response)
-                )
-            else:
-                logger.info(
-                    "Agent returned no response",
-                    correlation_id=correlation_id,
-                    conversation_id=str(conversation.id)
-                )
-
-        except (AgentNotEnabledError, AgentNotAssignedError, AgentInactiveError) as e:
-            # Exceções esperadas do fluxo - log informativo
-            logger.info(
-                "Agent processing skipped",
-                correlation_id=correlation_id,
-                conversation_id=str(conversation.id),
-                error_type=type(e).__name__,
-                error=str(e),
-                context=e.context if hasattr(e, 'context') else {}
-            )
-            # Não relançar - estas são condições esperadas
-
-        except MessageProcessingError as e:
-            # Erro de processamento de mensagem - log detalhado
-            import traceback
-            error_traceback = traceback.format_exc()
-            logger.error(
-                "Message processing error",
-                correlation_id=correlation_id,
-                conversation_id=str(conversation.id),
-                error_type=type(e).__name__,
-                error=str(e),
-                context=e.context if hasattr(e, 'context') else {},
-                traceback=error_traceback
-            )
-            # Não relançar para não quebrar o worker
-
-        except Exception as e:
-            # Erro inesperado - log detalhado
-            import traceback
-            error_traceback = traceback.format_exc()
-            logger.error(
-                "Unexpected error processing message with agent",
-                correlation_id=correlation_id,
-                conversation_id=str(conversation.id),
-                error=str(e),
-                error_type=type(e).__name__,
-                traceback=error_traceback
-            )
-            # Não relançar para não quebrar o worker
+            log.info("Agent response sent", steps=result.steps, response_length=len(result.reply_text))
+            executor.schedule_summary_refresh(conversation.id)
+        except Exception:
+            # Nunca derruba o worker: o erro fica no log e a próxima Message tenta de novo.
+            log.exception("Unexpected error processing message with agent")
     
     def register_consumers(self):
         """Register all consumer callbacks"""

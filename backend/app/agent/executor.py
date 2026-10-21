@@ -2,41 +2,55 @@
 
 Ordem: gate de Handoff lido do banco, contexto (Summary + Recent Window), Gateway
 do `whatsapp_agent`, loop com as Tools dos Packs da Company, formatação para o
-WhatsApp. Quem chama envia `reply_text` (se houver) e cuida do Summary depois do envio.
+WhatsApp. Quem chama envia `reply_text` (se houver) e depois chama
+`schedule_summary_refresh`, que atualiza o Summary em background sem atrasar o envio.
 """
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 import structlog
 from sqlalchemy.orm import Session
 
-from app.agent.contracts import MessagesClient, Pack, ToolContext
+from app.agent.contracts import Pack, Tool, ToolContext
+from app.agent.core_tools import core_tools
 from app.agent.events import TurnEvents
 from app.agent.formatting import to_whatsapp
 from app.agent.loop import TurnResult, run_turn
-from app.agent.memory import build_context
+from app.agent.memory import build_context, maybe_refresh_summary
 from app.agent.prompts import build_system_prompt
 from app.agent.tools import ToolRegistry
+from app.core import database
+from app.llm.registry import resolve as resolve_gateway
 from app.models.models import Company, Contact, Conversation, Instance
+from app.packs.registry import pack_for_company
 
 logger = structlog.get_logger()
+
+# Referências fortes às tarefas de Summary: sem elas o event loop pode coletá-las no meio.
+_summary_tasks: set[asyncio.Task[None]] = set()
 
 AGENT_TYPE = "whatsapp_agent"
 FALLBACK_REPLY = "Desculpe, tive um problema para responder agora. Pode mandar sua mensagem de novo em instantes?"
 
 
-def resolve_gateway(agent_type: str) -> tuple[MessagesClient, str, str | None]:
-    from app.llm.registry import resolve  # T2
+class CorePack:
+    """As Tools do núcleo, que todo Agent tem independentemente do Business Type."""
 
-    return resolve(agent_type)
+    name = "core"
+
+    def tools(self) -> list[Tool]:
+        return core_tools()
+
+    def system_prompt_section(self, ctx: ToolContext) -> str:
+        return ""
 
 
-def packs_for(db: Session, company: Company) -> list[Pack]:
-    from app.packs import packs_for_company  # T5
-
-    return packs_for_company(db, company)
+def packs_for(company: Company) -> list[Pack]:
+    pack = pack_for_company(company)
+    return [CorePack(), pack] if pack else [CorePack()]
 
 
 def _in_handoff(db: Session, conversation_id: str) -> bool:
@@ -82,7 +96,7 @@ async def handle_incoming(
         if not history or history[-1]["role"] != "user":
             # A Message que disparou o Turn ainda não está na janela (ex.: commit pendente).
             history = [*history, {"role": "user", "content": text}]
-        packs = packs_for(db, company)
+        packs = packs_for(company)
         client, model, effort = resolve_gateway(AGENT_TYPE)
         system = build_system_prompt(company_name=company.name, packs=packs, ctx=ctx, summary=summary)
         result = await run_turn(
@@ -105,3 +119,26 @@ async def handle_incoming(
     reply = to_whatsapp(result.reply_text) if result.reply_text else None
     log.info("Turn finished", steps=result.steps, tools=[call.name for call in result.tool_calls], replied=bool(reply))
     return TurnResult(reply_text=reply or None, tool_calls=result.tool_calls, steps=result.steps)
+
+
+async def _refresh_summary(conversation_id: str) -> None:
+    # Session própria: a do Turn não é segura entre tarefas e esta roda concorrente ao próximo Turn.
+    db = database.SessionLocal()
+    try:
+        conversation = db.get(Conversation, conversation_id)
+        if conversation is None:
+            return
+        client, model, _effort = resolve_gateway(AGENT_TYPE)
+        await maybe_refresh_summary(db, client, model, conversation)
+    except Exception:
+        logger.exception("Summary refresh failed", conversation_id=conversation_id)
+    finally:
+        db.close()
+
+
+def schedule_summary_refresh(conversation_id: str) -> asyncio.Task[None]:
+    """Atualiza o Summary da Conversation em background, depois que a resposta já foi enviada."""
+    task = asyncio.get_running_loop().create_task(_refresh_summary(conversation_id))
+    _summary_tasks.add(task)
+    task.add_done_callback(_summary_tasks.discard)
+    return task

@@ -2,9 +2,31 @@ import pytest
 from datetime import datetime, timezone
 from uuid import uuid4
 
+from app.agent import executor
+from app.agent.loop import TurnResult
 from app.core.database import Base, SessionLocal, engine
 from app.models.models import Agent, Contact, Conversation, Instance, Message, User
+from app.services.evolution_api import evolution_api
 from app.workers.whatsapp_consumer import WhatsAppMessageConsumer
+
+
+@pytest.fixture
+def agent_turn(monkeypatch):
+    """Troca o Turn real por um que só registra a chamada; o envio pela Evolution também é registrado."""
+    calls = {"turns": [], "sent": [], "summaries": []}
+
+    async def fake_handle_incoming(db, conversation, contact, instance, text):
+        calls["turns"].append({"instance": instance, "contact": contact, "text": text})
+        return TurnResult(reply_text="Resposta")
+
+    async def fake_send(*, instance_name, remote_jid, text):
+        calls["sent"].append({"instance_name": instance_name, "remote_jid": remote_jid, "text": text})
+        return {"key": {"id": "sent-1"}}
+
+    monkeypatch.setattr(executor, "handle_incoming", fake_handle_incoming)
+    monkeypatch.setattr(executor, "schedule_summary_refresh", calls["summaries"].append)
+    monkeypatch.setattr(evolution_api, "send_text_message", fake_send)
+    return calls
 
 
 @pytest.fixture
@@ -350,24 +372,14 @@ async def test_save_message_to_database_handles_group_jid_without_overflow(
 
 @pytest.mark.asyncio
 async def test_save_message_to_database_does_not_trigger_agent_when_instance_is_disabled(
-    db, monkeypatch
+    db, monkeypatch, agent_turn
 ):
     async def fake_publish(_event):
         return None
 
-    process_calls = []
-
-    async def fake_process_message(**kwargs):
-        process_calls.append(kwargs)
-        return "Resposta"
-
     monkeypatch.setattr(
         "app.workers.whatsapp_consumer.realtime_event_bus.publish",
         fake_publish,
-    )
-    monkeypatch.setattr(
-        "app.agents.agent_executor.whatsapp_agent.process_message",
-        fake_process_message,
     )
 
     user = User(
@@ -414,29 +426,20 @@ async def test_save_message_to_database_does_not_trigger_agent_when_instance_is_
 
     await consumer._save_message_to_database(db, payload)
 
-    assert process_calls == []
+    assert agent_turn["turns"] == []
+    assert agent_turn["sent"] == []
 
 
 @pytest.mark.asyncio
 async def test_save_message_to_database_triggers_agent_when_instance_is_enabled(
-    db, monkeypatch
+    db, monkeypatch, agent_turn
 ):
     async def fake_publish(_event):
         return None
 
-    process_calls = []
-
-    async def fake_process_message(**kwargs):
-        process_calls.append(kwargs)
-        return "Resposta"
-
     monkeypatch.setattr(
         "app.workers.whatsapp_consumer.realtime_event_bus.publish",
         fake_publish,
-    )
-    monkeypatch.setattr(
-        "app.agents.agent_executor.whatsapp_agent.process_message",
-        fake_process_message,
     )
 
     user = User(
@@ -483,7 +486,13 @@ async def test_save_message_to_database_triggers_agent_when_instance_is_enabled(
 
     await consumer._save_message_to_database(db, payload)
 
-    assert len(process_calls) == 1
-    assert process_calls[0]["instance_name"] == "Agent On Instance"
-    assert process_calls[0]["message"] == "Mensagem para responder"
+    [turn] = agent_turn["turns"]
+    assert turn["instance"].id == "instance-agent-on-1"
+    assert turn["contact"].remote_jid == "5511555555555@s.whatsapp.net"
+    assert turn["text"] == "Mensagem para responder"
+    assert agent_turn["sent"] == [
+        {"instance_name": "evo-agent-on-1", "remote_jid": "5511555555555@s.whatsapp.net", "text": "Resposta"}
+    ]
+    conversation = db.query(Conversation).filter(Conversation.remote_jid == "5511555555555@s.whatsapp.net").one()
+    assert agent_turn["summaries"] == [conversation.id]
 

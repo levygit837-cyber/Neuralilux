@@ -62,7 +62,7 @@ def agent(monkeypatch):
         section="Seção do Pack",
     )
     monkeypatch.setattr(executor, "resolve_gateway", lambda agent_type: (state["client"], "fake-model", "low"))
-    monkeypatch.setattr(executor, "packs_for", lambda db, company: [pack])
+    monkeypatch.setattr(executor, "pack_for_company", lambda company: pack)
     return state
 
 

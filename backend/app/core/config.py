@@ -32,58 +32,9 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
-    # OpenAI
-    OPENAI_API_KEY: str | None = None
-    OPENAI_MODEL: str = "gpt-4-turbo-preview"
-
-    # Anthropic
-    ANTHROPIC_API_KEY: str | None = None
-    ANTHROPIC_MODEL: str = "claude-3-sonnet-20240229"
-
-    # LM Studio (local inference)
-    LM_STUDIO_URL: str = "http://localhost:1234"
-    LM_STUDIO_MODEL: str = "nvidia/nemotron-3-nano-4b"
-    LM_STUDIO_MAX_TOKENS: int = 2048
-    LM_STUDIO_TEMPERATURE: float = 0.7
-    LM_STUDIO_DISABLE_THINKING: bool = True
-
-    # Google Gemini
-    GEMINI_API_KEY: str | None = None
-    GEMINI_MODEL: str = "gemini-3.1-flash-lite-preview"
-    GEMINI_MAX_TOKENS: int = 2048
-    GEMINI_TEMPERATURE: float = 0.7
-
-    # Vertex AI Express Mode (API Key based, no project ID needed)
-    VERTEX_API_KEY: str | None = None
-    VERTEX_MODEL: str = "gemini-3.1-flash-lite-preview"
-    VERTEX_MAX_TOKENS: int = 2048
-    VERTEX_TEMPERATURE: float = 0.7
-    VERTEX_TIMEOUT: float = 30.0
-
     # Gateway local "Kiro-backend" (semeado na primeira execucao; depois editavel pela API/UI)
     KIRO_GATEWAY_URL: str = "http://localhost:5580"  # raiz; o cliente acrescenta /v1/messages
     KIRO_GATEWAY_API_KEY: str | None = None
-
-    # Agent Configuration (Global defaults)
-    AGENT_MAX_HISTORY_MESSAGES: int = 10
-    AGENT_TEMPERATURE: float = 0.2
-    AGENT_ENABLED_BY_DEFAULT: bool = False
-    AGENT_RESPONSE_MAX_TOKENS: int = 250
-    AGENT_INFERENCE_PROVIDER: str = "vertex"  # "lm_studio", "gemini", or "vertex" (global fallback)
-
-    # WhatsApp Agent Configuration
-    WHATSAPP_AGENT_INFERENCE_PROVIDER: str = "vertex"  # "lm_studio", "gemini", or "vertex"
-    WHATSAPP_AGENT_GEMINI_MODEL: str = "gemini-2.0-flash-lite"
-    WHATSAPP_AGENT_GEMINI_MAX_TOKENS: int = 2048
-    WHATSAPP_AGENT_GEMINI_TEMPERATURE: float = 0.7
-    WHATSAPP_AGENT_LM_STUDIO_MODEL: str = "qwen3.5-4b-claude-4.6-opus-reasoning-distilled-v2"
-    WHATSAPP_AGENT_LM_STUDIO_MAX_TOKENS: int = 2048
-    WHATSAPP_AGENT_LM_STUDIO_TEMPERATURE: float = 0.7
-
-    # WhatsApp Agent Vertex Configuration
-    WHATSAPP_AGENT_VERTEX_MODEL: str = "gemini-3.1-flash-lite-preview"
-    WHATSAPP_AGENT_VERTEX_MAX_TOKENS: int = 2048
-    WHATSAPP_AGENT_VERTEX_TEMPERATURE: float = 0.7
 
     # CORS
     CORS_ORIGINS: List[str] = [

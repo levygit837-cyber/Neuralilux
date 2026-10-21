@@ -8,7 +8,7 @@ if os.environ.get("RUN_E2E") != "1":
 
 import pytest
 import pytest_asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
@@ -177,27 +177,9 @@ def _isolated_gateway_registry(monkeypatch):
     `SessionLocal` em tempo de chamada, entao apontamos para o SQLite de teste e limpamos o cache.
     """
     from app.core import database
-    from app.services import gateway_registry
+    from app.llm import registry as gateway_registry
 
     monkeypatch.setattr(database, "SessionLocal", TestingSessionLocal)
     gateway_registry.invalidate()
     yield
     gateway_registry.invalidate()
-
-
-@pytest.fixture
-def mock_realtime_event_bus():
-    """Mock realtime event bus for testing"""
-    mock_bus = MagicMock()
-    mock_bus.publish = AsyncMock()
-    return mock_bus
-
-
-@pytest.fixture
-def mock_inference_service():
-    """Mock inference service for testing"""
-    mock_service = MagicMock()
-    mock_service.astream_chat_completion_with_thinking = AsyncMock()
-    mock_service.chat_completion = AsyncMock()
-    return mock_service
-
