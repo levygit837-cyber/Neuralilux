@@ -10,7 +10,7 @@ import structlog
 from app.api.deps import get_db
 from app.api.deps import get_current_user
 from app.models import User, Instance
-from app.services.evolution_api import evolution_api, EvolutionAPIError
+from app.whatsapp.evolution_client import evolution_api, EvolutionAPIError
 
 logger = structlog.get_logger()
 

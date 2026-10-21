@@ -5,8 +5,8 @@ import pytest
 
 from app.agent.events import TurnEvents, publish_handoff_requested
 from app.agent.tools import ToolCall
-from app.services.realtime_event_bus import realtime_event_bus
-from app.services.socket_service import chat_socket_service
+from app.realtime.event_bus import realtime_event_bus
+from app.realtime.socket import chat_socket_service
 
 INSTANCE = "company-123"
 CONVERSATION = "5511999990001@s.whatsapp.net"

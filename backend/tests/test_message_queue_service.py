@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from app.services.message_queue_service import MessageQueueService
+from app.whatsapp.message_queue import MessageQueueService
 
 
 class FakeIncoming:

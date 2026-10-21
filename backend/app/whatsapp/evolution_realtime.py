@@ -12,7 +12,7 @@ import socketio
 import structlog
 
 from app.core.config import settings
-from app.services.message_queue_service import message_queue_service
+from app.whatsapp.message_queue import message_queue_service
 
 logger = structlog.get_logger()
 

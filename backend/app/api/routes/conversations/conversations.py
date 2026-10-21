@@ -21,7 +21,7 @@ from app.schemas.whatsapp import (
     MessageResponse,
     PaginatedMessages,
 )
-from app.services.evolution_api import evolution_api, EvolutionAPIError
+from app.whatsapp.evolution_client import evolution_api, EvolutionAPIError
 
 logger = structlog.get_logger()
 

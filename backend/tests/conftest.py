@@ -164,7 +164,7 @@ def _no_real_realtime_publish(monkeypatch):
     nos seguintes ele falha com "Event loop is closed". Testes que querem observar
     eventos continuam podendo sobrescrever `publish` com monkeypatch/patch.
     """
-    from app.services.realtime_event_bus import realtime_event_bus
+    from app.realtime.event_bus import realtime_event_bus
 
     monkeypatch.setattr(realtime_event_bus, "publish", AsyncMock())
 

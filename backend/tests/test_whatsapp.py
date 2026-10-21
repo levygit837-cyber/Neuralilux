@@ -80,7 +80,7 @@ class TestGetQRCode:
     @patch("app.api.routes.whatsapp.evolution_api")
     def test_evolution_error(self, mock_evo, client, auth_headers, disconnected_instance):
         async def raise_err(*a, **kw):
-            from app.services.evolution_api import EvolutionAPIError
+            from app.whatsapp.evolution_client import EvolutionAPIError
             raise EvolutionAPIError("fail", 500)
         mock_evo.get_instance_qrcode = raise_err
         resp = client.get("/api/v1/whatsapp/qr", params={"instance_id": "inst-d-001"}, headers=auth_headers)
@@ -117,7 +117,7 @@ class TestGetStatus:
     @patch("app.api.routes.whatsapp.evolution_api")
     def test_evolution_error(self, mock_evo, client, auth_headers, disconnected_instance):
         async def raise_err(*a, **kw):
-            from app.services.evolution_api import EvolutionAPIError
+            from app.whatsapp.evolution_client import EvolutionAPIError
             raise EvolutionAPIError("timeout", 500)
         mock_evo.get_instance_status = raise_err
         resp = client.get("/api/v1/whatsapp/status", params={"instance_id": "inst-d-001"}, headers=auth_headers)
@@ -151,7 +151,7 @@ class TestDisconnect:
     @patch("app.api.routes.whatsapp.evolution_api")
     def test_evolution_error(self, mock_evo, client, auth_headers, connected_instance):
         async def raise_err(*a, **kw):
-            from app.services.evolution_api import EvolutionAPIError
+            from app.whatsapp.evolution_client import EvolutionAPIError
             raise EvolutionAPIError("fail", 500)
         mock_evo.disconnect_instance = raise_err
         resp = client.post("/api/v1/whatsapp/disconnect", params={"instance_id": "inst-c-002"}, headers=auth_headers)

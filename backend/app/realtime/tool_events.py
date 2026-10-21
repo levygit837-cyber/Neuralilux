@@ -11,7 +11,7 @@ from uuid import uuid4
 import structlog
 
 from app.core.config import settings
-from app.services.realtime_event_bus import realtime_event_bus
+from app.realtime.event_bus import realtime_event_bus
 
 logger = structlog.get_logger()
 

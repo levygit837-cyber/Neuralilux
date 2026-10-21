@@ -15,8 +15,8 @@ import structlog
 
 from app.agent.contracts import ToolUseBlock
 from app.agent.tools import ToolCall
-from app.services.realtime_event_bus import realtime_event_bus
-from app.services.tool_event_service import ToolEventTracker, TrackedToolCall
+from app.realtime.event_bus import realtime_event_bus
+from app.realtime.tool_events import ToolEventTracker, TrackedToolCall
 
 logger = structlog.get_logger()
 

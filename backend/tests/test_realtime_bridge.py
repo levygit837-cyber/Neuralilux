@@ -5,8 +5,9 @@ from app.agent import executor
 from app.agent.loop import TurnResult
 from app.core.database import Base, engine
 from app.models import Agent, Contact, Conversation, Instance, Message, User
-from app.services.evolution_api import evolution_api
-from app.workers.whatsapp_consumer import WhatsAppMessageConsumer
+from app.whatsapp.evolution_client import evolution_api
+from app.whatsapp.consumer import WhatsAppMessageConsumer
+from app.whatsapp.status_events import update_connection_status, update_message_status
 
 
 @pytest.fixture
@@ -68,7 +69,7 @@ async def test_save_message_to_database_handles_evolution_event_shape_and_publis
         published_events.append(event)
 
     monkeypatch.setattr(
-        "app.workers.whatsapp_consumer.realtime_event_bus.publish",
+        "app.realtime.event_bus.realtime_event_bus.publish",
         fake_publish,
     )
 
@@ -141,7 +142,7 @@ async def test_update_message_status_normalizes_and_publishes_realtime_event(
         published_events.append(event)
 
     monkeypatch.setattr(
-        "app.workers.whatsapp_consumer.realtime_event_bus.publish",
+        "app.realtime.event_bus.realtime_event_bus.publish",
         fake_publish,
     )
 
@@ -193,7 +194,7 @@ async def test_update_message_status_normalizes_and_publishes_realtime_event(
         },
     }
 
-    await consumer._update_message_status(db, payload)
+    await update_message_status(db, payload)
     db.refresh(message)
 
     assert message.status == "read"
@@ -220,7 +221,7 @@ async def test_connection_update_normalizes_state_and_publishes_realtime_event(
         published_events.append(event)
 
     monkeypatch.setattr(
-        "app.workers.whatsapp_consumer.realtime_event_bus.publish",
+        "app.realtime.event_bus.realtime_event_bus.publish",
         fake_publish,
     )
 
@@ -232,7 +233,7 @@ async def test_connection_update_normalizes_state_and_publishes_realtime_event(
         },
     }
 
-    await consumer._update_connection_status(db, payload)
+    await update_connection_status(db, payload)
     db.refresh(owned_instance)
 
     assert owned_instance.status == "connected"
@@ -256,7 +257,7 @@ async def test_save_message_to_database_does_not_trigger_agent_when_instance_is_
         return None
 
     monkeypatch.setattr(
-        "app.workers.whatsapp_consumer.realtime_event_bus.publish",
+        "app.realtime.event_bus.realtime_event_bus.publish",
         fake_publish,
     )
 
@@ -316,7 +317,7 @@ async def test_save_message_to_database_triggers_agent_when_instance_is_enabled(
         return None
 
     monkeypatch.setattr(
-        "app.workers.whatsapp_consumer.realtime_event_bus.publish",
+        "app.realtime.event_bus.realtime_event_bus.publish",
         fake_publish,
     )
 

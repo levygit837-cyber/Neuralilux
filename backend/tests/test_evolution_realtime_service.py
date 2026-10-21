@@ -10,11 +10,11 @@ async def test_forward_event_publishes_webhook_payload(monkeypatch):
         return True
 
     monkeypatch.setattr(
-        "app.services.evolution_realtime.message_queue_service.publish_webhook_event",
+        "app.whatsapp.evolution_realtime.message_queue_service.publish_webhook_event",
         fake_publish,
     )
 
-    from app.services.evolution_realtime import EvolutionRealtimeService
+    from app.whatsapp.evolution_realtime import EvolutionRealtimeService
 
     service = EvolutionRealtimeService()
     payload = {

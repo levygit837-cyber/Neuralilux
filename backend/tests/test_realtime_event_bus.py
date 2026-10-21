@@ -1,8 +1,8 @@
 """O bus publica no Redis a partir de qualquer event loop, sem reaproveitar cliente de loop fechado."""
 import asyncio
 
-from app.services import realtime_event_bus as bus_module
-from app.services.realtime_event_bus import RealtimeEventBus
+from app.realtime import event_bus as bus_module
+from app.realtime.event_bus import RealtimeEventBus
 
 
 class LoopBoundRedis:

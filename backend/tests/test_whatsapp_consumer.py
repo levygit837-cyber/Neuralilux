@@ -7,10 +7,10 @@ import pytest
 from app.agent import executor
 from app.agent.loop import TurnResult
 from app.models import Agent, BusinessType, Company, Contact, Conversation, Instance, Message
-from app.services.evolution_api import evolution_api
-from app.workers import whatsapp_consumer as consumer_module
-from app.services.realtime_event_bus import realtime_event_bus
-from app.workers.whatsapp_consumer import MEDIA_REPLY, WhatsAppMessageConsumer, parse_content
+from app.whatsapp.evolution_client import evolution_api
+from app.whatsapp import consumer as consumer_module
+from app.realtime.event_bus import realtime_event_bus
+from app.whatsapp.consumer import MEDIA_REPLY, WhatsAppMessageConsumer, parse_content
 from tests.conftest import TestingSessionLocal
 
 JID = "5511999990001@s.whatsapp.net"

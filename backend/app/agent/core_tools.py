@@ -37,7 +37,7 @@ def utc_now() -> datetime:
 
 
 async def publish_event(event: dict[str, Any]) -> None:
-    from app.services.realtime_event_bus import realtime_event_bus
+    from app.realtime.event_bus import realtime_event_bus
 
     await realtime_event_bus.publish(event)
 

@@ -21,7 +21,7 @@ Requirements:
 import pytest
 import pytest_asyncio
 
-from app.services.evolution_api import evolution_api, EvolutionAPIError
+from app.whatsapp.evolution_client import evolution_api, EvolutionAPIError
 
 # Fala com a Evolution API real (localhost:8081); roda só com RUN_E2E=1.
 pytestmark = pytest.mark.e2e

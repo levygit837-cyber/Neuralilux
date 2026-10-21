@@ -12,7 +12,7 @@ import respx
 import httpx
 import json
 from unittest.mock import AsyncMock, patch, MagicMock
-from app.services.evolution_api import EvolutionAPIService, EvolutionAPIError
+from app.whatsapp.evolution_client import EvolutionAPIService, EvolutionAPIError
 
 
 BASE_URL = "http://localhost:8081"
@@ -22,7 +22,7 @@ API_KEY = "test-api-key"
 @pytest.fixture
 def svc():
     """Create an EvolutionAPIService instance with test config."""
-    with patch("app.services.evolution_api.settings") as mock_settings:
+    with patch("app.whatsapp.evolution_client.settings") as mock_settings:
         mock_settings.EVOLUTION_API_URL = BASE_URL
         mock_settings.EVOLUTION_API_KEY = API_KEY
         service = EvolutionAPIService()

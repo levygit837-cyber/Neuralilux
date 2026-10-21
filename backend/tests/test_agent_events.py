@@ -6,7 +6,7 @@ import pytest
 
 from app.agent.events import TurnEvents, publish_handoff_requested
 from app.agent.tools import ToolCall
-from app.services.realtime_event_bus import realtime_event_bus
+from app.realtime.event_bus import realtime_event_bus
 
 
 @pytest.fixture

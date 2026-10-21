@@ -13,7 +13,7 @@ from app.core.config import settings
 from app.core.database import SessionLocal
 from app.core.security import decode_access_token
 from app.models import Instance, User
-from app.services.evolution_api import evolution_api
+from app.whatsapp.evolution_client import evolution_api
 
 logger = structlog.get_logger()
 

@@ -9,10 +9,10 @@ import structlog
 
 from app.core.config import settings
 from app.api.router import api_router
-from app.services.message_queue_service import message_queue_service
-from app.services.evolution_realtime import evolution_realtime_service
-from app.services.realtime_event_bus import realtime_event_bus
-from app.services.socket_service import chat_socket_service
+from app.whatsapp.message_queue import message_queue_service
+from app.whatsapp.evolution_realtime import evolution_realtime_service
+from app.realtime.event_bus import realtime_event_bus
+from app.realtime.socket import chat_socket_service
 
 structlog.configure(
     processors=[
