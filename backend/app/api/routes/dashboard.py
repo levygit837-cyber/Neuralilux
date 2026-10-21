@@ -4,26 +4,13 @@ from sqlalchemy import func, cast, Date
 from datetime import datetime, timedelta, timezone
 import structlog
 
-from app.api.deps import get_db
-from app.api.deps import get_current_user
+from app.api.access import instance_ids_for_user
+from app.api.deps import get_current_user, get_db
 from app.models import User, Instance, Contact, Conversation, Message
 
 logger = structlog.get_logger()
 
 router = APIRouter()
-
-
-def _get_user_instance_ids(db: Session, current_user: User) -> list[str] | None:
-    """Return list of instance IDs owned by user, or None for superusers (all instances)."""
-    if current_user.is_superuser:
-        return None
-    return [
-        inst.id
-        for inst in db.query(Instance.id).filter(
-            Instance.owner_id == current_user.id,
-            Instance.is_active == True,
-        ).all()
-    ]
 
 
 @router.get("/stats")
@@ -33,7 +20,7 @@ async def get_dashboard_stats(
 ):
     """Get dashboard statistics"""
     try:
-        user_instance_ids = _get_user_instance_ids(db, current_user)
+        user_instance_ids = instance_ids_for_user(db, current_user)
 
         # Total conversations
         conv_query = db.query(Conversation)
@@ -86,7 +73,7 @@ async def get_dashboard_metrics(
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         week_start = today_start - timedelta(days=7)
 
-        user_instance_ids = _get_user_instance_ids(db, current_user)
+        user_instance_ids = instance_ids_for_user(db, current_user)
 
         def apply_instance_filter(query):
             if user_instance_ids is not None:
@@ -137,7 +124,7 @@ async def get_conversations_over_time(
         days = {"7d": 7, "30d": 30, "90d": 90}.get(period, 7)
         since = datetime.now(timezone.utc) - timedelta(days=days)
 
-        user_instance_ids = _get_user_instance_ids(db, current_user)
+        user_instance_ids = instance_ids_for_user(db, current_user)
 
         query = (
             db.query(
@@ -172,7 +159,7 @@ async def get_channel_metrics(
 ):
     """Get message volume grouped by instance (top-3), mapped to channel labels."""
     try:
-        user_instance_ids = _get_user_instance_ids(db, current_user)
+        user_instance_ids = instance_ids_for_user(db, current_user)
 
         query = (
             db.query(Instance.name, func.count(Message.id).label("count"))
@@ -209,7 +196,7 @@ async def get_resolution_metrics(
 ):
     """Get conversation distribution by resolution state."""
     try:
-        user_instance_ids = _get_user_instance_ids(db, current_user)
+        user_instance_ids = instance_ids_for_user(db, current_user)
 
         base = db.query(Conversation)
         if user_instance_ids is not None:
@@ -241,7 +228,7 @@ async def get_satisfaction_metrics(
 ):
     """Get CSAT metrics: overall average score and monthly history (last 6 months)."""
     try:
-        user_instance_ids = _get_user_instance_ids(db, current_user)
+        user_instance_ids = instance_ids_for_user(db, current_user)
         six_months_ago = datetime.now(timezone.utc) - timedelta(days=180)
 
         base = db.query(Conversation).filter(Conversation.rating.isnot(None))

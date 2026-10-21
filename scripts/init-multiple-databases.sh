@@ -1,9 +1,13 @@
 #!/bin/bash
 set -e
 
-# Create evolution user for Evolution API
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" <<-EOSQL
-    CREATE USER evolution WITH PASSWORD 'Ev0lution_S3cur3_P@ssw0rd!';
+# Senha do usuário da Evolution: EVOLUTION_DB_PASSWORD (a mesma do compose da Evolution).
+# O default é só de desenvolvimento; defina a variável em qualquer outro ambiente.
+EVOLUTION_DB_PASSWORD="${EVOLUTION_DB_PASSWORD:-Ev0lution_S3cur3_P@ssw0rd!}"
+
+# Create evolution user for Evolution API (a senha vai como variável do psql, sem interpolar no SQL)
+psql -v ON_ERROR_STOP=1 -v evo_pass="$EVOLUTION_DB_PASSWORD" --username "$POSTGRES_USER" <<-'EOSQL'
+    CREATE USER evolution WITH PASSWORD :'evo_pass';
 EOSQL
 
 # Create multiple databases if POSTGRES_MULTIPLE_DATABASES is set

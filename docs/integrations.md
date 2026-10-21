@@ -24,8 +24,9 @@ curl -s -X POST http://localhost:8000/api/v1/auth/login \
 ```
 
 - O token expira em `ACCESS_TOKEN_EXPIRE_MINUTES` (padrão 30). Uma integração de servidor tem de refazer o login ao receber 401.
-- **Não há chave de API para máquinas.** A integração usa um usuário comum da Company (`POST /auth/register` com `company_id`, ou criado pelo administrador). Use um usuário dedicado, com senha forte guardada no cofre do sistema de gestão, nunca a conta de uma pessoa.
+- **Não há chave de API para máquinas.** A integração usa um usuário comum da Company, criado por um superusuário (`POST /auth/register` com `company_id` exige um superusuário autenticado) ou por `scripts/create_superuser.py`. O registro público só cria usuário **sem** Company. Use um usuário dedicado, com senha forte guardada no cofre do sistema de gestão, nunca a conta de uma pessoa.
 - O escopo da Company vem do usuário: as rotas de `/menu` operam sobre `current_user.company_id`.
+- O escopo das Instances vem do dono: `/instances`, `/conversations`, `/contacts`, `/dashboard` e `/tickets` só alcançam as Instances do usuário (`Instance.owner_id`); o superusuário alcança todas. Instance de outro dono responde 403 em `/instances`; Ticket fora do escopo responde 404.
 
 ### Rotas úteis
 
@@ -39,6 +40,7 @@ curl -s -X POST http://localhost:8000/api/v1/auth/login \
 | `POST /conversations/{id}/messages` | Envia texto pela Instance (a Instance precisa estar `connected`). |
 | `POST /conversations/{id}/take-control`, `POST .../release-control`, `GET .../human-control-status` | Handoff manual, veja [operations.md](operations.md#handoff-e-tickets). |
 | `GET /tickets`, `GET`/`PATCH /tickets/{id}`, `POST /tickets/{id}/assign` | Tickets de Handoff. |
+| `GET /instances/`, `POST /instances/{nome}`, `GET .../status`, `POST .../connect`, `DELETE .../logout`, `DELETE /instances/{nome}` | Instances do usuário e conexão com a Evolution (login obrigatório; a listagem não devolve o token da Evolution). Só o `POST` cria a Instance local, com a Company do usuário. |
 
 `/products` existe só por compatibilidade e está marcado como obsoleto no código; use `/menu`.
 
@@ -64,8 +66,6 @@ O endpoint `/webhooks/evolution` é exclusivo da Evolution ([ADR 0006](adr/0006-
 
 ### Limites atuais
 
-- Falta isolamento por Company em parte das rotas. `GET /tickets` lista os Tickets de todas as Companies para qualquer usuário autenticado, e as rotas `/instances` (por exemplo `GET /instances/`) não exigem login ([#25](https://github.com/levygit837-cyber/Neuralilux/issues/25)). Não exponha a API a terceiros sem uma camada de rede e revisão desses pontos.
-- `POST /auth/register` é público e aceita `company_id`: quem conhece o id de uma Company cria usuário nela ([#25](https://github.com/levygit837-cyber/Neuralilux/issues/25)).
 - O dashboard embute `NEXT_PUBLIC_EVOLUTION_API_KEY` no bundle do navegador ([#26](https://github.com/levygit837-cyber/Neuralilux/issues/26)).
 - Não há rate limit por integração nem chave de API revogável.
 

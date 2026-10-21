@@ -27,6 +27,7 @@ Edite `backend/.env`:
   ```
 - `SECRET_KEY`: chave do JWT e da criptografia das chaves de Gateway. Fora de `ENVIRONMENT=development` a app recusa subir com o valor de exemplo.
 - `KIRO_GATEWAY_URL` (e `KIRO_GATEWAY_API_KEY`, opcional): onde o seed aponta o Gateway inicial.
+- `EVOLUTION_DB_PASSWORD` (opcional): senha do usuário `evolution` no PostgreSQL. Entra na URI do banco da Evolution, então use só letras, dígitos, `-` e `_` (`@ : / ? # %` quebram a URI). Vazio, vale o default de desenvolvimento do compose e do script de init.
 
 As demais variáveis do `.env.example` já batem com a infra do passo 2.
 
@@ -132,32 +133,38 @@ Para testar a conexão, use **Testar** no modelo ou `POST /api/v1/gateways/model
 
 ## 6. Conectar o WhatsApp (QR code)
 
-A ordem importa: ligue a Instance à Company **antes** de ler o QR code. O evento `connection.update` de uma Instance sem linha no banco é descartado (`Connection update for unknown instance discarded`), e o status nunca chega a `connected`.
+A ordem importa: a Instance precisa existir no banco (com Company) **antes** de ler o QR code. O evento `connection.update` de uma Instance sem linha no banco é descartado (`Connection update for unknown instance discarded`), e o status nunca chega a `connected`.
 
-1. No dashboard, vá em **Instâncias** e crie uma Instance. O frontend chama a Evolution e a API; por REST, o equivalente é `POST /api/v1/instances/{nome}` (autenticado), que cria a Instance na Evolution e devolve o QR code em `qr_code`.
-2. Ligue a Instance à Company e ao Agent (seção abaixo).
-3. No celular: WhatsApp > Aparelhos conectados > Conectar um aparelho, e leia o QR code. O QR vem em `qr_code_update` pelo Socket.IO e em `GET /api/v1/whatsapp/qr?instance_id=...`.
-4. O estado passa a `connected` pelo evento `connection.update` do webhook.
+O fluxo é: login, `POST /api/v1/instances/{nome}`, QR code. A Company vem do usuário que cria a Instance, então entre com um usuário que tenha Company (o `usuario@teste.com` do seed tem).
+
+1. Faça login e crie a Instance. No dashboard, vá em **Instâncias**; por REST:
+   ```bash
+   TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
+     -d 'username=usuario@teste.com' -d 'password=teste123' | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
+   curl -s -X POST -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/v1/instances/minha-instancia
+   ```
+   A rota cria a Instance na Evolution, **depois** grava a linha local com o usuário como dono e a Company dele, e devolve o QR code em `qr_code`.
+2. No celular: WhatsApp > Aparelhos conectados > Conectar um aparelho, e leia o QR code. Se ele não veio na criação, `POST /api/v1/instances/{nome}/connect` devolve outro; o QR também chega em `qr_code_update` pelo Socket.IO.
+3. O estado passa a `connected` pelo evento `connection.update` do webhook.
 
 ### Ligar a Instance à Company e ao Agent
 
-A Instance só responde quando tem Company, Agent e a resposta automática ligada. Hoje **nenhuma rota da API grava `Instance.company_id`**; sem ele o worker loga `Instance has no Company, Agent cannot run` e não responde. Faça uma vez por Instance, antes de ler o QR code:
+A Instance só responde quando tem Company, Agent e a resposta automática ligada. Não há passo manual no banco: o `POST /instances/{nome}` grava `company_id` (o do usuário) e, se a Company já tem um Agent ativo, liga esse Agent à Instance com `agent_enabled=true`.
+
+Se a Company ainda não tinha Agent na hora da criação, o worker loga `No active Agent for this Instance or its Company`. Rode o seed, que cria um Agent por Company e liga as Instances da Company que ainda não têm Agent (idempotente):
 
 ```bash
-# 1. garante a linha da Instance no banco (cria se não existir; precisa do token do login)
-TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
-  -d 'username=usuario@teste.com' -d 'password=teste123' | python3 -c 'import sys,json; print(json.load(sys.stdin)["access_token"])')
-curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8000/api/v1/instances/minha-instancia/agent-status
-
-# 2. liga a Instance à Company (rode na raiz do repositório)
-docker compose --env-file backend/.env exec postgres psql -U neuralilux -d neuralilux -c \
-  "UPDATE instances SET company_id = (SELECT id FROM companies WHERE name = 'Macedos') WHERE name = 'minha-instancia';"
-
-# 3. o seed liga o Agent da Company à Instance e ativa a resposta automática (idempotente)
 cd backend && python scripts/seed_data.py
 ```
 
-Reexecutar o seed não religa uma Instance que o administrador desligou. O Agent da Instance também pode ser trocado por `PATCH /api/v1/instances/{nome}/agent-binding` e a resposta automática ligada ou desligada por `PATCH /api/v1/instances/{nome}/agent-status`.
+Reexecutar o seed não religa uma Instance que o administrador desligou. O Agent da Instance também pode ser trocado por `PATCH /api/v1/instances/{nome}/agent-binding` e a resposta automática ligada ou desligada por `PATCH /api/v1/instances/{nome}/agent-status`. Essas duas rotas e `GET .../agent-status` só funcionam em Instance que já existe (404 se não houver linha) e que é sua (403 se é de outro dono).
+
+### Quem acessa uma Instance
+
+- Toda rota de `/api/v1/instances` exige login. O dono (`owner_id`) e o superusuário acessam; outro usuário recebe 403.
+- `GET /instances/` lista só as Instances do usuário (superusuário: todas) e nunca devolve o token da Evolution.
+- Só `POST /instances/{nome}` cria a linha local. Se o nome já existe na Evolution, só um superusuário o importa; os demais recebem 409.
+- Uma Instance sem dono (linha antiga, `owner_id` nulo) só é acessada por superusuário. Para assumi-la, um superusuário chama `POST /instances/{nome}`: ele vira o dono e a Instance ganha a Company dele e o Agent da Company.
 
 ## 7. Conferir de ponta a ponta
 

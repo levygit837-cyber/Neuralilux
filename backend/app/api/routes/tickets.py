@@ -6,10 +6,43 @@ from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import datetime, timezone
 
-from app.models import Ticket, User
+from app.models import Instance, Ticket, User
+from app.api.access import instance_ids_for_user
 from app.api.deps import get_current_user, get_db
 
 router = APIRouter()
+
+
+def _scoped_tickets(db: Session, user: User):
+    """Query de Tickets limitada às Instances do usuário (superusuário: todas)."""
+    query = db.query(Ticket)
+    instance_ids = instance_ids_for_user(db, user)
+    if instance_ids is not None:
+        query = query.filter(Ticket.instance_id.in_(instance_ids))
+    return query
+
+
+def _get_ticket_for_user(db: Session, ticket_id: str, user: User) -> Ticket:
+    """Ticket dentro do escopo do usuário; fora dele responde 404 (não revela que existe)."""
+    ticket = _scoped_tickets(db, user).filter(Ticket.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket não encontrado")
+    return ticket
+
+
+def _check_assignee(db: Session, ticket: Ticket, assignee_id: str, current_user: User) -> User:
+    """O atendente tem de existir e ser da Company da Instance do Ticket (superusuário atribui a qualquer um)."""
+    assignee = db.query(User).filter(User.id == assignee_id).first()
+    if not assignee:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    if not current_user.is_superuser:
+        instance = db.query(Instance).filter(Instance.id == ticket.instance_id).first()
+        if not instance or not instance.company_id or assignee.company_id != instance.company_id:
+            raise HTTPException(
+                status_code=403,
+                detail="O atendente precisa ser da mesma Company da Instance do Ticket",
+            )
+    return assignee
 
 
 @router.get("/")
@@ -23,9 +56,9 @@ def list_tickets(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Lista todos os tickets com filtros opcionais.
+    Lista os tickets das Instances do usuário (superusuário: todos) com filtros opcionais.
     """
-    query = db.query(Ticket)
+    query = _scoped_tickets(db, current_user)
     
     if status:
         query = query.filter(Ticket.status == status)
@@ -75,10 +108,7 @@ def get_ticket(
     """
     Retorna detalhes de um ticket específico.
     """
-    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
-    
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket não encontrado")
+    ticket = _get_ticket_for_user(db, ticket_id, current_user)
     
     return {
         "id": ticket.id,
@@ -106,10 +136,7 @@ def update_ticket(
     """
     Atualiza status ou atribuição de um ticket.
     """
-    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
-    
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket não encontrado")
+    ticket = _get_ticket_for_user(db, ticket_id, current_user)
     
     if status:
         valid_statuses = ["open", "in_progress", "closed"]
@@ -118,6 +145,7 @@ def update_ticket(
         ticket.status = status
     
     if assigned_to:
+        _check_assignee(db, ticket, assigned_to, current_user)
         ticket.assigned_to = assigned_to
     
     ticket.updated_at = datetime.now(timezone.utc)
@@ -142,16 +170,10 @@ def assign_ticket(
     """
     Atribui um ticket a um atendente humano.
     """
-    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
+    ticket = _get_ticket_for_user(db, ticket_id, current_user)
     
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket não encontrado")
-    
-    # Verificar se o usuário existe
-    user = db.query(User).filter(User.id == user_id).first()
-    if not user:
-        raise HTTPException(status_code=404, detail="Usuário não encontrado")
-    
+    _check_assignee(db, ticket, user_id, current_user)
+
     ticket.assigned_to = user_id
     ticket.status = "in_progress"
     ticket.updated_at = datetime.now(timezone.utc)

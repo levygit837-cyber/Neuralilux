@@ -8,11 +8,14 @@ from typing import Any, Optional
 
 import socketio
 import structlog
+from sqlalchemy import or_
+from sqlalchemy.orm import Session
 
+from app.api.access import can_access_instance, resolve_instance
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.core.security import decode_access_token
-from app.models import Instance, User
+from app.models import Conversation, Instance, User
 from app.whatsapp.evolution_client import evolution_api
 
 logger = structlog.get_logger()
@@ -84,9 +87,20 @@ class ChatSocketService:
 
         @self.server.on("join_conversation")
         async def join_conversation(sid: str, data: dict[str, Any]):
+            session = await self.server.get_session(sid)
+            user_id = session.get("user_id")
             instance_name = data.get("instanceName")
             conversation_id = data.get("conversationId")
-            if not instance_name or not conversation_id:
+            if not instance_name or not conversation_id or not user_id:
+                return {"ok": False}
+            # A sala é por Instance: quem não acessa a Instance não entra em nenhuma sala dela.
+            if not self._user_can_access_instance(user_id, instance_name):
+                logger.warning(
+                    "Realtime join_conversation denied",
+                    sid=sid,
+                    user_id=user_id,
+                    instance_name=instance_name,
+                )
                 return {"ok": False}
 
             await self.server.enter_room(
@@ -110,15 +124,30 @@ class ChatSocketService:
 
         @self.server.on("send_message")
         async def send_message(sid: str, data: dict[str, Any]):
+            session = await self.server.get_session(sid)
+            user_id = session.get("user_id")
             instance_name = data.get("instanceName")
-            remote_jid = data.get("conversationId")
+            conversation_ref = data.get("conversationId")
             content = data.get("content")
 
-            if not instance_name or not remote_jid or not content:
+            if not instance_name or not conversation_ref or not content or not user_id:
                 return {"ok": False}
 
+            # Autoriza antes de falar com a Evolution: a Instance tem de ser do usuário (ou ele é superusuário)
+            # e a Conversation tem de ser dela. O JID de destino vem da Conversation, não do cliente.
+            target = self._authorized_send_target(user_id, instance_name, conversation_ref)
+            if target is None:
+                logger.warning(
+                    "Realtime send_message denied",
+                    sid=sid,
+                    user_id=user_id,
+                    instance_name=instance_name,
+                )
+                return {"ok": False}
+            evolution_name, remote_jid = target
+
             try:
-                result = await evolution_api.send_text_message(instance_name, remote_jid, content)
+                result = await evolution_api.send_text_message(evolution_name, remote_jid, content)
                 return {"ok": True, "messageId": result.get("key", {}).get("id") or result.get("id")}
             except Exception as exc:  # pragma: no cover - defensive path
                 logger.error("Socket send_message failed", error=str(exc), instance_name=instance_name)
@@ -142,33 +171,64 @@ class ChatSocketService:
         finally:
             db.close()
 
+    def _accessible_instance(self, db: Session, user_id: str, instance_name: str) -> Optional[Instance]:
+        """A Instance se o usuário acessa (regra de `app.api.access`); None, com warning, se não existe ou é negada."""
+        user = db.query(User).filter(User.id == user_id, User.is_active == True).first()  # noqa: E712
+        if not user:
+            return None
+        instance = resolve_instance(db, instance_name)
+        if not instance:
+            logger.warning(
+                "Realtime access to unknown instance denied",
+                user_id=user_id,
+                instance_name=instance_name,
+            )
+            return None
+        if not can_access_instance(instance, user):
+            logger.warning(
+                "Realtime access to another owner's instance denied",
+                user_id=user_id,
+                instance_name=instance_name,
+            )
+            return None
+        return instance
+
     def _user_can_access_instance(self, user_id: str, instance_name: str) -> bool:
+        """Mesma regra das rotas HTTP (`app.api.access`): dono ou superusuário; sem Instance mapeada, nega."""
         db = SessionLocal()
         try:
-            user = db.query(User).filter(User.id == user_id).first()
-            instance = (
-                db.query(Instance)
+            return self._accessible_instance(db, user_id, instance_name) is not None
+        finally:
+            db.close()
+
+    def _authorized_send_target(
+        self, user_id: str, instance_name: str, conversation_ref: str
+    ) -> Optional[tuple[str, str]]:
+        """(nome na Evolution, JID) para enviar, ou None se a Instance for negada ou a Conversation não for dela.
+
+        `conversation_ref` é o id da Conversation ou o `remote_jid`; só vale o que pertence à Instance.
+        """
+        db = SessionLocal()
+        try:
+            instance = self._accessible_instance(db, user_id, instance_name)
+            if instance is None:
+                return None
+            conversation = (
+                db.query(Conversation)
                 .filter(
-                    Instance.evolution_instance_id == instance_name,
-                    Instance.is_active == True,
+                    Conversation.instance_id == instance.id,
+                    or_(Conversation.id == conversation_ref, Conversation.remote_jid == conversation_ref),
                 )
                 .first()
             )
-            if not user:
-                return False
-
-            if not instance:
+            if conversation is None:
                 logger.warning(
-                    "Realtime subscription without mapped instance; allowing authenticated fallback",
+                    "Realtime send_message to a conversation outside the instance denied",
                     user_id=user_id,
                     instance_name=instance_name,
                 )
-                return True
-
-            if instance.owner_id is None:
-                return True
-
-            return bool(user.is_superuser or instance.owner_id == user_id)
+                return None
+            return instance.evolution_instance_id or instance.name, conversation.remote_jid
         finally:
             db.close()
 

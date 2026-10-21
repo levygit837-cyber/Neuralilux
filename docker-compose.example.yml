@@ -7,6 +7,8 @@
 #   docker compose --env-file backend/.env up -d     # sempre com --env-file; sem ele o compose recusa subir
 #
 # Senhas e portas abaixo são defaults de DESENVOLVIMENTO, os mesmos de backend/.env.example. Não use em produção.
+# EVOLUTION_DB_PASSWORD (opcional): senha do usuário `evolution` no Postgres, lida pelo script de init e pela URI da
+# Evolution. Entra numa URI: use só letras, dígitos, `-` e `_`. O init roda só na criação do volume do Postgres.
 # Obrigatórias no backend/.env: EVOLUTION_API_KEY e EVOLUTION_WEBHOOK_TOKEN (o compose recusa subir sem elas).
 # A API e o worker rodam no host, fora deste compose (veja docs/setup.md).
 services:
@@ -20,6 +22,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-neuralilux_password}
       - POSTGRES_DB=neuralilux
       - POSTGRES_MULTIPLE_DATABASES=evolution # o script cria o banco e o usuário da Evolution
+      - EVOLUTION_DB_PASSWORD=${EVOLUTION_DB_PASSWORD:-} # vazio: o script usa o default de dev (precisa casar com a URI da Evolution)
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./scripts/init-multiple-databases.sh:/docker-entrypoint-initdb.d/init-multiple-databases.sh:ro
@@ -76,7 +79,7 @@ services:
       # Banco próprio da Evolution, criado por scripts/init-multiple-databases.sh (mesma senha de dev do script).
       - DATABASE_ENABLED=true
       - DATABASE_PROVIDER=postgresql
-      - DATABASE_CONNECTION_URI=postgresql://evolution:Ev0lution_S3cur3_P%40ssw0rd%21@postgres:5432/evolution
+      - DATABASE_CONNECTION_URI=postgresql://evolution:${EVOLUTION_DB_PASSWORD:-Ev0lution_S3cur3_P%40ssw0rd%21}@postgres:5432/evolution
       - DATABASE_SAVE_DATA_INSTANCE=true
       - DATABASE_SAVE_DATA_NEW_MESSAGE=true
       - DATABASE_SAVE_MESSAGE_UPDATE=true

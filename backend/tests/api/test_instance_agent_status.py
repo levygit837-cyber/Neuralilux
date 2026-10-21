@@ -3,27 +3,38 @@ import pytest
 from app.models import Agent, Instance, User
 
 
-def test_get_agent_status_creates_placeholder_instance_when_missing(client, auth_headers, db):
-    response = client.get(
-        "/api/v1/instances/evo-agent-status-missing/agent-status",
-        headers=auth_headers,
+def _own_instance(db, name: str) -> Instance:
+    user = db.query(User).filter(User.email == "test@example.com").one()
+    instance = Instance(
+        name=name,
+        evolution_instance_id=name,
+        status="disconnected",
+        is_active=True,
+        owner_id=user.id,
+        agent_enabled=False,
     )
+    db.add(instance)
+    db.commit()
+    return instance
+
+
+def test_get_agent_status_returns_the_owners_instance_without_writing(client, auth_headers, db):
+    instance = _own_instance(db, "evo-agent-status-get")
+
+    response = client.get("/api/v1/instances/evo-agent-status-get/agent-status", headers=auth_headers)
 
     assert response.status_code == 200
-
     data = response.json()
-    instance = db.query(Instance).filter(
-        Instance.evolution_instance_id == "evo-agent-status-missing"
-    ).one()
-
     assert data["instance_id"] == instance.id
-    assert data["instance_name"] == "evo-agent-status-missing"
+    assert data["instance_name"] == "evo-agent-status-get"
     assert data["agent_enabled"] is False
     assert data["agent_id"] is None
-    assert instance.agent_enabled is False
+    assert not db.dirty and not db.new
 
 
-def test_patch_agent_status_creates_placeholder_instance_and_updates_flag(client, auth_headers, db):
+def test_patch_agent_status_updates_flag_of_existing_instance(client, auth_headers, db):
+    instance = _own_instance(db, "evo-agent-status-toggle")
+
     response = client.patch(
         "/api/v1/instances/evo-agent-status-toggle/agent-status",
         headers=auth_headers,
@@ -31,19 +42,14 @@ def test_patch_agent_status_creates_placeholder_instance_and_updates_flag(client
     )
 
     assert response.status_code == 200
-
     data = response.json()
-    instance = db.query(Instance).filter(
-        Instance.evolution_instance_id == "evo-agent-status-toggle"
-    ).one()
-
     assert data["instance_id"] == instance.id
-    assert data["instance_name"] == "evo-agent-status-toggle"
     assert data["agent_enabled"] is False
-    assert instance.agent_enabled is False
 
 
 def test_patch_agent_status_requires_bound_agent_to_enable(client, auth_headers, db):
+    _own_instance(db, "evo-agent-enable-without-binding")
+
     response = client.patch(
         "/api/v1/instances/evo-agent-enable-without-binding/agent-status",
         headers=auth_headers,
@@ -66,6 +72,7 @@ def test_patch_agent_binding_assigns_agent_and_allows_enabling(client, auth_head
     )
     db.add(agent)
     db.commit()
+    _own_instance(db, "evo-agent-binding")
 
     bind_response = client.patch(
         "/api/v1/instances/evo-agent-binding/agent-binding",

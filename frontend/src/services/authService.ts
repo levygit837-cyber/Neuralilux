@@ -62,7 +62,6 @@ export const authService = {
     email: string
     password: string
     full_name: string
-    company_id?: string
   }): Promise<User> {
     const response = await fetch(`${API_URL}/api/v1/auth/register`, {
       method: 'POST',
