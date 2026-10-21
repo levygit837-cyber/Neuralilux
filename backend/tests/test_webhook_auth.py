@@ -17,7 +17,7 @@ def published(monkeypatch):
         return True
 
     monkeypatch.setattr(settings, "EVOLUTION_WEBHOOK_TOKEN", TOKEN)
-    monkeypatch.setattr("app.api.v1.endpoints.webhooks.message_queue_service.publish_webhook_event", fake_publish)
+    monkeypatch.setattr("app.api.routes.webhooks.message_queue_service.publish_webhook_event", fake_publish)
     return events
 
 

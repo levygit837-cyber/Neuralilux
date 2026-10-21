@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
-from app.core.database import get_db
+from app.api.deps import get_db
 from app.schemas.product import ProductCreate, ProductUpdate, ProductResponse
 from app.services.product_service import (
     create_product,
@@ -15,7 +15,7 @@ from app.services.product_service import (
     update_product,
     delete_product
 )
-from app.api.v1.endpoints.auth import get_current_user
+from app.api.deps import get_current_user
 
 router = APIRouter()
 

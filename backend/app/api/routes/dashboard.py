@@ -4,8 +4,8 @@ from sqlalchemy import func, cast, Date
 from datetime import datetime, timedelta, timezone
 import structlog
 
-from app.core.database import get_db
-from app.api.v1.endpoints.auth import get_current_user
+from app.api.deps import get_db
+from app.api.deps import get_current_user
 from app.models import User, Instance, Contact, Conversation, Message
 
 logger = structlog.get_logger()

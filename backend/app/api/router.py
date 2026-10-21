@@ -1,18 +1,18 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import (
-    auth,
-    instances,
+from app.api.routes import (
     agents,
-    messages,
-    webhooks,
+    auth,
     companies,
-    products,
-    whatsapp,
     conversations,
     dashboard,
-    menu,
-    tickets,
     gateways,
+    instances,
+    menu,
+    messages,
+    products,
+    tickets,
+    webhooks,
+    whatsapp,
 )
 
 api_router = APIRouter()

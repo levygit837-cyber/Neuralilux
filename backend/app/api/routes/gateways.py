@@ -11,9 +11,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
-from app.api.v1.endpoints.auth import get_current_user
+from app.api.deps import get_current_user
 from app.core.crypto import encrypt_secret
-from app.core.database import get_db
+from app.api.deps import get_db
 from app.llm import registry
 from app.llm.errors import LLMError, LLMNotConfiguredError, LLMProviderError
 from app.models import GatewayAssignment, GatewayModel, InferenceGateway, User

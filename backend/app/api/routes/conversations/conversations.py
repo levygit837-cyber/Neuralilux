@@ -1,6 +1,6 @@
 """
-Conversations & Contacts Endpoints - WhatsApp conversation management.
-Integrates with Evolution API service for fetching/sending messages.
+Conversations - mensagens de uma Conversation (lista, histórico e envio).
+Usa o cliente da Evolution API para buscar e enviar Messages.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -10,73 +10,23 @@ from typing import Optional
 from datetime import datetime
 import structlog
 
-from app.core.database import get_db
-from app.api.v1.endpoints.auth import get_current_user
+from app.api.deps import get_current_user, get_db
+from app.api.routes.conversations.access import _get_instance_for_user
 from app.models import User, Instance, Contact, Conversation, Message
 from app.schemas.whatsapp import (
     ConversationResponse,
-    ConversationSummary,
-    ConversationFilter,
     PaginatedConversations,
-    ContactResponse,
-    ContactFilter,
-    PaginatedContacts,
-    SendMessageRequest,
     ConversationSendMessageRequest,
     SendMessageResponse,
     MessageResponse,
     PaginatedMessages,
-    MessageFilter,
 )
-from pydantic import BaseModel
 from app.services.evolution_api import evolution_api, EvolutionAPIError
-
-
-class HumanControlRequest(BaseModel):
-    reason: Optional[str] = None
-
-
-class HumanControlResponse(BaseModel):
-    conversation_id: str
-    human_in_loop: bool
-    human_handoff_reason: Optional[str]
-    ticket_id: Optional[str]
-    message: str
 
 logger = structlog.get_logger()
 
 router = APIRouter()
 
-
-def _get_instance_for_user(
-    db: Session,
-    instance_id: str,
-    current_user: User,
-) -> Instance:
-    """Helper to fetch and validate instance ownership."""
-    instance = db.query(Instance).filter(
-        Instance.id == instance_id,
-        Instance.is_active == True,
-    ).first()
-
-    if not instance:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Instance not found",
-        )
-
-    if not current_user.is_superuser and instance.owner_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not enough permissions to access this instance",
-        )
-
-    return instance
-
-
-# =====================================================================
-# CONVERSATIONS
-# =====================================================================
 
 @router.get("/conversations", response_model=PaginatedConversations)
 async def list_conversations(
@@ -305,199 +255,3 @@ async def send_conversation_message(
             status_code=e.status_code if e.status_code != 500 else status.HTTP_502_BAD_GATEWAY,
             detail=f"Evolution API error: {e.message}",
         )
-
-
-# =====================================================================
-# CONTACTS
-# =====================================================================
-
-@router.get("/contacts", response_model=PaginatedContacts)
-async def list_contacts(
-    instance_id: Optional[str] = Query(None, description="Filter by instance ID"),
-    is_blocked: Optional[bool] = Query(None, description="Filter blocked contacts"),
-    is_business: Optional[bool] = Query(None, description="Filter business contacts"),
-    search: Optional[str] = Query(None, description="Search by name or phone number"),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=100),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    List contacts with optional filters.
-
-    - **instance_id**: Filter by WhatsApp instance.
-    - **is_blocked**: Filter blocked/unblocked contacts.
-    - **is_business**: Filter business/regular contacts.
-    - **search**: Search by name, push_name or phone number.
-    """
-    query = db.query(Contact)
-
-    # Filter by instances the user owns (unless superuser)
-    if not current_user.is_superuser:
-        user_instance_ids = [
-            inst.id for inst in db.query(Instance.id).filter(
-                Instance.owner_id == current_user.id,
-                Instance.is_active == True,
-            ).all()
-        ]
-        query = query.filter(Contact.instance_id.in_(user_instance_ids))
-
-    if instance_id:
-        query = query.filter(Contact.instance_id == instance_id)
-
-    if is_blocked is not None:
-        query = query.filter(Contact.is_blocked == is_blocked)
-
-    if is_business is not None:
-        query = query.filter(Contact.is_business == is_business)
-
-    if search:
-        query = query.filter(
-            or_(
-                Contact.name.ilike(f"%{search}%"),
-                Contact.phone_number.ilike(f"%{search}%"),
-                Contact.push_name.ilike(f"%{search}%"),
-            )
-        )
-
-    total = query.count()
-    contacts = (
-        query.order_by(Contact.name.asc().nullslast())
-        .offset(skip)
-        .limit(limit)
-        .all()
-    )
-
-    return PaginatedContacts(
-        items=[ContactResponse.from_orm(c) for c in contacts],
-        total=total,
-        skip=skip,
-        limit=limit,
-    )
-
-
-# =====================================================================
-# HUMAN-IN-THE-LOOP ENDPOINTS
-# =====================================================================
-
-@router.post("/conversations/{conversation_id}/take-control", response_model=HumanControlResponse)
-async def take_conversation_control(
-    conversation_id: str,
-    request: HumanControlRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    Human takes control of a conversation, pausing the AI agent.
-
-    The agent will stop responding to messages until control is released.
-    """
-    conversation = db.query(Conversation).filter(Conversation.id == conversation_id).first()
-
-    if not conversation:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Conversation not found"
-        )
-
-    # Verify user has access to this conversation's instance
-    instance = _get_instance_for_user(db, conversation.instance_id, current_user)
-
-    # Update conversation state
-    conversation.human_in_loop = True
-    conversation.human_handoff_reason = request.reason or "Manual takeover by human"
-    conversation.assigned_agent_id = current_user.id
-    db.commit()
-
-    logger.info(
-        "Human took control of conversation",
-        conversation_id=conversation_id,
-        user_id=current_user.id,
-        reason=request.reason
-    )
-
-    return HumanControlResponse(
-        conversation_id=conversation_id,
-        human_in_loop=True,
-        human_handoff_reason=conversation.human_handoff_reason,
-        ticket_id=conversation.ticket_id,
-        message="Human has taken control of this conversation. AI agent is paused."
-    )
-
-
-@router.post("/conversations/{conversation_id}/release-control", response_model=HumanControlResponse)
-async def release_conversation_control(
-    conversation_id: str,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    Human releases control back to the AI agent.
-
-    The agent will resume responding to messages.
-    """
-    conversation = db.query(Conversation).filter(Conversation.id == conversation_id).first()
-
-    if not conversation:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Conversation not found"
-        )
-
-    # Verify user has access to this conversation's instance
-    instance = _get_instance_for_user(db, conversation.instance_id, current_user)
-
-    # Update conversation state
-    conversation.human_in_loop = False
-    conversation.human_handoff_reason = None
-    conversation.assigned_agent_id = None
-    db.commit()
-
-    logger.info(
-        "Human released control of conversation",
-        conversation_id=conversation_id,
-        user_id=current_user.id
-    )
-
-    return HumanControlResponse(
-        conversation_id=conversation_id,
-        human_in_loop=False,
-        human_handoff_reason=None,
-        ticket_id=conversation.ticket_id,
-        message="Control released. AI agent will resume responding to messages."
-    )
-
-
-@router.get("/conversations/{conversation_id}/human-control-status", response_model=HumanControlResponse)
-async def get_human_control_status(
-    conversation_id: str,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    Get current human-in-the-loop status of a conversation.
-    """
-    conversation = db.query(Conversation).filter(Conversation.id == conversation_id).first()
-
-    if not conversation:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Conversation not found"
-        )
-
-    # Verify user has access to this conversation's instance
-    instance = _get_instance_for_user(db, conversation.instance_id, current_user)
-
-    message = (
-        "Conversation is currently under human control. AI agent is paused."
-        if conversation.human_in_loop
-        else "Conversation is under AI agent control."
-    )
-
-    return HumanControlResponse(
-        conversation_id=conversation_id,
-        human_in_loop=conversation.human_in_loop,
-        human_handoff_reason=conversation.human_handoff_reason,
-        ticket_id=conversation.ticket_id,
-        message=message
-    )

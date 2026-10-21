@@ -24,7 +24,8 @@ if not hasattr(sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler, 'visit_JSONB'
     )
 
 from app.main import app
-from app.core.database import Base, get_db
+from app.api.deps import get_db
+from app.core.database import Base
 
 # Test database
 SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"

@@ -8,7 +8,7 @@ import socketio
 import structlog
 
 from app.core.config import settings
-from app.api.v1.router import api_router
+from app.api.router import api_router
 from app.services.message_queue_service import message_queue_service
 from app.services.evolution_realtime import evolution_realtime_service
 from app.services.realtime_event_bus import realtime_event_bus

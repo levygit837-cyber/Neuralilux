@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 
-from app.core.database import get_db
+from app.api.deps import get_db
 from app.schemas.company import CompanyCreate, CompanyUpdate, CompanyResponse
 from app.services.company_service import (
     create_company,
@@ -11,7 +11,7 @@ from app.services.company_service import (
     update_company,
     delete_company
 )
-from app.api.v1.endpoints.auth import get_current_user
+from app.api.deps import get_current_user
 
 router = APIRouter()
 
