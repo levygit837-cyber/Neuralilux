@@ -171,3 +171,24 @@ async def call(tool: Tool, ctx: ToolContext, **arguments) -> ToolResult:
 
 def payload(result: ToolResult) -> dict:
     return json.loads(result.content)
+
+
+ENDERECO = "Rua das Flores 123, Centro"
+
+
+def order_of(world):
+    """O único Order da Conversation do `world`, relido do banco."""
+    from app.models.models import CustomerOrder
+
+    world.db.expire_all()
+    return world.db.query(CustomerOrder).filter_by(conversation_id=world.conversation.id).one()
+
+
+async def add_item(world, pedido, name="Pizza Toscana", **kw):
+    return await call(pedido, world.ctx, acao="adicionar_item", item_id=world.items[name].id, **kw)
+
+
+async def fill_delivery(world, pedido, **overrides):
+    data = dict(nome="Maria Silva", endereco=ENDERECO, tipo_entrega="entrega", forma_pagamento="dinheiro")
+    data.update(overrides)
+    return await call(pedido, world.ctx, acao="definir_dados", **data)

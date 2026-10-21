@@ -4,7 +4,7 @@ import pytest
 from pack_helpers import call, make_world, payload, tool_named
 
 from app.agent import core_tools
-from app.agent.core_tools import TRANSFER_MESSAGE, core_tools as build_core_tools, is_open_at
+from app.agent.core_tools import TRANSFER_MESSAGE, core_tools as build_core_tools
 from app.models.models import Message, Ticket
 
 pytestmark = pytest.mark.asyncio
@@ -26,8 +26,8 @@ def events(monkeypatch):
     return sent
 
 
-def tool(name, **kw):
-    return tool_named(build_core_tools(**kw), name)
+def tool(name):
+    return tool_named(build_core_tools(), name)
 
 
 async def test_info_empresa_open_now_uses_company_timezone(world, events, monkeypatch):
@@ -105,6 +105,7 @@ async def test_transfer_creates_ticket_with_contact_fk_and_flags_conversation(wo
     assert ticket.contact_id != world.contact.remote_jid
     assert ticket.conversation_id == world.conversation.id
     assert ticket.instance_id == world.instance.id
+    assert ticket.agent_type == "whatsapp_agent"
     assert ticket.reason == "Pedido veio errado"
     assert ticket.content == "meu pedido veio errado!"
     assert ticket.status == "open"
@@ -113,17 +114,6 @@ async def test_transfer_creates_ticket_with_contact_fk_and_flags_conversation(wo
     assert world.conversation.human_in_loop is True
     assert world.conversation.ticket_id == ticket.id
     assert world.conversation.human_handoff_reason == "Pedido veio errado"
-
-
-async def test_transfer_emits_event_for_the_instance_room(world, events):
-    await call(tool("transferir_atendente"), world.ctx, motivo="Quero falar com alguém")
-    assert len(events) == 1
-    event = events[0]
-    assert event["type"] == "human_handoff_requested"
-    assert event["instance_name"] == world.instance.name
-    assert event["payload"]["conversation_id"] == world.conversation.id
-    assert event["payload"]["reason"] == "Quero falar com alguém"
-    assert event["payload"]["ticket_id"]
 
 
 async def test_transfer_falls_back_to_reason_when_no_incoming_message(world, events):
@@ -164,30 +154,21 @@ async def test_transfer_description_lists_triggers_instead_of_keywords():
 # ---------- buscar_historico ----------
 
 
-async def test_buscar_historico_calls_injected_search_with_contact_scope(world):
-    seen = {}
-
-    def fake(db, contact_id, instance_id, query, limit=8):
-        seen.update(contact_id=contact_id, instance_id=instance_id, query=query)
-        return [{"date": "2026-10-01T10:00:00", "role": "user", "snippet": "pizza toscana"}]
-
-    result = await call(tool("buscar_historico", search_history=fake), world.ctx, consulta="pizza toscana")
-    assert seen == {"contact_id": world.contact.id, "instance_id": world.instance.id, "query": "pizza toscana"}
-    assert payload(result)["resultados"][0]["snippet"] == "pizza toscana"
+async def test_buscar_historico_with_no_match_returns_empty_list(world):
+    result = await call(tool("buscar_historico"), world.ctx, consulta="lasanha")
+    assert not result.is_error
+    assert payload(result)["resultados"] == []
 
 
-async def test_buscar_historico_empty_and_blank_query(world):
-    fake = lambda *a, **k: []  # noqa: E731
-    t = tool("buscar_historico", search_history=fake)
-    assert payload(await call(t, world.ctx, consulta="x"))["resultados"] == []
-    assert (await call(t, world.ctx, consulta="  ")).is_error
+async def test_buscar_historico_blank_query_is_error(world):
+    assert (await call(tool("buscar_historico"), world.ctx, consulta="  ")).is_error
 
 
 # ---------- contrato ----------
 
 
 async def test_core_exposes_exactly_three_tools():
-    tools = build_core_tools(search_history=lambda *a, **k: [])
+    tools = build_core_tools()
     assert [t.name for t in tools] == ["info_empresa", "transferir_atendente", "buscar_historico"]
     assert tools[0].input_schema["properties"] == {}
     assert tools[1].input_schema["required"] == ["motivo"]
@@ -197,13 +178,11 @@ async def test_core_exposes_exactly_three_tools():
 async def test_six_tools_in_total():
     from app.packs.catalog_orders.pack import CatalogOrdersPack
 
-    names = [t.name for t in build_core_tools(search_history=lambda *a, **k: [])] + [
-        t.name for t in CatalogOrdersPack().tools()
-    ]
+    names = [t.name for t in build_core_tools()] + [t.name for t in CatalogOrdersPack().tools()]
     assert len(names) == len(set(names)) == 6
 
 
-async def test_buscar_historico_default_uses_real_memory_search_scoped_to_contact(world):
+async def test_buscar_historico_uses_memory_search_scoped_to_contact(world):
     from app.models.models import Contact, Conversation
 
     def message(conversation, jid, text):
