@@ -168,6 +168,23 @@ def _no_real_realtime_publish(monkeypatch):
     monkeypatch.setattr(realtime_event_bus, "publish", AsyncMock())
 
 
+@pytest.fixture(autouse=True)
+def _isolated_gateway_registry(monkeypatch):
+    """Nenhum teste enxerga gateways do banco de dev.
+
+    Modulos soltos importados antes deste conftest podem ligar `app.core.database.SessionLocal`
+    ao Postgres de desenvolvimento (onde o gateway Kiro-backend e semeado). O registry le
+    `SessionLocal` em tempo de chamada, entao apontamos para o SQLite de teste e limpamos o cache.
+    """
+    from app.core import database
+    from app.services import gateway_registry
+
+    monkeypatch.setattr(database, "SessionLocal", TestingSessionLocal)
+    gateway_registry.invalidate()
+    yield
+    gateway_registry.invalidate()
+
+
 @pytest.fixture
 def mock_realtime_event_bus():
     """Mock realtime event bus for testing"""

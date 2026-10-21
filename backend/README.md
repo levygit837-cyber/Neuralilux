@@ -46,6 +46,19 @@ uvicorn app.main:socket_app --host 0.0.0.0 --port 8000 --reload
 python scripts/run_worker.py
 ```
 
+## Gateways de inferência
+
+Qualquer API compatível com OpenAI (`POST {base_url}/chat/completions`) pode ser cadastrada em
+**Configurações > Gateways** ou em `/api/v1/gateways`. Cada gateway tem modelos nomeados
+(id no gateway, `reasoning_effort`, `max_tokens`, `temperature`, suporte a ferramentas) e cada tipo de agente
+(`default`, `whatsapp_agent`, `super_agent`) aponta para um modelo. Sem atribuição, valem Vertex e Gemini.
+
+- `seed_data.py` cadastra o gateway `Kiro-backend` (`claude-sonnet-5.5`, effort `low`) e o atribui a `default`.
+- A chave de API é criptografada com uma chave derivada de `SECRET_KEY`; trocar `SECRET_KEY` exige regravar as chaves.
+- Se o gateway falhar antes do primeiro token, o agente cai nos provedores padrão; depois do primeiro token o erro sobe, para não duplicar texto.
+- O cliente normaliza mensagens e ferramentas do formato Gemini para OpenAI, separa `reasoning_content` de `content`,
+  junta `tool_calls` em streaming e aceita `<tool_call>{json}</tool_call>` emitido como texto.
+
 ## Endpoints Principais
 
 - `GET /health` - Health check

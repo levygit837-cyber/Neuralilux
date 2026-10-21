@@ -7,6 +7,7 @@ import type { SettingsTab } from '@/types/settings'
 const TABS: { id: SettingsTab; label: string }[] = [
   { id: 'general', label: 'Geral' },
   { id: 'instance', label: 'Instância' },
+  { id: 'gateways', label: 'Gateways' },
 ]
 
 export function SettingsHeader() {

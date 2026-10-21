@@ -47,4 +47,4 @@ export interface Settings {
   theme: ThemeConfig
 }
 
-export type SettingsTab = 'general' | 'instance'
+export type SettingsTab = 'general' | 'instance' | 'gateways'
