@@ -59,6 +59,39 @@ def test_event_path_with_correct_token_is_published(client, published):
     assert published[0]["event"] == "connection.update"
 
 
+# Com WEBHOOK_BY_EVENTS=true a Evolution faz POST em `<url>?token=X/messages-upsert`: o path continua
+# `/evolution` e o evento chega colado ao valor do token.
+def test_event_suffix_glued_to_the_token_is_accepted_and_used_as_event(client, published):
+    response = client.post(
+        "/api/v1/webhooks/evolution", params={"token": f"{TOKEN}/connection-update"}, json={"instance": "evo-auth"}
+    )
+
+    assert response.status_code == 200
+    assert published[0]["event"] == "connection.update"
+
+
+def test_payload_event_wins_over_the_suffix_glued_to_the_token(client, published):
+    response = client.post("/api/v1/webhooks/evolution", params={"token": f"{TOKEN}/qrcode-updated"}, json=PAYLOAD)
+
+    assert response.status_code == 200
+    assert published[0]["event"] == "messages.upsert"
+
+
+@pytest.mark.parametrize("token", ["errado/messages-upsert", f"{TOKEN}x/messages-upsert", "/messages-upsert"])
+def test_suffix_does_not_rescue_a_wrong_secret(client, published, token):
+    response = client.post("/api/v1/webhooks/evolution", params={"token": token}, json=PAYLOAD)
+
+    assert response.status_code == 401
+    assert published == []
+
+
+def test_token_followed_by_a_bare_slash_is_accepted_without_event(client, published):
+    response = client.post("/api/v1/webhooks/evolution", params={"token": f"{TOKEN}/"}, json={"instance": "evo-auth"})
+
+    assert response.status_code == 200
+    assert published[0].get("event") is None
+
+
 def test_unconfigured_token_rejects_every_call_even_with_an_empty_token(client, published, monkeypatch):
     monkeypatch.setattr(settings, "EVOLUTION_WEBHOOK_TOKEN", "")
 

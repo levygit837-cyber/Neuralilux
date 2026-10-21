@@ -4,6 +4,7 @@ from typing import List
 
 
 _INSECURE_SECRET_KEY_PREFIX = "change-me-in-production"
+_INSECURE_WEBHOOK_TOKEN_PREFIX = "change-me"
 
 
 class Settings(BaseSettings):
@@ -64,6 +65,16 @@ class Settings(BaseSettings):
         if self.ENVIRONMENT != "development" and self.SECRET_KEY.startswith(_INSECURE_SECRET_KEY_PREFIX):
             raise ValueError(
                 "SECRET_KEY de exemplo nao pode ser usada com ENVIRONMENT != development; defina uma chave forte"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _refuse_example_webhook_token(self) -> "Settings":
+        token = self.EVOLUTION_WEBHOOK_TOKEN
+        if self.ENVIRONMENT != "development" and (not token or token.startswith(_INSECURE_WEBHOOK_TOKEN_PREFIX)):
+            raise ValueError(
+                "EVOLUTION_WEBHOOK_TOKEN vazio ou de exemplo nao pode ser usado com ENVIRONMENT != development; "
+                "defina um token forte (sem ele o webhook da Evolution responde 401)"
             )
         return self
 

@@ -11,16 +11,22 @@ from app.services.message_queue_service import message_queue_service
 logger = structlog.get_logger()
 
 
-def require_webhook_token(token: str = Query("")) -> None:
+def require_webhook_token(token: str = Query("")) -> str | None:
     """Recusa a chamada sem `?token=` igual a EVOLUTION_WEBHOOK_TOKEN (ADR 0006).
 
     Token não configurado recusa tudo: um token vazio nunca é uma credencial válida.
+
+    Com `WEBHOOK_BY_EVENTS=true` a Evolution anexa `/<evento>` ao fim da URL global, e como a URL termina na
+    query string o sufixo cai dentro do valor do token (`X/messages-upsert`). Só a parte antes da primeira `/`
+    é comparada; o resto é devolvido como evento, para o caso de o payload não trazer `event`.
     """
+    secret, _, event_suffix = token.partition("/")
     expected = settings.EVOLUTION_WEBHOOK_TOKEN.encode()
     # Bytes, não str: compare_digest levanta TypeError com str não-ASCII.
-    if not expected or not hmac.compare_digest(token.encode(), expected):
+    if not expected or not hmac.compare_digest(secret.encode(), expected):
         logger.warning("Evolution webhook rejected: missing or invalid token")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid webhook token")
+    return event_suffix or None
 
 
 router = APIRouter(dependencies=[Depends(require_webhook_token)])
@@ -48,7 +54,11 @@ def _normalize_event_name(event_name: str | None) -> str | None:
 
 @router.post("/evolution")
 @router.post("/evolution/{event_type}")
-async def evolution_webhook(request: Request, event_type: str = None):
+async def evolution_webhook(
+    request: Request,
+    event_type: str | None = None,
+    token_event: str | None = Depends(require_webhook_token),  # mesma instância já resolvida pelo router
+):
     """
     Webhook endpoint for Evolution API events
 
@@ -61,9 +71,9 @@ async def evolution_webhook(request: Request, event_type: str = None):
     try:
         payload = await request.json()
         
-        # Extract event type from payload or path
+        # Evento: payload.event, senão o path, senão o sufixo que a Evolution anexou ao token
         payload_event = payload.get("event")
-        final_event = _normalize_event_name(payload_event or event_type)
+        final_event = _normalize_event_name(payload_event or event_type or token_event)
         
         logger.info(
             "Received Evolution API webhook",

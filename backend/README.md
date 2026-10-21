@@ -116,12 +116,25 @@ Acesse `/docs` quando o servidor estiver rodando.
 
 ## Webhook da Evolution
 
-A Evolution chama o backend com o token na query string. No `docker-compose.yml` local (ignorado pelo git), use:
+A Evolution chama o backend com o token na query string. Exemplo versionado em [`docker-compose.example.yml`](../docker-compose.example.yml)
+(o `docker-compose.yml` real é ignorado pelo git). No serviço `evolution-api`, use:
 
 ```yaml
+- WEBHOOK_GLOBAL_WEBHOOK_BY_EVENTS=false
 - WEBHOOK_GLOBAL_URL=http://host.docker.internal:8000/api/v1/webhooks/evolution?token=${EVOLUTION_WEBHOOK_TOKEN}
 ```
 
-Exporte o mesmo `EVOLUTION_WEBHOOK_TOKEN` do `backend/.env` ao subir o compose. Logs de acesso não podem registrar a query string.
+- Exporte o mesmo `EVOLUTION_WEBHOOK_TOKEN` do `backend/.env` ao subir o compose.
+- Mantenha `WEBHOOK_GLOBAL_WEBHOOK_BY_EVENTS=false`: o evento já vem em `payload.event`. Com `true` a Evolution anexa
+  `/<evento>` ao fim da URL e o token chega como `TOKEN/messages-upsert`. O backend compara só a parte antes da primeira
+  `/` (tempo constante) e usa o resto como tipo do evento quando o payload não traz `event`, mas isso é tolerância, não o caminho recomendado.
+- Fora de `ENVIRONMENT=development` a app recusa subir com `EVOLUTION_WEBHOOK_TOKEN` vazio ou `change-me...`.
+- O access log do uvicorn mascara `?token=`; proxies reversos na frente da API precisam fazer o mesmo.
 
-O worker (`scripts/run_worker.py`) usa `aio-pika` num único event loop, com `RABBITMQ_PREFETCH=8` mensagens em paralelo e ordem garantida por Conversation. Instance desconhecida é descartada: cadastre a Instance antes de conectar o número.
+O worker (`scripts/run_worker.py`) usa `aio-pika` num único event loop, com `RABBITMQ_PREFETCH=8` mensagens em paralelo e ordem garantida por Conversation. Uma mensagem que falha volta à fila uma vez; se falhar de novo na reentrega, é descartada e logada em `error`. Instance desconhecida é descartada: cadastre a Instance antes de conectar o número.
+
+### Agent e resposta automática
+
+- `scripts/seed_data.py` cria um Agent por Company e liga as Instances da Company com `agent_enabled=True`, então um seed novo já responde.
+- Instances criadas por `POST /api/v1/instances` (`instances.py`) nascem com `agent_enabled=False` e sem Agent: atribua um Agent e ligue
+  a resposta automática (`agent_enabled`) antes de esperar respostas. Reexecutar o seed não religa uma Instance que o operador desligou.
