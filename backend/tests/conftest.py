@@ -11,6 +11,7 @@ import pytest_asyncio
 from unittest.mock import AsyncMock
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, event
+from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy import JSON
@@ -83,6 +84,25 @@ def db():
     finally:
         db.close()
         Base.metadata.drop_all(bind=engine)
+
+@pytest.fixture
+def db_session():
+    """Sessão em SQLite em memória, isolada do `db` (que usa o arquivo test.db)."""
+    memory_engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    MemorySession = sessionmaker(autocommit=False, autoflush=False, bind=memory_engine)
+    Base.metadata.create_all(bind=memory_engine)
+
+    session = MemorySession()
+    try:
+        yield session
+    finally:
+        session.close()
+        Base.metadata.drop_all(bind=memory_engine)
+
 
 @pytest.fixture
 def conversation_factory(db):

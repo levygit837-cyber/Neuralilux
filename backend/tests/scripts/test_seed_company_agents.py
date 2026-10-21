@@ -6,7 +6,7 @@ import pytest
 
 from app.models import Agent, BusinessType, Company, Instance, User
 
-_SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "seed_data.py"
+_SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "seed_data.py"
 
 
 @pytest.fixture(scope="module")
