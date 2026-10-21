@@ -1,0 +1,14 @@
+# Exemplo versionado do webhook da Evolution (o docker-compose.yml real é ignorado pelo git, ADR 0006).
+# Use como override: docker compose -f docker-compose.yml -f docker-compose.example.yml up -d evolution-api
+# ou copie as três variáveis para o serviço evolution-api do seu compose.
+#
+# EVOLUTION_WEBHOOK_TOKEN: o mesmo valor de backend/.env (exporte-o antes de subir o compose).
+services:
+  evolution-api:
+    environment:
+      - WEBHOOK_GLOBAL_ENABLED=true
+      # Com BY_EVENTS=true a Evolution anexa "/<evento>" ao fim da URL; como a URL termina na query string,
+      # o token chegaria como "X/messages-upsert". O backend tolera isso, mas o recomendado é false:
+      # o evento já vem em payload.event.
+      - WEBHOOK_GLOBAL_WEBHOOK_BY_EVENTS=false
+      - WEBHOOK_GLOBAL_URL=http://host.docker.internal:8000/api/v1/webhooks/evolution?token=${EVOLUTION_WEBHOOK_TOKEN:?defina EVOLUTION_WEBHOOK_TOKEN}

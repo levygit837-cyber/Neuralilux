@@ -1,6 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+import logging
+import re
+
 import socketio
 import structlog
 
@@ -19,6 +22,21 @@ structlog.configure(
 )
 
 logger = structlog.get_logger()
+
+_WEBHOOK_TOKEN = re.compile(r"([?&]token=)[^&\s]*")
+
+
+class RedactWebhookToken(logging.Filter):
+    """Mascara `?token=` no access log do uvicorn: o token do webhook vai na URL (ADR 0006)."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple):
+            record.args = tuple(_WEBHOOK_TOKEN.sub(r"\1***", a) if isinstance(a, str) else a for a in args)
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(RedactWebhookToken())
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -44,7 +62,7 @@ app.include_router(api_router, prefix="/api/v1")
 @app.on_event("startup")
 async def startup_event():
     logger.info("Starting Neuralilux API", environment=settings.ENVIRONMENT)
-    message_queue_service.connect()
+    await message_queue_service.connect()
     await realtime_event_bus.start(chat_socket_service.emit_realtime_event)
     try:
         await evolution_realtime_service.start()
@@ -57,7 +75,7 @@ async def shutdown_event():
     logger.info("Shutting down Neuralilux API")
     await evolution_realtime_service.stop()
     await realtime_event_bus.stop()
-    message_queue_service.disconnect()
+    await message_queue_service.disconnect()
 
 
 @app.get("/health")

@@ -5,7 +5,7 @@ import pytest
 async def test_forward_event_publishes_webhook_payload(monkeypatch):
     published_payloads = []
 
-    def fake_publish(payload):
+    async def fake_publish(payload):
         published_payloads.append(payload)
         return True
 

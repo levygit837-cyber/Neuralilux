@@ -93,7 +93,7 @@ class EvolutionRealtimeService:
             "event": event_name,
             "source": "websocket",
         }
-        message_queue_service.publish_webhook_event(normalized_payload)
+        await message_queue_service.publish_webhook_event(normalized_payload)
 
 
 evolution_realtime_service = EvolutionRealtimeService()

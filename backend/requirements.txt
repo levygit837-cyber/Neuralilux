@@ -16,9 +16,6 @@ asyncpg==0.32.0
 redis==8.1.0
 hiredis==3.4.2
 
-# RabbitMQ
-pika==1.4.4
-
 # Authentication
 python-jose[cryptography]==3.5.0
 cryptography==50.0.2

@@ -1,115 +1,141 @@
 """
 WhatsApp Message Consumer Worker
-Handles async processing of WhatsApp messages via RabbitMQ
+Processa os eventos do webhook da Evolution vindos do RabbitMQ.
+
+Concorrência: o worker roda um único event loop e entrega até `RABBITMQ_PREFETCH` mensagens em
+paralelo. Dentro de uma Conversation a ordem é mantida por um `asyncio.Lock`; entre Conversations
+o processamento é paralelo.
 """
+import asyncio
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from typing import Any, AsyncIterator, Dict, Optional
+
 import structlog
-from typing import Dict, Any
-from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
+from app.agent import executor
+from app.core.database import SessionLocal
+from app.models.models import Agent, Contact, Conversation, Instance, Message
+from app.services.evolution_api import evolution_api
 from app.services.message_queue_service import message_queue_service
 from app.services.realtime_event_bus import realtime_event_bus
-from app.core.database import SessionLocal
-from app.models.models import Instance, Contact, Conversation, Message, Agent
-from app.agent import executor
-from app.services.evolution_api import evolution_api
 
 logger = structlog.get_logger()
 
+# Resposta fixa para mídia sem texto: o Agent não é chamado.
+MEDIA_REPLY = "Por enquanto só consigo ler mensagens de texto. Pode me escrever o que você precisa?"
+
+# Mensagens mais antigas que isto, em relação ao início do consumer, são histórico (backlog de uma
+# queda ou reconexão): ficam gravadas, mas o Agent não responde.
+STALE_AFTER = timedelta(minutes=5)
+
+# Tempo máximo que o shutdown espera os Summaries pendentes antes de cancelá-los.
+DRAIN_TIMEOUT = 10.0
+
+# Chaves de `message` que só embrulham outra mensagem.
+_WRAPPERS = ("ephemeralMessage", "viewOnceMessage", "viewOnceMessageV2", "documentWithCaptionMessage")
+_MEDIA = {
+    "imageMessage": ("image", "[Imagem]"),
+    "videoMessage": ("video", "[Vídeo]"),
+    "audioMessage": ("audio", "[Áudio]"),
+    "documentMessage": ("document", "[Documento]"),
+    "stickerMessage": ("sticker", "[Sticker]"),
+}
+
+
+@dataclass(frozen=True)
+class ParsedContent:
+    message_type: str
+    content: str  # o que é gravado e mostrado na UI
+    text: str  # texto que o Contact escreveu (corpo ou legenda); vazio em mídia sem legenda
+    is_media: bool = False
+
+
+def parse_content(message_data: Dict[str, Any]) -> ParsedContent:
+    """Extrai tipo, conteúdo e texto de um `message` da Evolution."""
+    message_data = message_data or {}
+    for _ in range(len(_WRAPPERS)):
+        wrapper = next((key for key in _WRAPPERS if isinstance(message_data.get(key), dict)), None)
+        if wrapper is None:
+            break
+        message_data = message_data[wrapper].get("message") or {}
+
+    if "conversation" in message_data:
+        text = message_data["conversation"] or ""
+        return ParsedContent("text", text, text)
+    if "extendedTextMessage" in message_data:
+        text = (message_data["extendedTextMessage"] or {}).get("text") or ""
+        return ParsedContent("text", text, text)
+    for key, (message_type, placeholder) in _MEDIA.items():
+        if key in message_data:
+            caption = (message_data[key] or {}).get("caption") or ""
+            return ParsedContent(message_type, caption or placeholder, caption, is_media=True)
+    return ParsedContent("unknown", "[Mensagem]", "")
+
+
+def resolve_remote_jid(key: Dict[str, Any], payload: Dict[str, Any]) -> str:
+    """JID do Contact. Um `@lid` é trocado pelo número real (`remoteJidAlt`/`senderPn`) quando vier."""
+    remote_jid = key.get("remoteJid") or ""
+    if remote_jid.endswith("@lid"):
+        alternate = key.get("remoteJidAlt") or key.get("senderPn") or payload.get("senderPn")
+        if alternate:
+            return alternate if "@" in alternate else f"{alternate}@s.whatsapp.net"
+    return remote_jid
+
+
+def is_ignored_chat(remote_jid: str) -> bool:
+    """Grupos e broadcast (inclui `status@broadcast`) nunca passam pelo Agent."""
+    return remote_jid.endswith("@g.us") or remote_jid.endswith("@broadcast")
+
 
 def _resolve_default_agent(db: Session, instance: Instance) -> Agent | None:
-    """
-    Resolve um agent padrão para a instância quando agent_id é None.
-    
-    Prioridade:
-    1. Primeiro agent ativo do dono da instância
-    2. Primeiro agent global (owner_id=None) ativo
-    
-    Args:
-        db: Sessão do banco de dados
-        instance: Instância que precisa de um agent
-    
-    Returns:
-        Agent encontrado ou None
-    """
-    # Tentar buscar agent do dono da instância
-    if instance.owner_id:
-        owner_agent = db.query(Agent).filter(
-            Agent.owner_id == instance.owner_id,
-            Agent.is_active == True
-        ).first()
-        
-        if owner_agent:
-            logger.info(
-                "Resolved owner agent for instance",
-                instance_id=instance.id,
-                instance_name=instance.name,
-                owner_id=instance.owner_id,
-                agent_id=owner_agent.id,
-                agent_name=owner_agent.name
-            )
-            return owner_agent
-    
-    # Tentar buscar agent global
-    global_agent = db.query(Agent).filter(
-        Agent.owner_id.is_(None),
-        Agent.is_active == True
-    ).first()
-    
-    if global_agent:
-        logger.info(
-            "Resolved global agent for instance",
-            instance_id=instance.id,
-            instance_name=instance.name,
-            agent_id=global_agent.id,
-            agent_name=global_agent.name
+    """O Agent da Instance: o ligado a ela e, na falta, o Agent ativo da Company."""
+    if instance.agent_id:
+        agent = db.query(Agent).filter(Agent.id == instance.agent_id, Agent.is_active == True).first()  # noqa: E712
+        if agent:
+            return agent
+    if instance.company_id:
+        agent = (
+            db.query(Agent)
+            .filter(Agent.company_id == instance.company_id, Agent.is_active == True)  # noqa: E712
+            .order_by(Agent.created_at, Agent.id)
+            .first()
         )
-        return global_agent
-    
-    logger.warning(
-        "No default agent found for instance",
-        instance_id=instance.id,
-        instance_name=instance.name,
-        owner_id=instance.owner_id
-    )
+        if agent:
+            instance.agent_id = agent.id
+            db.commit()
+            return agent
     return None
 
 
 class WhatsAppMessageConsumer:
     """Consumer for processing WhatsApp messages asynchronously"""
-    
+
     def __init__(self):
         self.mq = message_queue_service
-        self._running = False
-    
-    async def process_outgoing_message(self, message: Dict[str, Any]) -> Dict[str, Any]:
-        """Process an outgoing message to be sent via WhatsApp"""
+        self._started_at = datetime.now(timezone.utc)
+        self._locks: Dict[str, list] = {}  # chave da Conversation -> [Lock, quantos a usam]
+        self._background: set[asyncio.Task] = set()
+        self._summarizing: set[str] = set()
+        self._missing_agent_logged: set[str] = set()
+
+    @asynccontextmanager
+    async def _serialized(self, key: str) -> AsyncIterator[None]:
+        """Uma Conversation por vez; Conversations diferentes em paralelo. O Lock some quando ninguém o usa."""
+        entry = self._locks.get(key)
+        if entry is None:
+            entry = self._locks[key] = [asyncio.Lock(), 0]
+        entry[1] += 1
         try:
-            data = message.get("data", {})
-            logger.info(
-                "Processing outgoing WhatsApp message",
-                to=data.get("to"),
-                instance=data.get("instance_name")
-            )
-            
-            # TODO: Implement message sending via Evolution API
-            # 1. Get instance connection details
-            # 2. Call Evolution API to send message
-            # 3. Update message status in database
-            # 4. Publish status update to notifications queue
-            
-            logger.info("Outgoing message processed", recipient=data.get("to"))
-            
-            return {
-                "status": "sent",
-                "to": data.get("to"),
-                "timestamp": datetime.utcnow().isoformat()
-            }
-            
-        except Exception as e:
-            logger.error("Error processing outgoing message", error=str(e))
-            raise
-    
+            async with entry[0]:
+                yield
+        finally:
+            entry[1] -= 1
+            if entry[1] == 0:
+                del self._locks[key]
+
     async def process_webhook_event(self, message: Dict[str, Any]) -> Dict[str, Any]:
         """Process an Evolution API webhook event"""
         db: Session = SessionLocal()
@@ -146,238 +172,194 @@ class WhatsAppMessageConsumer:
             raise
         finally:
             db.close()
-    
+
     async def _save_message_to_database(self, db: Session, data: Dict[str, Any]) -> None:
-        """Save incoming message to database"""
+        """Grava a Message recebida e, se couber, deixa o Agent responder."""
         try:
             instance_name = data.get("instance")
             if not instance_name:
                 logger.warning("No instance name in message data")
                 return
 
-            instance = self._get_or_create_instance(db, instance_name)
-            
-            message_payload = self._unwrap_event_payload(data)
-            message_data = message_payload.get("message", {}) or {}
-            key = message_payload.get("key", {})
-            remote_jid = key.get("remoteJid", "")
-            message_id = key.get("id", "")
-            from_me = key.get("fromMe", False)
-            push_name = message_payload.get("pushName")
-            timestamp = self._parse_message_timestamp(message_payload.get("messageTimestamp"))
-
-            # Log detalhado para debug de loop
-            logger.info(
-                "Message details",
-                message_id=message_id,
-                from_me=from_me,
-                remote_jid=remote_jid,
-                has_content=bool(message_data)
-            )
-
-            # Extract message content
-            content = ""
-            message_type = "text"
-            if "conversation" in message_data:
-                content = message_data["conversation"]
-            elif "extendedTextMessage" in message_data:
-                content = message_data["extendedTextMessage"].get("text", "")
-            elif "imageMessage" in message_data:
-                content = message_data["imageMessage"].get("caption", "[Imagem]")
-                message_type = "image"
-            elif "videoMessage" in message_data:
-                content = message_data["videoMessage"].get("caption", "[Vídeo]")
-                message_type = "video"
-            elif "audioMessage" in message_data:
-                content = "[Áudio]"
-                message_type = "audio"
-            elif "documentMessage" in message_data:
-                content = message_data["documentMessage"].get("caption", "[Documento]")
-                message_type = "document"
-            else:
-                content = "[Mensagem]"
-                message_type = "unknown"
-            
-            # Extract a compact phone/group identifier from the WhatsApp JID.
-            local_part = remote_jid.split("@")[0] if "@" in remote_jid else remote_jid
-            phone_number = local_part.split("-")[0][:20]
-            
-            # Find or create contact
-            contact = db.query(Contact).filter(
-                Contact.instance_id == instance.id,
-                Contact.remote_jid == remote_jid
-            ).first()
-            
-            if not contact:
-                contact = Contact(
-                    instance_id=instance.id,
-                    phone_number=phone_number,
-                    remote_jid=remote_jid,
-                    name=push_name or phone_number,
-                    push_name=push_name,
-                    created_at=datetime.now(timezone.utc),
-                    updated_at=datetime.now(timezone.utc)
-                )
-                db.add(contact)
-                db.flush()
-            else:
-                contact.remote_jid = remote_jid
-                if push_name:
-                    contact.push_name = push_name
-                    if not contact.name or contact.name == phone_number:
-                        contact.name = push_name
-
-            # Find or create conversation
-            conversation = db.query(Conversation).filter(
-                Conversation.instance_id == instance.id,
-                Conversation.contact_id == contact.id
-            ).first()
-            
-            if not conversation:
-                conversation = Conversation(
-                    instance_id=instance.id,
-                    contact_id=contact.id,
-                    remote_jid=remote_jid,
-                    is_active=True,
-                    created_at=datetime.now(timezone.utc),
-                    updated_at=datetime.now(timezone.utc)
-                )
-                db.add(conversation)
-                db.flush()
-            
-            # Check if message already exists
-            existing_message = db.query(Message).filter(
-                Message.message_id == message_id
-            ).first()
-            
-            if existing_message:
-                logger.info("Message already exists", message_id=message_id)
+            instance = self._find_instance(db, instance_name)
+            if instance is None:
+                logger.warning("Message for unknown instance discarded", instance_name=instance_name)
                 return
 
-            # Save message
-            db_message = Message(
-                instance_id=instance.id,
-                conversation_id=conversation.id,
-                remote_jid=remote_jid,
-                message_id=message_id,
-                message_type=message_type,
-                content=content,
-                direction="incoming" if not from_me else "outgoing",
-                status="sent",
-                is_from_me=from_me,
-                timestamp=timestamp
-            )
-            db.add(db_message)
+            payload = self._unwrap_event_payload(data)
+            key = payload.get("key") or {}
+            remote_jid = resolve_remote_jid(key, payload)
+            message_id = key.get("id") or None
+            from_me = bool(key.get("fromMe", False))
 
-            # Update conversation
-            conversation.last_message_at = timestamp
-            conversation.last_message_preview = content[:200] if content else None
-            conversation.updated_at = datetime.now(timezone.utc)
-            if not from_me:
-                conversation.unread_count = (conversation.unread_count or 0) + 1
+            if is_ignored_chat(remote_jid):
+                logger.info("Group or broadcast message ignored", message_id=message_id, remote_jid=remote_jid)
+                return
 
-            db.commit()
-            db.refresh(db_message)
-
-            # === AGENTE AI: Processar mensagem com o agente se a instância tem agente atribuído ===
-            # Múltiplas camadas de detecção de auto-processamento
-            should_process = (
-                not from_me  # Layer 1: from_me flag
-                and content  # Must have content
-                and message_type == "text"  # Only text messages
-                and db_message.direction == "incoming"  # Layer 2: Direction must be incoming
-            )
-
-            # Layer 3: Check if message was sent by bot (participant field)
-            participant = key.get("participant")
-            if participant and "@" in participant:
-                # In group chats, participant indicates who sent the message
-                # If participant matches bot's number, skip processing
-                participant_number = participant.split("@")[0]
-                if participant_number == instance.evolution_instance_id:
-                    should_process = False
-                    logger.info(
-                        "Skipping bot's own message (participant check)",
-                        message_id=message_id,
-                        participant=participant
-                    )
-
-            # Layer 4: Check if this is a recently sent message by checking database
-            if should_process:
-                # Check if we have an outgoing message with same content sent recently (last 10 seconds)
-                from datetime import timedelta
-                recent_cutoff = datetime.now(timezone.utc) - timedelta(seconds=10)
-                recent_outgoing = db.query(Message).filter(
-                    Message.instance_id == instance.id,
-                    Message.conversation_id == conversation.id,
-                    Message.direction == "outgoing",
-                    Message.content == content,
-                    Message.timestamp >= recent_cutoff
-                ).first()
-
-                if recent_outgoing:
-                    should_process = False
-                    logger.info(
-                        "Skipping duplicate of recently sent message",
-                        message_id=message_id,
-                        original_message_id=recent_outgoing.message_id
-                    )
-
-            if should_process:
-                await self._try_process_with_agent(
-                    db=db,
-                    instance=instance,
-                    conversation=conversation,
-                    contact=contact,
-                    content=content,
-                )
-            else:
-                logger.info(
-                    "Message not processed by agent",
-                    message_id=message_id,
-                    from_me=from_me,
-                    direction=db_message.direction,
-                    reason="self-message or duplicate"
-                )
-            logger.info(
-                "Message saved to database",
-                message_id=message_id,
-                conversation_id=conversation.id,
-                instance_id=instance.id
-            )
-
-            await realtime_event_bus.publish(
-                {
-                    "type": "incoming_message",
-                    "instance_name": instance_name,
-                    "conversation_id": remote_jid,
-                    "payload": {
-                        "conversation": {
-                            "id": remote_jid,
-                            "name": contact.name or phone_number,
-                            "lastMessage": content,
-                            "timestamp": timestamp.isoformat(),
-                            "unreadCount": conversation.unread_count or 0,
-                            "isOnline": False,
-                            "avatar": contact.profile_pic_url,
-                        },
-                        "message": {
-                            "id": message_id,
-                            "conversationId": remote_jid,
-                            "content": content,
-                            "timestamp": timestamp.isoformat(),
-                            "isOutgoing": from_me,
-                            "status": "sent",
-                            "sender": None if from_me else {"name": contact.name or phone_number},
-                        },
-                    },
-                }
-            )
+            async with self._serialized(f"{instance.id}:{remote_jid}"):
+                await self._handle_message(db, instance, instance_name, payload, key, remote_jid, from_me)
 
         except Exception as e:
             logger.error("Error saving message to database", error=str(e))
             db.rollback()
             raise
+
+    async def _handle_message(
+        self,
+        db: Session,
+        instance: Instance,
+        instance_name: str,
+        payload: Dict[str, Any],
+        key: Dict[str, Any],
+        remote_jid: str,
+        from_me: bool,
+    ) -> None:
+        message_id = key.get("id") or None
+        push_name = payload.get("pushName")
+        timestamp = self._parse_message_timestamp(payload.get("messageTimestamp"))
+        parsed = parse_content(payload.get("message") or {})
+
+        # Dedup antes de qualquer escrita: inclui o eco do webhook para a resposta do próprio Agent.
+        if message_id and db.query(Message.id).filter(Message.message_id == message_id).first():
+            logger.info("Message already exists", message_id=message_id, from_me=from_me)
+            return
+
+        local_part = remote_jid.split("@")[0] if "@" in remote_jid else remote_jid
+        phone_number = local_part.split("-")[0][:20]
+
+        contact = db.query(Contact).filter(
+            Contact.instance_id == instance.id,
+            Contact.remote_jid == remote_jid
+        ).first()
+        if not contact:
+            contact = Contact(
+                instance_id=instance.id,
+                phone_number=phone_number,
+                remote_jid=remote_jid,
+                name=push_name or phone_number,
+                push_name=push_name,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc)
+            )
+            db.add(contact)
+            db.flush()
+        elif push_name and not from_me:
+            # Em mensagem `fromMe` o pushName é o do nosso próprio número, não o do Contact.
+            contact.push_name = push_name
+            if not contact.name or contact.name == phone_number:
+                contact.name = push_name
+
+        conversation = db.query(Conversation).filter(
+            Conversation.instance_id == instance.id,
+            Conversation.contact_id == contact.id
+        ).first()
+        if not conversation:
+            conversation = Conversation(
+                instance_id=instance.id,
+                contact_id=contact.id,
+                remote_jid=remote_jid,
+                is_active=True,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc)
+            )
+            db.add(conversation)
+            db.flush()
+
+        db.add(
+            Message(
+                instance_id=instance.id,
+                conversation_id=conversation.id,
+                remote_jid=remote_jid,
+                message_id=message_id,
+                message_type=parsed.message_type,
+                content=parsed.content,
+                direction="outgoing" if from_me else "incoming",
+                status="sent",
+                is_from_me=from_me,
+                timestamp=timestamp,
+            )
+        )
+        self._touch_conversation(conversation, parsed.content, timestamp, unread=not from_me)
+        db.commit()
+        logger.info(
+            "Message saved to database",
+            message_id=message_id,
+            conversation_id=conversation.id,
+            instance_id=instance.id,
+            from_me=from_me,
+        )
+
+        await self._publish_message(instance_name, remote_jid, contact, conversation, message_id, parsed.content, timestamp, from_me)
+
+        skip = self._skip_agent_reason(from_me, remote_jid, timestamp)
+        if skip:
+            logger.info("Message not processed by agent", message_id=message_id, reason=skip)
+            return
+        await self._try_process_with_agent(db, instance, conversation, contact, parsed)
+
+    def _skip_agent_reason(self, from_me: bool, remote_jid: str, timestamp: datetime) -> Optional[str]:
+        if from_me:
+            return "from_me"
+        if remote_jid.endswith("@lid"):
+            return "unresolved_lid"  # sem o número real não há como responder
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        if timestamp < self._started_at - STALE_AFTER:
+            return "stale"
+        return None
+
+    @staticmethod
+    def _touch_conversation(conversation: Conversation, content: str, timestamp: datetime, *, unread: bool) -> None:
+        conversation.last_message_at = timestamp
+        conversation.last_message_preview = content[:200] if content else None
+        conversation.updated_at = datetime.now(timezone.utc)
+        if unread:
+            conversation.unread_count = (conversation.unread_count or 0) + 1
+
+    async def _publish_message(
+        self,
+        instance_name: str,
+        remote_jid: str,
+        contact: Contact,
+        conversation: Conversation,
+        message_id: Optional[str],
+        content: str,
+        timestamp: datetime,
+        from_me: bool,
+    ) -> None:
+        name = contact.name or contact.phone_number
+        event = (
+            {
+                "type": "incoming_message",
+                "instance_name": instance_name,
+                "conversation_id": remote_jid,
+                "payload": {
+                    "conversation": {
+                        "id": remote_jid,
+                        "name": name,
+                        "lastMessage": content,
+                        "timestamp": timestamp.isoformat(),
+                        "unreadCount": conversation.unread_count or 0,
+                        "isOnline": False,
+                        "avatar": contact.profile_pic_url,
+                    },
+                    "message": {
+                        "id": message_id,
+                        "conversationId": remote_jid,
+                        "content": content,
+                        "timestamp": timestamp.isoformat(),
+                        "isOutgoing": from_me,
+                        "status": "sent",
+                        "sender": None if from_me else {"name": name},
+                    },
+                },
+            }
+        )
+        try:
+            await realtime_event_bus.publish(event)
+        except Exception:
+            # Realtime é só a UI ao vivo: uma falha no Redis não pode impedir o Agent nem a resposta.
+            logger.exception("Failed to publish message to realtime", message_id=message_id)
 
     async def _update_message_status(self, db: Session, data: Dict[str, Any]) -> None:
         """Update message status in database"""
@@ -416,7 +398,10 @@ class WhatsAppMessageConsumer:
             state = message_payload.get("state")
 
             if instance_name and state:
-                instance = self._get_or_create_instance(db, instance_name)
+                instance = self._find_instance(db, instance_name)
+                if instance is None:
+                    logger.warning("Connection update for unknown instance discarded", instance_name=instance_name)
+                    return
                 instance.status = self._normalize_connection_status(state)
                 instance.updated_at = datetime.now(timezone.utc)
                 db.commit()
@@ -457,24 +442,12 @@ class WhatsAppMessageConsumer:
             return nested
         return data
 
-    def _get_or_create_instance(self, db: Session, instance_name: str) -> Instance:
-        instance = db.query(Instance).filter(
+    def _find_instance(self, db: Session, instance_name: str) -> Optional[Instance]:
+        """A Instance cadastrada; nome desconhecido nunca cria registro."""
+        return db.query(Instance).filter(
             Instance.evolution_instance_id == instance_name,
-            Instance.is_active == True
+            Instance.is_active == True  # noqa: E712
         ).first()
-        if instance:
-            return instance
-
-        instance = Instance(
-            name=instance_name,
-            evolution_instance_id=instance_name,
-            status="connected",
-            is_active=True,
-        )
-        db.add(instance)
-        db.flush()
-        logger.info("Created placeholder instance for realtime event", instance_name=instance_name)
-        return instance
 
     def _normalize_message_status(self, status: Any) -> str:
         mapping = {
@@ -522,7 +495,7 @@ class WhatsAppMessageConsumer:
         instance: Instance,
         conversation: Conversation,
         contact: Contact,
-        content: str,
+        parsed: ParsedContent,
     ) -> None:
         """Roda um Turn do Agent para a Message recebida e envia a resposta, se houver."""
         log = logger.bind(instance_id=instance.id, conversation_id=str(conversation.id))
@@ -531,59 +504,140 @@ class WhatsAppMessageConsumer:
                 log.info("Agent disabled for this instance")
                 return
 
-            agent = None
-            if instance.agent_id:
-                agent = db.query(Agent).filter(Agent.id == instance.agent_id, Agent.is_active == True).first()
-            else:
-                agent = _resolve_default_agent(db, instance)
-                if agent:
-                    instance.agent_id = agent.id
-                    db.commit()
-            if not agent:
-                log.error("No active Agent for this instance; message not answered", agent_id=instance.agent_id)
+            agent = _resolve_default_agent(db, instance)
+            if agent is None:
+                # Um erro por Instance até o worker reiniciar: sem Agent, toda mensagem cairia aqui.
+                if instance.id not in self._missing_agent_logged:
+                    self._missing_agent_logged.add(instance.id)
+                    log.error(
+                        "No active Agent for this Instance or its Company; messages are not answered. "
+                        "Run scripts/seed_data.py or create the Company's Agent",
+                        company_id=instance.company_id,
+                    )
+                return
+            self._missing_agent_logged.discard(instance.id)
+
+            if parsed.is_media and not parsed.text.strip():
+                if not self._in_handoff(db, conversation.id):
+                    await self._send_and_persist(db, instance, conversation, contact, MEDIA_REPLY)
+                return
+            if not parsed.text.strip():
+                log.info("Message without text, Agent not called", message_type=parsed.message_type)
                 return
 
-            result = await executor.handle_incoming(db, conversation, contact, instance, content)
+            result = await executor.handle_incoming(db, conversation, contact, instance, parsed.text)
             if not result.reply_text:
                 log.info("Agent returned no response", steps=result.steps)
                 return
 
-            await evolution_api.send_text_message(
-                instance_name=instance.evolution_instance_id or instance.name,
-                remote_jid=conversation.remote_jid,
-                text=result.reply_text,
-            )
+            await self._send_and_persist(db, instance, conversation, contact, result.reply_text)
             log.info("Agent response sent", steps=result.steps, response_length=len(result.reply_text))
         except Exception:
             # Nunca derruba o worker: o erro fica no log e a próxima Message tenta de novo.
             log.exception("Unexpected error processing message with agent")
             return
 
-        # Aguardado aqui, não em create_task: o worker abre um event loop por mensagem e o fecha
-        # logo depois do callback, destruindo qualquer task pendente. A resposta já foi enviada.
+        self._spawn_summary(conversation.id)
+
+    @staticmethod
+    def _in_handoff(db: Session, conversation_id: str) -> bool:
+        flag = db.query(Conversation.human_in_loop).filter(Conversation.id == conversation_id).scalar()
+        return bool(flag)
+
+    async def _send_and_persist(
+        self, db: Session, instance: Instance, conversation: Conversation, contact: Contact, text: str
+    ) -> None:
+        """Envia pela Evolution e grava a resposta como Message `from_me`, com o id devolvido.
+
+        Assim o eco do webhook (mesmo id) é descartado pelo dedup, e a UI recebe a resposta aqui.
+        """
+        instance_name = instance.evolution_instance_id or instance.name
+        response = await evolution_api.send_text_message(
+            instance_name=instance_name,
+            remote_jid=conversation.remote_jid,
+            text=text,
+        )
+        sent_id = ((response or {}).get("key") or {}).get("id")
+        if not sent_id:
+            # Sem id não há como deduplicar o eco; deixa o eco gravar a Message.
+            logger.warning("Evolution did not return a message id; reply will be stored from the webhook echo")
+            return
+
+        timestamp = datetime.now(timezone.utc)
         try:
-            await executor.refresh_summary(conversation.id)
+            db.add(
+                Message(
+                    instance_id=instance.id,
+                    conversation_id=conversation.id,
+                    remote_jid=conversation.remote_jid,
+                    message_id=sent_id,
+                    message_type="text",
+                    content=text,
+                    direction="outgoing",
+                    status="sent",
+                    is_from_me=True,
+                    timestamp=timestamp,
+                )
+            )
+            self._touch_conversation(conversation, text, timestamp, unread=False)
+            db.commit()
         except Exception:
-            log.exception("Summary refresh failed after reply")
-    
+            # A resposta já saiu; falhar ao gravar não pode reenviar nem derrubar o Turn.
+            db.rollback()
+            logger.exception("Failed to persist the Agent reply", message_id=sent_id)
+            return
+        await self._publish_message(
+            instance_name, conversation.remote_jid, contact, conversation, sent_id, text, timestamp, True
+        )
+
+    def _spawn_summary(self, conversation_id: str) -> None:
+        """Atualiza o Summary fora do caminho da resposta, numa task rastreada do loop do worker."""
+        if conversation_id in self._summarizing:
+            return
+        self._summarizing.add(conversation_id)
+        task = asyncio.create_task(self._refresh_summary(conversation_id))
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
+
+    async def _refresh_summary(self, conversation_id: str) -> None:
+        try:
+            await executor.refresh_summary(conversation_id)
+        except Exception:
+            logger.exception("Summary refresh failed after reply", conversation_id=conversation_id)
+        finally:
+            self._summarizing.discard(conversation_id)
+
     def register_consumers(self):
         """Register all consumer callbacks"""
-        self.mq.register_consumer("whatsapp.messages.send", self.process_outgoing_message)
         self.mq.register_consumer("webhooks.evolution", self.process_webhook_event)
         logger.info("All WhatsApp consumers registered")
-    
-    def start(self):
-        """Start consuming messages"""
+
+    async def start(self) -> None:
+        """Consome até `stop()`."""
         logger.info("Starting WhatsApp message consumer")
-        self._running = True
+        self._started_at = datetime.now(timezone.utc)
         self.register_consumers()
-        self.mq.start_consuming()
-    
-    def stop(self):
-        """Stop consuming messages"""
+        await self.mq.start_consuming()
+
+    async def stop(self) -> None:
+        """Para de consumir, espera as entregas em voo e os Summaries pendentes."""
         logger.info("Stopping WhatsApp message consumer")
-        self._running = False
-        self.mq.stop_consuming()
+        await self.mq.stop_consuming()
+        pending = tuple(self._background)
+        if pending:
+            _, unfinished = await asyncio.wait(pending, timeout=DRAIN_TIMEOUT)
+            for task in unfinished:
+                task.cancel()
+            if unfinished:
+                logger.error(
+                    "Summaries cancelled: shutdown drain timed out", pending=len(unfinished), timeout=DRAIN_TIMEOUT
+                )
+                await asyncio.gather(*unfinished, return_exceptions=True)
+
+    async def drain(self) -> None:
+        """Espera as tasks de fundo (Summaries) que ainda estão em andamento."""
+        while self._background:
+            await asyncio.gather(*tuple(self._background), return_exceptions=True)
 
 
 whatsapp_consumer = WhatsAppMessageConsumer()

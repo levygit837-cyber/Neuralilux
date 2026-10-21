@@ -1,4 +1,4 @@
-"""Recusa subir com a SECRET_KEY de exemplo fora de desenvolvimento."""
+"""Recusa subir com a SECRET_KEY ou o EVOLUTION_WEBHOOK_TOKEN de exemplo/vazio fora de desenvolvimento."""
 import pytest
 from pydantic import ValidationError
 
@@ -27,4 +27,15 @@ def test_default_secret_key_is_allowed_in_development():
 
 
 def test_real_secret_key_is_accepted_in_production():
-    assert _settings(ENVIRONMENT="production", SECRET_KEY="x" * 48).ENVIRONMENT == "production"
+    assert _settings(ENVIRONMENT="production", SECRET_KEY="x" * 48, EVOLUTION_WEBHOOK_TOKEN="w" * 32).ENVIRONMENT == "production"
+
+
+@pytest.mark.parametrize("environment", ["production", "staging"])
+@pytest.mark.parametrize("token", ["", "change-me", "change-me-in-production"])
+def test_empty_or_example_webhook_token_is_refused_outside_development(environment, token):
+    with pytest.raises(ValidationError, match="EVOLUTION_WEBHOOK_TOKEN"):
+        _settings(ENVIRONMENT=environment, SECRET_KEY="x" * 48, EVOLUTION_WEBHOOK_TOKEN=token)
+
+
+def test_empty_webhook_token_is_allowed_in_development():
+    assert _settings(ENVIRONMENT="development", EVOLUTION_WEBHOOK_TOKEN="").EVOLUTION_WEBHOOK_TOKEN == ""
