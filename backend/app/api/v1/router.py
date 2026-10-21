@@ -11,8 +11,6 @@ from app.api.v1.endpoints import (
     conversations,
     dashboard,
     menu,
-    settings,
-    inference,
     tickets,
     gateways,
 )
@@ -32,7 +30,5 @@ api_router.include_router(
     conversations.router, prefix="", tags=["conversations", "contacts"]
 )
 api_router.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
-api_router.include_router(settings.router, prefix="/settings", tags=["settings"])
-api_router.include_router(inference.router, prefix="/inference", tags=["inference"])
 api_router.include_router(tickets.router, prefix="/tickets", tags=["tickets"])
 api_router.include_router(gateways.router, prefix="/gateways", tags=["gateways"])

@@ -1,0 +1,162 @@
+"""Executa um Turn para uma Message recebida do Contact.
+
+Ordem: gate de Handoff lido do banco, contexto (Summary + Recent Window), Gateway
+do `whatsapp_agent`, loop com as Tools dos Packs da Company, formatação para o
+WhatsApp e nova leitura do Handoff antes de devolver a resposta. Quem chama envia
+`reply_text` (se houver) e depois aguarda `refresh_summary`.
+"""
+
+from __future__ import annotations
+
+import uuid
+
+import structlog
+from sqlalchemy.orm import Session
+
+from app.agent.contracts import ChatMessage, Pack, Tool, ToolContext
+from app.agent.core_tools import core_tools
+from app.agent.events import TurnEvents
+from app.agent.formatting import to_whatsapp
+from app.agent.loop import TurnResult, run_turn
+from app.agent.memory import build_context, maybe_refresh_summary
+from app.agent.prompts import build_system_prompt
+from app.agent.tools import ToolRegistry
+from app.core import database
+from app.llm.registry import resolve as resolve_gateway
+from app.models.models import Company, Contact, Conversation, Instance
+from app.packs.registry import pack_for_company
+
+logger = structlog.get_logger()
+
+AGENT_TYPE = "whatsapp_agent"
+FALLBACK_REPLY = "Desculpe, tive um problema para responder agora. Pode mandar sua mensagem de novo em instantes?"
+
+
+class CorePack:
+    """As Tools do núcleo, que todo Agent tem independentemente do Business Type."""
+
+    name = "core"
+
+    def tools(self) -> list[Tool]:
+        return core_tools()
+
+    def system_prompt_section(self, ctx: ToolContext) -> str:
+        return ""
+
+
+def packs_for(company: Company) -> list[Pack]:
+    pack = pack_for_company(company)
+    return [CorePack(), pack] if pack else [CorePack()]
+
+
+def _in_handoff(db: Session, conversation_id: str) -> bool:
+    # Lê do banco, não do objeto: um Attendant pode ter assumido depois que a Conversation foi carregada.
+    flag = db.query(Conversation.human_in_loop).filter(Conversation.id == conversation_id).scalar()
+    return bool(flag)
+
+
+async def handle_incoming(
+    db: Session,
+    conversation: Conversation,
+    contact: Contact,
+    instance: Instance,
+    text: str,
+) -> TurnResult:
+    log = logger.bind(conversation_id=conversation.id, instance_id=instance.id)
+    if _in_handoff(db, conversation.id):
+        log.info("Conversation in Handoff, Agent stays silent")
+        return TurnResult(reply_text=None)
+
+    company = db.get(Company, instance.company_id) if instance.company_id else None
+    if company is None:
+        log.error("Instance has no Company, Agent cannot run")
+        return TurnResult(reply_text=None)
+
+    ctx = ToolContext(
+        db=db,
+        company_id=company.id,
+        instance_id=instance.id,
+        conversation_id=conversation.id,
+        contact_id=contact.id,
+        remote_jid=conversation.remote_jid,
+    )
+    events = TurnEvents(
+        instance_name=instance.name or instance.evolution_instance_id or "",
+        conversation_id=conversation.remote_jid,
+        request_id=uuid.uuid4().hex,
+    )
+
+    await events.thinking_start()
+    try:
+        summary, history = build_context(db, conversation)
+        history = _with_incoming(history, text)
+        packs = packs_for(company)
+        client, model, effort = resolve_gateway(AGENT_TYPE)
+        system = build_system_prompt(company_name=company.name, packs=packs, ctx=ctx, summary=summary)
+        result = await run_turn(
+            client,
+            model,
+            system,
+            history,
+            ToolRegistry.from_packs(packs),
+            ctx,
+            effort=effort,
+            observer=events,
+        )
+    except Exception:
+        # A Session do Turn pode ter ficado inválida (flush que falhou); quem chama ainda vai usá-la.
+        db.rollback()
+        log.exception("Turn failed")
+        return TurnResult(reply_text=FALLBACK_REPLY)
+    finally:
+        await events.flush()
+        await events.thinking_end()
+
+    ended_by_tool = any(call.ends_turn for call in result.tool_calls)
+    if not ended_by_tool and _in_handoff(db, conversation.id):
+        # Um Attendant assumiu enquanto o modelo respondia: a resposta do Agent não sai.
+        log.info("Conversation entered Handoff during the Turn, reply dropped")
+        return TurnResult(reply_text=None, tool_calls=result.tool_calls, steps=result.steps)
+
+    reply = to_whatsapp(result.reply_text) if result.reply_text else None
+    log.info("Turn finished", steps=result.steps, tools=[call.name for call in result.tool_calls], replied=bool(reply))
+    return TurnResult(reply_text=reply or None, tool_calls=result.tool_calls, steps=result.steps)
+
+
+def _with_incoming(history: list[ChatMessage], text: str) -> list[ChatMessage]:
+    """Garante que a Message que disparou o Turn é o fim do histórico.
+
+    A Recent Window junta Messages seguidas do Contact numa entrada `user`; a atual pode
+    ainda não estar gravada. Decide pelo conteúdo, não pelo papel: uma Message anterior
+    sem resposta não pode fazer a atual sumir.
+    """
+    incoming = text.strip()
+    if not incoming:
+        return history
+    if history and history[-1]["role"] == "user":
+        last = history[-1]["content"]
+        if isinstance(last, str):
+            if last.strip().endswith(incoming):
+                return history
+            return [*history[:-1], {"role": "user", "content": f"{last}\n{incoming}"}]
+    return [*history, {"role": "user", "content": incoming}]
+
+
+async def refresh_summary(conversation_id: str) -> None:
+    """Atualiza o Summary da Conversation, depois que a resposta já foi enviada.
+
+    Abre a própria Session, separada da do Turn. Quem chama aguarda esta função dentro do
+    mesmo callback: o worker fecha o event loop ao fim de cada mensagem. Falhas só vão para o log.
+    """
+    db = database.SessionLocal()
+    try:
+        conversation = db.get(Conversation, conversation_id)
+        if conversation is None:
+            return
+        client, model, _effort = resolve_gateway(AGENT_TYPE)
+        await maybe_refresh_summary(db, client, model, conversation)
+    except Exception:
+        db.rollback()
+        logger.exception("Summary refresh failed", conversation_id=conversation_id)
+    finally:
+        db.close()

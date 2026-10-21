@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Boolean, Text, Integer, Float, ForeignKey, Index, Numeric, Enum, UniqueConstraint, text
+from sqlalchemy import Column, String, DateTime, Boolean, Text, Integer, Float, ForeignKey, Index, Numeric, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -40,11 +40,6 @@ class MessageType(str, enum.Enum):
     LOCATION = "location"
     CONTACT = "contact"
     STICKER = "sticker"
-
-
-class AgentTypeEnum(str, enum.Enum):
-    SALES = "sales"
-    SAC = "sac"
 
 
 class BusinessType(Base):

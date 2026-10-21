@@ -33,9 +33,9 @@ Requer Python 3.11 ou 3.12 e a infra do `docker-compose.yml` no ar
 ```bash
 python3.12 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt   # runtime + ferramentas de teste/lint; produção usa só requirements.txt
 
-cp .env.example .env   # ajuste EVOLUTION_API_KEY, SECRET_KEY e a chave do LLM
+cp .env.example .env   # ajuste EVOLUTION_API_KEY e SECRET_KEY; o modelo é configurado como Gateway
 
 # Banco já existente com Gateways gravados antes do HKDF: PASSO ÚNICO OBRIGATÓRIO, antes de subir a app
 python scripts/reencrypt_gateway_secrets.py
@@ -77,6 +77,17 @@ vale `default`; sem `default` a inferência falha com `LLMNotConfiguredError`.
 - **Passo único ao atualizar de versões anteriores ao HKDF:** rode `python scripts/reencrypt_gateway_secrets.py`
   **antes de iniciar a app**. Converte as chaves gravadas com SHA-256 puro; é idempotente (segunda execução
   converte 0). Sem isso, essas chaves não abrem e o Gateway responde `LLMNotConfiguredError`.
+
+## Agent
+
+O Agent roda num loop próprio em `app/agent/` (ADR 0001), sem framework de agentes:
+
+- `executor.handle_incoming` é chamado pelo consumer para cada Message de texto do Contact. Conversation em Handoff
+  (`human_in_loop`, lido do banco) não recebe resposta.
+- O contexto é o Summary mais a Recent Window (`memory.py`); as Tools vêm do núcleo (`core_tools.py`) e do Pack do
+  Business Type da Company (`app/packs/`).
+- `loop.run_turn` chama o modelo e executa os `tool_use` até `end_turn`, uma Tool com `ends_turn` ou `max_steps`.
+- `events.py` emite `thinking` e `tool_event` na sala da Conversation; `formatting.py` converte o markdown para o WhatsApp.
 
 ## Endpoints Principais
 
