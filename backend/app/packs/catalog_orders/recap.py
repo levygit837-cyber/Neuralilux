@@ -1,17 +1,24 @@
-"""Recapitulação do Order: o Contact precisa ver o pedido e confirmar num Turn seguinte antes de `finalizar`.
+"""Recapitulação do Order: o Contact precisa ver o pedido e confirmar numa Message posterior antes de `finalizar`.
 
-`recapitular` grava a impressão (`recap_signature`) do Order e o Turn em que ele foi apresentado. `finalizar`
-só fecha se a impressão ainda bate (nada mudou depois) e se o Turn atual é posterior ao da recapitulação.
+`recapitular` grava a impressão (`recap_signature`) do Order e o Turn que a apresenta. Ela só passa a valer
+quando a resposta desse Turn é enviada (`on_reply_delivered` grava `recap_delivered_at`): Turn que falha, fica
+sem resposta ou tem a resposta descartada não deixa recapitulação válida. `finalizar` só fecha se a impressão
+ainda bate (nada mudou depois) e se a Message que dispara o Turn chegou depois da entrega.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+from datetime import datetime
 from typing import Any
 
+from sqlalchemy.orm import Session
+
+from app.agent.clock import as_utc
 from app.agent.contracts import ToolContext
-from app.models import CustomerOrder
+from app.models import Conversation, CustomerOrder
+from app.packs.catalog_orders.order_state import ACTIVE_STATUSES
 from app.packs.catalog_orders.order_state import get_company, view
 from app.packs.catalog_orders.validation import OrderError
 
@@ -31,6 +38,12 @@ def signature(order: CustomerOrder) -> str:
     return hashlib.sha256(json.dumps(state, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
+def invalidate(order: CustomerOrder) -> None:
+    order.recap_signature = None
+    order.recap_turn_id = None
+    order.recap_delivered_at = None
+
+
 def require_confirmed_recap(ctx: ToolContext, order: CustomerOrder) -> None:
     if order.recap_signature is None:
         raise OrderError(
@@ -42,10 +55,15 @@ def require_confirmed_recap(ctx: ToolContext, order: CustomerOrder) -> None:
             "O pedido mudou depois da recapitulação. Chame recapitular, mostre o pedido atualizado e peça a "
             "confirmação de novo."
         )
-    if order.recap_turn_id == ctx.turn_id:
+    if order.recap_delivered_at is None:
         raise OrderError(
-            "A recapitulação acabou de ser apresentada, o cliente ainda não confirmou. Responda com a "
-            "recapitulação e espere a confirmação dele na próxima mensagem."
+            "A recapitulação ainda não chegou ao cliente. Se você acabou de fazê-la, responda com ela e espere a "
+            "confirmação na próxima mensagem; se uma resposta anterior falhou, chame recapitular de novo."
+        )
+    if ctx.trigger_at is not None and as_utc(ctx.trigger_at) <= as_utc(order.recap_delivered_at):
+        raise OrderError(
+            "A mensagem do cliente chegou antes de ele ver a recapitulação, então não vale como confirmação. "
+            "Recapitule de novo e espere a confirmação na próxima mensagem."
         )
 
 
@@ -55,13 +73,30 @@ def recapitular(ctx: ToolContext, _args: dict[str, Any]) -> dict[str, Any]:
 
     order = validate_closable(ctx, get_company(ctx))
     current = signature(order)
-    if order.recap_signature != current:
-        # Recapitular de novo sem mudança preserva o Turn original: a confirmação do Contact continua valendo.
+    if order.recap_signature != current or order.recap_delivered_at is None:
+        # Recapitular de novo sem mudança, depois de entregue, mantém a entrega: a confirmação do Contact vale.
         order.recap_signature = current
         order.recap_turn_id = ctx.turn_id
+        order.recap_delivered_at = None
     ctx.db.commit()
     return {
         "pedido": view(order),
         "mensagem": "Mostre esta recapitulação ao cliente (itens, taxa, total e dados) e peça a confirmação. "
         "Só chame finalizar depois que ele confirmar.",
     }
+
+
+def mark_delivered(db: Session, conversation: Conversation, turn_id: str, at: datetime) -> None:
+    """A resposta do Turn `turn_id` saiu: a recapitulação que ele apresentou passa a valer."""
+    updated = (
+        db.query(CustomerOrder)
+        .filter(
+            CustomerOrder.conversation_id == conversation.id,
+            CustomerOrder.status.in_(ACTIVE_STATUSES),
+            CustomerOrder.recap_turn_id == turn_id,
+            CustomerOrder.recap_delivered_at.is_(None),
+        )
+        .update({CustomerOrder.recap_delivered_at: at}, synchronize_session=False)
+    )
+    if updated:
+        db.commit()

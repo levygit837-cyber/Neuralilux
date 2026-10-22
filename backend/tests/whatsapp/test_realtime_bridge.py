@@ -15,7 +15,7 @@ def agent_turn(monkeypatch):
     """Troca o Turn real por um que só registra a chamada; o envio pela Evolution também é registrado."""
     calls = {"turns": [], "sent": [], "summaries": []}
 
-    async def fake_handle_incoming(db, conversation, contact, instance, text):
+    async def fake_handle_incoming(db, conversation, contact, instance, text, received_at=None):
         calls["turns"].append({"instance": instance, "contact": contact, "text": text})
         return TurnResult(reply_text="Resposta")
 

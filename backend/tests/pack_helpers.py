@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from app.agent.contracts import Tool, ToolContext, ToolResult
@@ -194,18 +195,34 @@ async def fill_delivery(world, pedido, **overrides):
     return await call(pedido, world.ctx, acao="definir_dados", **data)
 
 
-def new_turn(world):
-    """Simula o Contact mandando outra Message: Turn novo, com ids e adições do Turn zerados."""
+DELIVERED_AT = datetime(2026, 10, 19, 23, 0, tzinfo=timezone.utc)  # segunda 20:00 em Fortaleza, com a loja aberta
+
+
+def new_turn(world, trigger_at=None):
+    """Simula o Contact mandando outra Message: Turn novo, com id e rascunho zerados.
+
+    `trigger_at` é quando essa Message chegou; por padrão, 1 min depois de a recapitulação ser entregue.
+    """
     import uuid
     from dataclasses import replace
 
-    world.ctx = replace(world.ctx, turn_id=uuid.uuid4().hex, turn_adds=set())
+    world.ctx = replace(
+        world.ctx, turn_id=uuid.uuid4().hex, trigger_at=trigger_at or DELIVERED_AT + timedelta(minutes=1), turn_state={}
+    )
     return world.ctx
 
 
+def deliver_reply(world, at=None):
+    """A resposta do Turn atual chegou ao Contact (o que o consumer faz depois de enviar)."""
+    from app.packs.catalog_orders.pack import CatalogOrdersPack
+
+    CatalogOrdersPack().on_reply_delivered(world.db, world.conversation, world.ctx.turn_id, at or DELIVERED_AT)
+
+
 async def confirm_and_finalize(world, pedido):
-    """Recapitula, passa para o Turn seguinte (o Contact confirma) e finaliza."""
+    """Recapitula, entrega a resposta, o Contact confirma num Turn seguinte e o Agent finaliza."""
     recap = await call(pedido, world.ctx, acao="recapitular")
     assert not recap.is_error, recap.content
+    deliver_reply(world)
     new_turn(world)
     return await call(pedido, world.ctx, acao="finalizar")

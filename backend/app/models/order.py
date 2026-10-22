@@ -27,7 +27,8 @@ class CustomerOrder(Base):
     opened_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     closed_at = Column(DateTime(timezone=True))
     recap_signature = Column(String(64))  # impressão do Order na última recapitulação; mudou, recapitular de novo
-    recap_turn_id = Column(String(32))  # Turn em que o Contact viu essa recapitulação; `finalizar` exige um Turn posterior
+    recap_turn_id = Column(String(32))  # Turn que apresentou a recapitulação (ainda não entregue ao Contact)
+    recap_delivered_at = Column(DateTime(timezone=True))  # quando a resposta com a recapitulação saiu; NULL: o Contact não viu
     export_path = Column(String(500))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

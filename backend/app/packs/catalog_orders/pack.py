@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy.orm import Session
 
 from app.agent.contracts import Tool, ToolContext
 from app.packs.catalog_orders.catalog import buscar_cardapio_tool
 from app.models import Conversation
-from app.packs.catalog_orders import session_orders
+from app.packs.catalog_orders import recap, session_orders
 from app.packs.catalog_orders.orders import gerenciar_pedido_tool, status_pedido_tool
 
 PROMPT_SECTION = """\
@@ -55,3 +57,6 @@ class CatalogOrdersPack:
 
     def on_session_start(self, db: Session, conversation: Conversation) -> None:
         session_orders.abandon_active_orders(db, conversation.id)
+
+    def on_reply_delivered(self, db: Session, conversation: Conversation, turn_id: str, at: datetime) -> None:
+        recap.mark_delivered(db, conversation, turn_id, at)

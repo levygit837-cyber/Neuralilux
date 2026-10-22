@@ -261,7 +261,7 @@ class WhatsAppMessageConsumer:
         if skip:
             logger.info("Message not processed by agent", message_id=message_id, reason=skip)
             return
-        await self._try_process_with_agent(db, instance, conversation, contact, parsed)
+        await self._try_process_with_agent(db, instance, conversation, contact, parsed, timestamp)
 
     @staticmethod
     def _roll_session(db: Session, instance: Instance, conversation: Conversation, timestamp: datetime) -> None:
@@ -293,6 +293,7 @@ class WhatsAppMessageConsumer:
         conversation: Conversation,
         contact: Contact,
         parsed: ParsedContent,
+        received_at: datetime,
     ) -> None:
         """Roda um Turn do Agent para a Message recebida e envia a resposta, se houver."""
         log = logger.bind(instance_id=instance.id, conversation_id=str(conversation.id))
@@ -322,12 +323,13 @@ class WhatsAppMessageConsumer:
                 log.info("Message without text, Agent not called", message_type=parsed.message_type)
                 return
 
-            result = await executor.handle_incoming(db, conversation, contact, instance, parsed.text)
+            result = await executor.handle_incoming(db, conversation, contact, instance, parsed.text, received_at)
             if not result.reply_text:
                 log.info("Agent returned no response", steps=result.steps)
                 return
 
-            await send_and_persist(db, instance, conversation, contact, result.reply_text)
+            delivered_at = await send_and_persist(db, instance, conversation, contact, result.reply_text)
+            executor.reply_delivered(db, instance, conversation, result.turn_id, delivered_at)
             log.info("Agent response sent", steps=result.steps, response_length=len(result.reply_text))
         except Exception:
             # Nunca derruba o worker: o erro fica no log e a próxima Message tenta de novo.

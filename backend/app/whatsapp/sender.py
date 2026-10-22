@@ -51,8 +51,10 @@ def _store(key: tuple[str, str], pending: list[tuple[str, float]]) -> None:
 
 async def send_and_persist(
     db: Session, instance: Instance, conversation: Conversation, contact: Contact, text: str
-) -> None:
+) -> datetime:
     """Envia pela Evolution e grava a resposta como Message `from_me`, com o id devolvido.
+
+    Devolve quando a resposta saiu. Falha no envio levanta; falha só ao gravar não desfaz o envio.
 
     Assim o eco do webhook (mesmo id) é descartado pelo dedup, e a UI recebe a resposta aqui.
     """
@@ -67,7 +69,7 @@ async def send_and_persist(
         # Sem id não há como deduplicar o eco; deixa o eco gravar a Message.
         logger.warning("Evolution did not return a message id; reply will be stored from the webhook echo")
         _remember_send_without_id(instance.id, conversation.remote_jid, text)
-        return
+        return datetime.now(timezone.utc)
 
     timestamp = datetime.now(timezone.utc)
     try:
@@ -91,7 +93,8 @@ async def send_and_persist(
         # A resposta já saiu; falhar ao gravar não pode reenviar nem derrubar o Turn.
         db.rollback()
         logger.exception("Failed to persist the Agent reply", message_id=sent_id)
-        return
+        return timestamp
     await publish_message(
         instance_name, conversation.remote_jid, contact, conversation, sent_id, text, timestamp, True
     )
+    return timestamp

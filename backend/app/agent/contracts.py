@@ -11,6 +11,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Literal, NotRequired, Protocol, TypedDict
 
 from sqlalchemy.orm import Session
@@ -77,10 +78,12 @@ class ToolContext:
     conversation_id: str
     contact_id: str
     remote_jid: str
-    # O executor cria um ToolContext por Turn: o id distingue um Turn do seguinte (ex.: o Contact viu a
-    # recapitulação num Turn anterior) e `turn_adds` guarda o que as Tools já fizeram neste Turn.
+    # O executor cria um ToolContext por Turn. `turn_id` distingue um Turn do seguinte; `trigger_at` é quando
+    # chegou a Message do Contact que disparou o Turn (None: não informado); `turn_state` é rascunho do Turn,
+    # livre para cada Pack, que o indexa pelo próprio nome (`turn_state["catalog_orders"]`) e some com o Turn.
     turn_id: str = field(default_factory=lambda: uuid.uuid4().hex)
-    turn_adds: set[tuple[str, str | None]] = field(default_factory=set)
+    trigger_at: datetime | None = None
+    turn_state: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -107,6 +110,10 @@ class Pack(Protocol):
     A Pack MAY also define `on_session_start(db, conversation) -> None` (ADR 0007), called inside the
     transaction that stores the Message that opened a new Session (no commit). It is optional and
     deliberately not part of this Protocol: `app.agent.sessions.roll_session` looks it up with `getattr`.
+
+    A Pack MAY also define `on_reply_delivered(db, conversation, turn_id, at) -> None`, called after the reply of
+    the Turn `turn_id` was actually sent to the Contact (`app.agent.delivery`). Same rules: optional, no commit
+    required beyond what the hook needs, looked up with `getattr`.
     """
 
     name: str

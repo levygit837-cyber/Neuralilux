@@ -1,4 +1,4 @@
-"""order recap: impressão e Turn da recapitulação que o Contact viu antes de fechar o Order
+"""order recap: impressão, Turn e entrega da recapitulação que o Contact viu antes de fechar o Order
 
 Revision ID: 0009
 Revises: 0008
@@ -19,8 +19,10 @@ depends_on = None
 def upgrade() -> None:
     op.add_column('customer_orders', sa.Column('recap_signature', sa.String(length=64), nullable=True))
     op.add_column('customer_orders', sa.Column('recap_turn_id', sa.String(length=32), nullable=True))
+    op.add_column('customer_orders', sa.Column('recap_delivered_at', sa.DateTime(timezone=True), nullable=True))
 
 
 def downgrade() -> None:
+    op.drop_column('customer_orders', 'recap_delivered_at')
     op.drop_column('customer_orders', 'recap_turn_id')
     op.drop_column('customer_orders', 'recap_signature')
