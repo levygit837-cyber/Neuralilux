@@ -37,6 +37,11 @@ def adicionar_item(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     note = " ".join(str(args.get("observacao") or "").split()) or None
 
     order = active_order(ctx) or new_order(ctx)
+    turn_key = (item.id, note)
+    if turn_key in ctx.turn_adds:
+        # Mesmo item e observação já adicionados neste Turn (chamada repetida do modelo): não duplica.
+        return {"pedido": view(order), "mensagem": "Esse item já foi adicionado neste turno; nada mudou."}
+    ctx.turn_adds.add(turn_key)
     line = next((l for l in order.items if l.menu_item_id == item.id and (l.notes or None) == note), None)
     if line:
         line.quantity += quantity
@@ -69,6 +74,7 @@ def remover_item(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     if not lines:
         raise OrderError("Esse item não está no pedido.")
     to_remove = positive_int(args.get("quantidade"), "quantidade", None)
+    ctx.turn_adds.difference_update([key for key in ctx.turn_adds if key[0] == item_id])  # tirou: adicionar de novo vale
 
     if to_remove is None:
         to_remove = sum(l.quantity for l in lines)

@@ -3,7 +3,7 @@
 from decimal import Decimal
 
 import pytest
-from pack_helpers import add_item, call, make_world, payload, tool_named
+from pack_helpers import add_item, call, make_world, new_turn, payload, tool_named
 
 from app.models import CustomerOrder
 from app.packs.catalog_orders.pack import CatalogOrdersPack
@@ -214,6 +214,7 @@ async def test_same_as_yesterday_from_a_closed_order_via_status_then_add_item(wo
     world.items["Pizza Toscana"].price = Decimal("50.00")  # o cardápio mudou desde ontem
     world.db.commit()
     previous = payload(await call(status, world.ctx))["pedido"]
+    new_turn(world)  # o Contact pede "o mesmo de ontem" num Turn novo
     for line in previous["itens"]:
         added = await call(
             pedido,

@@ -50,7 +50,7 @@ O Agent tem 6 Tools: 3 do núcleo (valem para qualquer Business Type) e 3 do Pac
 | `transferir_atendente` | núcleo | Abre um Ticket, liga o Handoff e encerra o Turn (`ends_turn`) com a `frase_empatica` do Agent mais a janela de atendimento da Company. Detalhes em [operations.md](operations.md#handoff-e-tickets). |
 | `buscar_historico` | núcleo | History Search nas Messages antigas do Contact. |
 | `buscar_cardapio` | Pack `catalog_orders` | Busca Catalog Items disponíveis; até 15 resultados com id, nome, preço e descrição. |
-| `gerenciar_pedido` | Pack `catalog_orders` | Monta e fecha o Order. Ações: `adicionar_item`, `remover_item`, `ver`, `definir_dados`, `finalizar`. |
+| `gerenciar_pedido` | Pack `catalog_orders` | Monta e fecha o Order. Ações: `adicionar_item`, `remover_item`, `ver`, `definir_dados`, `recapitular`, `finalizar`, `retomar_pedido`. `finalizar` só fecha se o Contact viu a recapitulação num Turn anterior, se o Order não mudou depois dela e se a Company está aberta. |
 | `status_pedido` | Pack `catalog_orders` | Estado do Order mais recente do Contact. |
 
 Todo acesso das Tools é escopado pelo `ToolContext`: Catalog Items e Delivery Zones pelo `company_id`, o Order pela `conversation_id`, o histórico pelo `contact_id`. Para criar Tools de outro ramo, veja [packs.md](packs.md).

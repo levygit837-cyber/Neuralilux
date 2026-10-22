@@ -92,7 +92,7 @@ Um produto ou serviço que a Company oferece, com preço e disponibilidade.
 _Avoid_: Produto, item de menu, SKU
 
 **Order**:
-O pedido que o Contact monta e confirma na Conversation. Fica `abandoned` se a Session acaba com ele aberto; nunca é retomado sozinho, o Agent só recria um Order novo a partir dele se o Contact pedir.
+O pedido que o Contact monta e confirma na Conversation. Só fecha depois que o Contact vê a recapitulação e confirma num Turn seguinte; qualquer alteração depois dela exige nova recapitulação, e a Company fechada recusa o fechamento. Fica `abandoned` se a Session acaba com ele aberto; nunca é retomado sozinho, o Agent só recria um Order novo a partir dele se o Contact pedir.
 _Avoid_: Compra, carrinho, venda
 
 **Delivery Zone**:

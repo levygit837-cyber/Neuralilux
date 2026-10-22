@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
+from app.agent.business_hours import describe_opening, is_open_at, next_opening
+from app.agent.clock import company_zone, utc_now
 from app.agent.contracts import ToolContext
+from app.models import Company, CustomerOrder
 from app.packs.catalog_orders import pix
 from app.packs.catalog_orders.order_state import active_order, get_company, missing_fields, view
+from app.packs.catalog_orders.recap import require_confirmed_recap
 from app.packs.catalog_orders.totals import brl, cents, recompute, require_zone, subtotal
 from app.packs.catalog_orders.validation import (
     DELIVERY_TYPES,
@@ -87,14 +90,14 @@ def definir_dados(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     return {"pedido": view(order)}
 
 
-def finalizar(ctx: ToolContext, _args: dict[str, Any]) -> dict[str, Any]:
+def validate_closable(ctx: ToolContext, company: Company) -> CustomerOrder:
+    """O Order ativo, se dá para recapitular/fechar: itens, dados completos, zona, mínimo, troco e Pix."""
     order = active_order(ctx)
     if order is None or not order.items:
         raise OrderError("O pedido está vazio. Adicione itens antes de finalizar.")
     missing = missing_fields(order)
     if missing:
         raise OrderError(f"Faltam dados para finalizar: {', '.join(missing)}.")
-    company = get_company(ctx)
 
     if order.delivery_type == "entrega":
         require_zone(ctx, order.customer_address)
@@ -109,10 +112,27 @@ def finalizar(ctx: ToolContext, _args: dict[str, Any]) -> dict[str, Any]:
     _check_change_covers_total(order.change_for, order.total_amount)
     if order.payment_method == "pix" and not company.pix_key:
         raise OrderError("Esta empresa não tem chave Pix cadastrada; não dá para fechar com Pix.")
+    return order
+
+
+def _require_open(company: Company) -> None:
+    now = utc_now().astimezone(company_zone(company))
+    if is_open_at(company.business_hours, now) is not False:  # None: sem horários cadastrados, nunca bloqueia
+        return
+    opening = next_opening(company.business_hours, now)
+    when = f" Abre {describe_opening(opening, now)}." if opening else ""
+    raise OrderError(f"A empresa está fechada agora, não dá para fechar o pedido.{when} Ele fica salvo até lá.")
+
+
+def finalizar(ctx: ToolContext, _args: dict[str, Any]) -> dict[str, Any]:
+    company = get_company(ctx)
+    order = validate_closable(ctx, company)
+    _require_open(company)
+    require_confirmed_recap(ctx, order)
 
     record = pix.ensure_payment_record(ctx.db, order, company) if order.payment_method == "pix" else None
     order.status = "closed"
-    order.closed_at = datetime.now(timezone.utc)
+    order.closed_at = utc_now()
     ctx.db.commit()
 
     result: dict[str, Any] = {

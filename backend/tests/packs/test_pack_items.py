@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
-from pack_helpers import add_item, call, fill_delivery, make_world, order_of, payload, tool_named
+from pack_helpers import add_item, call, confirm_and_finalize, fill_delivery, make_world, new_turn, order_of, payload, tool_named
 
 from app.models import Contact, Conversation, CustomerOrder, MenuCatalog
 from app.packs.catalog_orders.pack import CatalogOrdersPack
@@ -37,6 +37,7 @@ async def test_add_item_uses_catalog_price_and_quantity(world, pedido):
 
 async def test_same_item_and_note_accumulates_quantity(world, pedido):
     await add_item(world, pedido, quantidade=1)
+    new_turn(world)  # no mesmo Turn a repetição seria ignorada
     await add_item(world, pedido, quantidade=2)
     items = payload(await call(pedido, world.ctx, acao="ver"))["pedido"]["itens"]
     assert len(items) == 1 and items[0]["quantidade"] == 3
@@ -179,7 +180,7 @@ async def test_status_returns_latest_order_of_the_contact(world, pedido):
 
     await add_item(world, pedido, quantidade=2)
     await fill_delivery(world, pedido)
-    await call(pedido, world.ctx, acao="finalizar")
+    await confirm_and_finalize(world, pedido)
     last = payload(await call(status, world.ctx))["pedido"]
     assert last["status"] == "closed"
     assert last["total"] == 95.0

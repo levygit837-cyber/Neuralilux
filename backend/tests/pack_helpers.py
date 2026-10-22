@@ -192,3 +192,20 @@ async def fill_delivery(world, pedido, **overrides):
     data = dict(nome="Maria Silva", endereco=ENDERECO, tipo_entrega="entrega", forma_pagamento="dinheiro")
     data.update(overrides)
     return await call(pedido, world.ctx, acao="definir_dados", **data)
+
+
+def new_turn(world):
+    """Simula o Contact mandando outra Message: Turn novo, com ids e adições do Turn zerados."""
+    import uuid
+    from dataclasses import replace
+
+    world.ctx = replace(world.ctx, turn_id=uuid.uuid4().hex, turn_adds=set())
+    return world.ctx
+
+
+async def confirm_and_finalize(world, pedido):
+    """Recapitula, passa para o Turn seguinte (o Contact confirma) e finaliza."""
+    recap = await call(pedido, world.ctx, acao="recapitular")
+    assert not recap.is_error, recap.content
+    new_turn(world)
+    return await call(pedido, world.ctx, acao="finalizar")

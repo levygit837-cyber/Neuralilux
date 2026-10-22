@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 import pytest
-from pack_helpers import add_item, call, fill_delivery, make_world, order_of, payload, tool_named
+from pack_helpers import add_item, call, confirm_and_finalize, fill_delivery, make_world, new_turn, order_of, payload, tool_named
 from sqlalchemy.exc import IntegrityError
 
 from app.models import PaymentRecord
@@ -40,7 +40,7 @@ def tlv(emv: str) -> dict[str, str]:
 async def finalize_pix(world, pedido):
     await add_item(world, pedido, quantidade=2)
     await fill_delivery(world, pedido, forma_pagamento="pix")
-    return await call(pedido, world.ctx, acao="finalizar")
+    return await confirm_and_finalize(world, pedido)
 
 
 # ---------- EMV ----------
@@ -121,7 +121,7 @@ async def test_pix_key_too_long_returns_clear_error_and_keeps_order_open(world, 
     world.company.pix_key = "k" * 120  # estoura o limite de 99 caracteres do campo EMV
     world.db.commit()
 
-    result = await call(pedido, world.ctx, acao="finalizar")
+    result = await confirm_and_finalize(world, pedido)
 
     assert result.is_error
     message = payload(result)["erro"]

@@ -9,6 +9,7 @@ the Anthropic Messages protocol the agent uses.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+import uuid
 from dataclasses import dataclass, field
 from typing import Any, Literal, NotRequired, Protocol, TypedDict
 
@@ -76,6 +77,10 @@ class ToolContext:
     conversation_id: str
     contact_id: str
     remote_jid: str
+    # O executor cria um ToolContext por Turn: o id distingue um Turn do seguinte (ex.: o Contact viu a
+    # recapitulação num Turn anterior) e `turn_adds` guarda o que as Tools já fizeram neste Turn.
+    turn_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    turn_adds: set[tuple[str, str | None]] = field(default_factory=set)
 
 
 @dataclass(frozen=True)
