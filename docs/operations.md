@@ -48,6 +48,15 @@ Toda mudança (assumir, devolver, expirar) publica `handoff_updated`; o chat atu
 - `PATCH /tickets/{id}` recebe `status` e `assigned_to` como query string, não JSON, e aceita `open`, `in_progress` e `closed`; `expired` só o sistema grava.
 - Sem o worker rodando, o timeout só é aplicado quando o Contact escreve de novo. `GET .../human-control-status` não aplica o timeout; só informa `timeout_due`.
 
+## Cancelamento, alteração e estorno de Pix
+
+O Contact cancela ou altera um Order sem Handoff enquanto ele está `closed` ("recebido, aguardando preparo") e foi confirmado na Session atual ou na anterior. Quando o Order passa para `in_production` (ou `sent`/`delivered`), ou é mais antigo, as Tools recusam e o Agent oferece Handoff com o motivo. Hoje nada no sistema move o Order para `in_production`: a Company muda o status à mão.
+
+- **Cancelar** (`cancelar_pedido`): o Order vira `cancelled`, com `cancelled_at` e `cancel_reason`. O Pix válido vira `cancelled`. Com um pedido em montagem e outro já confirmado, a Tool pede que o Agent pergunte qual; o confirmado se cancela com `numero`.
+- **Alterar** (`alterar_pedido`): o Order volta a `ready_for_confirmation` com a Recap zerada e o estado confirmado guardado em `confirmed_snapshot`; o fechamento passa de novo por `recapitular` e pela confirmação do Contact. O Pix válido vira `superseded` e o `finalizar` seguinte gera outro com o total novo e um `txid` diferente (sufixo `R<revisão>`, até 25 alfanuméricos). Nunca há dois Pix válidos para o mesmo Order (índice único parcial `uq_payment_records_order_pix`, só `pending`/`paid`). Se a Session acaba sem a reconfirmação, o Order volta ao estado confirmado e o Pix original volta a valer ([ADR 0007](adr/0007-session-de-atendimento.md)).
+- **Estorno manual**: o sistema não detecta pagamento (nada marca um Pix como `paid`), então todo Pix invalidado entra na lista da Company. `refund_status="pending"`: o Pix estava `paid`, devolver. `"verify"`: estava `pending`, mas o Contact pode ter pago; conferir no banco. `"refunded"` e `"dismissed"` são as baixas (devolvido; conferido, nada a devolver).
+- **API**: `GET /api/v1/orders/refunds` lista os abertos (`pending` e `verify`) das Instances do usuário. `POST /orders/refunds/{id}/refunded` e `POST /orders/refunds/{id}/dismissed` dão a baixa e são idempotentes: repetir devolve 200 com o mesmo corpo, sem regravar. A baixa contrária à já dada é 409. Fora do escopo do usuário é 404; sem token, 401.
+
 ## Troubleshooting
 
 Os logs são estruturados (`structlog`). API e worker são processos separados: procure no log certo.

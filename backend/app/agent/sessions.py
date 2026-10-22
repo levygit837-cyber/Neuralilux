@@ -38,6 +38,7 @@ def roll_session(
     if at - as_utc(last) <= timeout:
         return False
 
+    conversation.previous_session_started_at = conversation.session_started_at
     conversation.session_started_at = at
     for pack in packs:
         # Gancho opcional: Pack sem pendência de Session não precisa declará-lo.

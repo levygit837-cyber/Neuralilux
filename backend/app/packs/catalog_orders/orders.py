@@ -11,12 +11,12 @@ from typing import Any
 
 from app.agent.contracts import Tool, ToolContext, ToolResult
 from app.models import CustomerOrder
-from app.packs.catalog_orders import checkout, items, recap, session_orders
+from app.packs.catalog_orders import changes, checkout, items, recap, session_orders
 from app.packs.catalog_orders.order_state import error, ok, view
 from app.packs.catalog_orders.pix import PixError
 from app.packs.catalog_orders.validation import DELIVERY_TYPES, PAYMENT_METHODS, OrderError
 
-ACTIONS = ["adicionar_item", "remover_item", "ver", "definir_dados", "recapitular", "finalizar", "retomar_pedido"]
+ACTIONS = ["adicionar_item", "remover_item", "ver", "definir_dados", "recapitular", "finalizar", "retomar_pedido", "cancelar_pedido", "alterar_pedido"]
 
 _ACTION_HANDLERS = {
     "adicionar_item": items.adicionar_item,
@@ -26,6 +26,8 @@ _ACTION_HANDLERS = {
     "recapitular": recap.recapitular,
     "finalizar": checkout.finalizar,
     "retomar_pedido": session_orders.retomar_pedido,
+    "cancelar_pedido": changes.cancelar_pedido,
+    "alterar_pedido": changes.alterar_pedido,
 }
 
 
@@ -65,7 +67,10 @@ def gerenciar_pedido_tool() -> Tool:
             "completos, chame recapitular, mostre ao cliente e espere ele confirmar; finalizar só funciona numa mensagem "
             "posterior à recapitulação e se o pedido não mudou desde então (qualquer mudança exige recapitular de novo). "
             "O total inclui a taxa de entrega e respeita o pedido mínimo; fechada a empresa, finalizar é recusado. retomar_pedido recria, a partir "
-            "do pedido abandonado de um atendimento anterior, um pedido novo, só depois de o cliente aceitar."
+            "do pedido abandonado de um atendimento anterior, um pedido novo, só depois de o cliente aceitar. "
+            "cancelar_pedido (motivo opcional) cancela o pedido já confirmado e alterar_pedido o reabre para mudanças "
+            "(depois: recapitular e nova confirmação); as duas só valem enquanto o pedido está recebido e ainda não "
+            "em preparo, depois disso o caminho é transferir_atendente."
         ),
         input_schema={
             "type": "object",
@@ -78,6 +83,11 @@ def gerenciar_pedido_tool() -> Tool:
                 "endereco": {"type": "string", "description": "Rua, número e bairro. Só para entrega."},
                 "tipo_entrega": {"type": "string", "enum": DELIVERY_TYPES},
                 "forma_pagamento": {"type": "string", "enum": PAYMENT_METHODS},
+                "numero": {
+                    "type": "string",
+                    "description": "Número do pedido, em cancelar_pedido/alterar_pedido, quando há mais de um pedido.",
+                },
+                "motivo": {"type": "string", "description": "Por que o cliente cancela (cancelar_pedido), se ele disse."},
                 "troco_para": {"type": "number", "description": "Valor da nota, se pagar em dinheiro e precisar de troco."},
             },
             "required": ["acao"],

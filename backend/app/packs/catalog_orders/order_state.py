@@ -27,6 +27,14 @@ STATUS_LABELS = {
 }
 
 
+REOPENED_LABEL = "em alteração, aguardando nova confirmação"
+
+
+def is_reopened(order: CustomerOrder) -> bool:
+    """Order confirmado que voltou à montagem por `alterar_pedido` e ainda não foi reconfirmado (`closed_at` fica)."""
+    return order.status in ACTIVE_STATUSES and order.closed_at is not None
+
+
 def ok(data: dict[str, Any]) -> ToolResult:
     return ToolResult(content=json.dumps(data, ensure_ascii=False))
 
@@ -89,7 +97,8 @@ def view(order: CustomerOrder) -> dict[str, Any]:
     return {
         "numero": order.order_number,
         "status": order.status,
-        "status_descricao": STATUS_LABELS.get(order.status, order.status),
+        "status_descricao": REOPENED_LABEL if is_reopened(order) else STATUS_LABELS.get(order.status, order.status),
+        "em_alteracao": is_reopened(order),
         "itens": [
             {
                 "item_id": line.menu_item_id,

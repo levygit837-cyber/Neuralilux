@@ -25,7 +25,12 @@ class CustomerOrder(Base):
     change_for = Column(Numeric(10, 2))  # troco_para (pagamento em dinheiro)
     total_amount = Column(Numeric(10, 2), nullable=False, default=0)
     opened_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    closed_at = Column(DateTime(timezone=True))
+    closed_at = Column(DateTime(timezone=True))  # quando o Contact confirmou; NULL enquanto está em montagem ou reaberto para alteração
+    cancelled_at = Column(DateTime(timezone=True))
+    cancel_reason = Column(Text)  # o motivo dito pelo Contact, se houve
+    # Estado confirmado (itens, dados, totais, Pix) guardado quando `alterar_pedido` reabre o Order. A alteração não
+    # reconfirmada até a Session acabar volta a este estado em vez de abandonar o Order; NULL fora de uma alteração.
+    confirmed_snapshot = Column(JSONB)
     recap_signature = Column(String(64))  # impressão do Order na última recapitulação; mudou, recapitular de novo
     recap_turn_id = Column(String(32))  # Turn que apresentou a recapitulação (ainda não entregue ao Contact)
     recap_delivered_at = Column(DateTime(timezone=True))  # quando a resposta com a recapitulação saiu; NULL: o Contact não viu
@@ -87,19 +92,27 @@ class PaymentRecord(Base):
     amount = Column(Numeric(10, 2), nullable=False)  # Valor do pagamento
     pix_key = Column(String(255), nullable=False)  # Chave Pix configurada
     qr_code_data = Column(Text, nullable=True)  # Dados do QR Code gerado
-    status = Column(String(20), nullable=False, default="pending")  # "pending", "paid", "cancelled", "expired"
+    # "pending" e "paid" valem; "cancelled" (Order cancelado), "superseded" (Order alterado: nasce outro Pix) e "expired" não.
+    status = Column(String(20), nullable=False, default="pending")
     payment_method = Column(String(20), nullable=False, default="pix")  # "pix"
+    txid = Column(String(25))  # identificador no BR Code (até 25 alfanuméricos); distinto em cada Pix do mesmo Order
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     paid_at = Column(DateTime(timezone=True), nullable=True)
+    # Estorno manual, só para Pix invalidado (cancelamento ou alteração do Order). O sistema não detecta pagamento, então
+    # "pending" = estava `paid` (devolver), "verify" = estava `pending` mas o Contact pode ter pago (conferir no banco),
+    # "refunded" = devolvido, "dismissed" = conferido, nada a devolver.
+    refund_status = Column(String(20), nullable=True)
+    refund_flagged_at = Column(DateTime(timezone=True), nullable=True)
+    refunded_at = Column(DateTime(timezone=True), nullable=True)
 
-    # Um Pix por Order: o dedup de `catalog_orders.pix.ensure_payment_record` se apoia neste índice.
+    # Um Pix válido por Order: o dedup de `catalog_orders.pix.ensure_payment_record` se apoia neste índice.
     __table_args__ = (
         Index(
             "uq_payment_records_order_pix",
             "order_id",
             unique=True,
-            postgresql_where=text("payment_method = 'pix'"),
-            sqlite_where=text("payment_method = 'pix'"),
+            postgresql_where=text("payment_method = 'pix' AND status IN ('pending', 'paid')"),
+            sqlite_where=text("payment_method = 'pix' AND status IN ('pending', 'paid')"),
         ),
     )
 

@@ -38,6 +38,13 @@ def signature(order: CustomerOrder) -> str:
     return hashlib.sha256(json.dumps(state, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
+def set_recap(order: CustomerOrder, signature_: str | None, turn_id: str | None) -> None:
+    """Registra (ou, com `None`, descarta) a Recap do Order. Nunca vale até a entrega da resposta (`mark_delivered`)."""
+    order.recap_signature = signature_
+    order.recap_turn_id = turn_id
+    order.recap_delivered_at = None
+
+
 def require_confirmed_recap(ctx: ToolContext, order: CustomerOrder) -> None:
     if order.recap_signature is None:
         raise OrderError(
@@ -69,9 +76,7 @@ def recapitular(ctx: ToolContext, _args: dict[str, Any]) -> dict[str, Any]:
     current = signature(order)
     if order.recap_signature != current or order.recap_delivered_at is None:
         # Recapitular de novo sem mudança, depois de entregue, mantém a entrega: a confirmação do Contact vale.
-        order.recap_signature = current
-        order.recap_turn_id = ctx.turn_id
-        order.recap_delivered_at = None
+        set_recap(order, current, ctx.turn_id)
     ctx.db.commit()
     return {
         "pedido": view(order),

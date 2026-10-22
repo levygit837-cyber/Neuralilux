@@ -133,6 +133,7 @@ def finalizar(ctx: ToolContext, _args: dict[str, Any]) -> dict[str, Any]:
     record = pix.ensure_payment_record(ctx.db, order, company) if order.payment_method == "pix" else None
     order.status = "closed"
     order.closed_at = utc_now()
+    order.confirmed_snapshot = None  # a alteração, se havia, foi reconfirmada: este é o novo estado confirmado
     ctx.db.commit()
 
     result: dict[str, Any] = {
@@ -143,7 +144,7 @@ def finalizar(ctx: ToolContext, _args: dict[str, Any]) -> dict[str, Any]:
         result["pix"] = {
             "valor": float(record.amount),
             "chave": record.pix_key,
-            "txid": pix.txid_for(order),
+            "txid": record.txid or pix.txid_for(order),
             "copia_e_cola": record.qr_code_data,
         }
     return result
