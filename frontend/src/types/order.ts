@@ -46,3 +46,11 @@ export interface OrderStatusChangeResult {
   order: PanelOrder
   notification: OrderNotification
 }
+
+/** `active`: recebido, em preparo, saiu e em alteração. `done`: entregue e cancelado. */
+export type OrderListFilter = 'active' | 'done'
+
+export interface OrderPage {
+  orders: PanelOrder[]
+  total: number
+}

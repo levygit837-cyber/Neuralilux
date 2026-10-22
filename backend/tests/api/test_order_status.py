@@ -1,40 +1,37 @@
 """Painel de Orders da Company (#34): lista escopada, máquina de status, aviso ao Contact e estorno do Pix."""
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
 
-from app.models import Contact, Conversation, CustomerOrder, CustomerOrderItem, Message, PaymentRecord
+from app.models import CustomerOrder, Message, PaymentRecord
 from tests.access_helpers import fake_text_sender, make_company, make_instance, make_user
+from tests.order_helpers import NOW, make_order
 
-NOW = datetime(2026, 10, 19, 23, 0, tzinfo=timezone.utc)
 
+@pytest.fixture
+def query_counter(db):
+    """Conta os statements que chegam ao banco dentro do bloco `with`."""
+    from contextlib import contextmanager
 
-def make_order(db, instance, number, status="closed", *, confirmed=True, pix=None, opened_at=NOW):
-    contact = Contact(instance_id=instance.id, phone_number=f"55{number}", remote_jid=f"{number}@s.whatsapp.net", name="Maria")
-    db.add(contact)
-    db.flush()
-    conversation = Conversation(instance_id=instance.id, contact_id=contact.id, remote_jid=contact.remote_jid)
-    db.add(conversation)
-    db.flush()
-    order = CustomerOrder(
-        order_number=number, conversation_id=conversation.id, instance_id=instance.id, contact_id=contact.id,
-        remote_jid=contact.remote_jid, status=status, total_amount=Decimal("95.00"), delivery_fee=Decimal("5.00"),
-        customer_name="Maria", payment_method="pix" if pix else "dinheiro", delivery_type="entrega",
-        opened_at=opened_at, closed_at=opened_at if confirmed else None,
-    )
-    db.add(order)
-    db.flush()
-    db.add(CustomerOrderItem(
-        order_id=order.id, item_name="Pizza Toscana", quantity=2, unit_price=Decimal("45.00"), subtotal_price=Decimal("90.00"),
-    ))
-    if pix:
-        db.add(PaymentRecord(
-            order_id=order.id, conversation_id=conversation.id, amount=Decimal("95.00"), pix_key="k@pix",
-            payment_method="pix", status=pix,
-        ))
-    db.commit()
-    return order
+    from sqlalchemy import event
+
+    from tests.conftest import engine
+
+    @contextmanager
+    def count():
+        statements: list[str] = []
+
+        def record(_conn, _cursor, statement, *_rest):
+            statements.append(statement)
+
+        event.listen(engine, "before_cursor_execute", record)
+        try:
+            yield statements
+        finally:
+            event.remove(engine, "before_cursor_execute", record)
+
+    return count
 
 
 @pytest.fixture
@@ -79,14 +76,15 @@ def status_of(world, order):
 # ---------- lista ----------
 
 
-def test_panel_lists_only_confirmed_orders_of_the_users_company(client, world):
+def test_panel_lists_only_active_confirmed_orders_by_default(client, world):
     body = client.get("/api/v1/orders", headers=world["alice"]).json()
 
-    assert {o["order_number"] for o in body["orders"]} == {"A-1", "A-2", "A-3", "A-4", "A-5", "A-8"}
+    assert {o["order_number"] for o in body["orders"]} == {"A-1", "A-2", "A-3", "A-8"}  # sem entregue/cancelado, montagem e abandonado
+    assert body["total"] == 4
 
 
 def test_panel_row_carries_what_the_company_needs_to_act(client, world):
-    rows = {o["order_number"]: o for o in client.get("/api/v1/orders", headers=world["alice"]).json()["orders"]}
+    rows = {o["order_number"]: o for o in client.get("/api/v1/orders?status=all", headers=world["alice"]).json()["orders"]}
 
     row = rows["A-1"]
     assert row["id"] == world["received"].id and row["status"] == "closed"
@@ -106,10 +104,10 @@ def test_order_being_altered_is_shown_as_such_and_cannot_be_moved(client, world)
 
 
 def test_panel_lists_newest_first_and_honours_limit(client, world):
-    ordered = [o["order_number"] for o in client.get("/api/v1/orders", headers=world["alice"]).json()["orders"]]
+    ordered = [o["order_number"] for o in client.get("/api/v1/orders?status=all", headers=world["alice"]).json()["orders"]]
     assert ordered[:2] == ["A-4", "A-3"]
 
-    limited = client.get("/api/v1/orders?limit=1", headers=world["alice"]).json()["orders"]
+    limited = client.get("/api/v1/orders?status=all&limit=1", headers=world["alice"]).json()["orders"]
     assert [o["order_number"] for o in limited] == ["A-4"]
 
 
@@ -121,9 +119,54 @@ def test_panel_flags_orders_with_a_pix_to_refund(client, db, world):
     ))
     db.commit()
 
-    rows = {o["order_number"]: o for o in client.get("/api/v1/orders", headers=world["alice"]).json()["orders"]}
+    rows = {o["order_number"]: o for o in client.get("/api/v1/orders?status=all", headers=world["alice"]).json()["orders"]}
 
     assert rows["A-9"]["refund_status"] == "pending" and rows["A-1"]["refund_status"] is None
+
+
+def numbers(client, world, query):
+    body = client.get(f"/api/v1/orders?{query}", headers=world["alice"]).json()
+    return [o["order_number"] for o in body["orders"]], body["total"]
+
+
+def test_status_filter_splits_active_from_finished_and_all_lists_everything(client, world):
+    assert numbers(client, world, "status=active") == (["A-3", "A-2", "A-1", "A-8"], 4)
+    assert numbers(client, world, "status=done") == (["A-4", "A-5"], 2)
+    assert numbers(client, world, "status=all") == (["A-4", "A-3", "A-2", "A-1", "A-5", "A-8"], 6)
+
+
+def test_unknown_status_filter_is_422(client, world):
+    assert client.get("/api/v1/orders?status=banana", headers=world["alice"]).status_code == 422
+
+
+def test_offset_and_limit_page_through_the_filtered_list_with_the_total(client, world):
+    assert numbers(client, world, "status=all&limit=2") == (["A-4", "A-3"], 6)
+    assert numbers(client, world, "status=all&limit=2&offset=2") == (["A-2", "A-1"], 6)
+    assert numbers(client, world, "status=all&limit=2&offset=4") == (["A-5", "A-8"], 6)
+    assert numbers(client, world, "status=all&limit=2&offset=6") == ([], 6)
+    assert client.get("/api/v1/orders?offset=-1", headers=world["alice"]).status_code == 422
+
+
+def test_old_received_order_is_still_listed_behind_many_newer_delivered_ones(client, db, world):
+    for index in range(12):
+        make_order(db, world["inst_a"], f"D-{index}", "delivered", opened_at=NOW + timedelta(hours=1 + index))
+
+    listed, total = numbers(client, world, "limit=3")  # padrão: ativos
+
+    assert listed == ["A-3", "A-2", "A-1"] and total == 4  # o `closed` mais antigo não some atrás dos 12 entregues
+    assert numbers(client, world, "limit=3&offset=3") == (["A-8"], 4)
+
+
+def test_listing_runs_the_same_number_of_queries_however_many_orders_there_are(client, db, world, query_counter):
+    with query_counter() as few:
+        client.get("/api/v1/orders?status=all", headers=world["alice"])
+    for index in range(8):
+        make_order(db, world["inst_a"], f"P-{index}", "cancelled", pix="cancelled", opened_at=NOW - timedelta(days=1 + index))
+
+    with query_counter() as many:
+        body = client.get("/api/v1/orders?status=all", headers=world["alice"]).json()
+
+    assert len(body["orders"]) == 14 and len(many) == len(few)  # sem um SELECT de estorno por linha
 
 
 def test_panel_requires_a_token(client, world):
@@ -251,5 +294,5 @@ def test_company_cancelling_a_pix_order_flags_the_refund_like_the_contacts_cance
     refunds = client.get("/api/v1/orders/refunds", headers=world["alice"]).json()["refunds"]
     assert [r["order_number"] for r in refunds] == ["A-10"]
     assert "estorno" in stored_messages(world, order)[-1].content
-    row = next(o for o in client.get("/api/v1/orders", headers=world["alice"]).json()["orders"] if o["order_number"] == "A-10")
+    row = next(o for o in client.get("/api/v1/orders?status=all", headers=world["alice"]).json()["orders"] if o["order_number"] == "A-10")
     assert row["refund_status"] == refund

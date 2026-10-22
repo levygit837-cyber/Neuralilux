@@ -92,6 +92,7 @@ export function OrderCard({
               size="sm"
               variant={target === 'cancelled' ? 'secondary' : 'primary'}
               disabled={isBusy}
+              aria-busy={isBusy}
               onClick={() => onChangeStatus(order, target)}
               aria-label={`${ACTION_LABELS[target]} (pedido ${order.order_number})`}
             >

@@ -16,7 +16,7 @@ import structlog
 from sqlalchemy.orm import Session
 
 from app.models import CustomerOrder
-from app.packs.catalog_orders.changes import cancel_order
+from app.packs.catalog_orders.changes import OrderChanged, cancel_order, claim_status
 from app.packs.catalog_orders.order_state import REOPENED_LABEL, STATUS_LABELS, is_reopened
 from app.whatsapp.sender import send_and_persist
 
@@ -27,8 +27,9 @@ TRANSITIONS: dict[str, tuple[str, ...]] = {
     "in_production": ("sent", "cancelled"),
     "sent": ("delivered",),
 }
-# Estados que o painel lista: confirmados pelo Contact (ou reabertos para alteração, que mantêm `closed_at`).
-PANEL_STATUSES = ("closed", "in_production", "sent", "delivered", "cancelled")
+# Estados que o painel lista como ativos (o reaberto para alteração também: mantém `closed_at`) e como finalizados.
+ACTIVE_PANEL_STATUSES = ("closed", "in_production", "sent")
+DONE_PANEL_STATUSES = ("delivered", "cancelled")
 NOTIFICATION_FAILED = "Não foi possível avisar o cliente pelo WhatsApp. O status foi atualizado."
 
 
@@ -62,7 +63,7 @@ def _contact_message(order: CustomerOrder, target: str, refunds: list) -> str:
 
 async def _notify(db: Session, order: CustomerOrder, text: str) -> dict[str, Any]:
     try:
-        await send_and_persist(db, order.instance, order.conversation, order.contact, text)
+        await send_and_persist(db, order.instance, order.conversation, order.contact, text, sent_by="system")
     except Exception:
         db.rollback()  # o status já foi gravado; só descarta o que o envio deixou pela metade
         logger.exception("Failed to notify the Contact about the Order status", order_id=order.id, status=order.status)
@@ -83,10 +84,14 @@ async def change_status(db: Session, order: CustomerOrder, target: str) -> dict[
             f"para \"{STATUS_LABELS.get(target, target)}\"."
         )
     refunds: list = []
-    if target == "cancelled":
-        refunds = cancel_order(db, order, None)
-    else:
-        order.status = target
-    db.commit()
+    try:
+        if target == "cancelled":
+            refunds = cancel_order(db, order, None)
+        else:
+            claim_status(db, order, status=target)
+        db.commit()
+    except OrderChanged as exc:
+        db.rollback()  # perdeu a corrida: nada foi gravado e o Contact não é avisado
+        raise TransitionError(str(exc)) from exc
     return await _notify(db, order, _contact_message(order, target, refunds))
 

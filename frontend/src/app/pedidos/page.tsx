@@ -14,8 +14,27 @@ const FEEDBACK_STYLES = {
   error: 'border-error/30 bg-error/10 text-error',
 } as const
 
+const FILTERS = [
+  { value: 'active', label: 'Ativos' },
+  { value: 'done', label: 'Finalizados' },
+] as const
+
 export default function PedidosPage() {
-  const { orders, showSkeleton, displayedError, pendingOrderId, feedback, changeStatus, reload } = useOrderPanel()
+  const {
+    orders,
+    total,
+    filter,
+    selectFilter,
+    hasMore,
+    isLoadingMore,
+    loadMore,
+    showSkeleton,
+    displayedError,
+    pendingOrderId,
+    feedback,
+    changeStatus,
+    reload,
+  } = useOrderPanel()
 
   return (
     <div className="flex h-screen overflow-hidden bg-dark">
@@ -36,6 +55,21 @@ export default function PedidosPage() {
               </Button>
             </div>
 
+            <div role="group" aria-label="Filtrar pedidos" className="flex gap-2">
+              {FILTERS.map((option) => (
+                <Button
+                  key={option.value}
+                  type="button"
+                  size="sm"
+                  variant={filter === option.value ? 'primary' : 'secondary'}
+                  aria-pressed={filter === option.value}
+                  onClick={() => selectFilter(option.value)}
+                >
+                  {option.label}
+                </Button>
+              ))}
+            </div>
+
             <div aria-live="polite">
               {feedback && (
                 <div className={`rounded-2xl border px-4 py-3 text-sm ${FEEDBACK_STYLES[feedback.kind]}`}>
@@ -54,7 +88,7 @@ export default function PedidosPage() {
               <div className="h-64 animate-pulse rounded-3xl bg-card" />
             ) : orders.length === 0 ? (
               <p className="rounded-3xl border border-border-color bg-card p-8 text-center text-sm text-text-muted">
-                Nenhum pedido confirmado ainda.
+                {filter === 'active' ? 'Nenhum pedido em andamento.' : 'Nenhum pedido finalizado ainda.'}
               </p>
             ) : (
               <div className="grid gap-4 lg:grid-cols-2">
@@ -66,6 +100,26 @@ export default function PedidosPage() {
                     onChangeStatus={(row, target) => void changeStatus(row, target)}
                   />
                 ))}
+              </div>
+            )}
+
+            {!showSkeleton && orders.length > 0 && (
+              <div className="flex flex-col items-center gap-2">
+                <p className="text-xs text-text-muted">
+                  Mostrando {orders.length} de {total}
+                </p>
+                {hasMore && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    disabled={isLoadingMore}
+                    aria-busy={isLoadingMore}
+                    onClick={() => void loadMore()}
+                  >
+                    Carregar mais
+                  </Button>
+                )}
               </div>
             )}
           </div>

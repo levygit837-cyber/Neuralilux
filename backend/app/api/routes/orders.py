@@ -20,7 +20,14 @@ from app.api.access import instance_ids_for_user
 from app.api.deps import get_current_user, get_db
 from app.models import CustomerOrder, PaymentRecord, User
 from app.packs.catalog_orders.order_state import ACTIVE_STATUSES, is_reopened
-from app.services.order_status import PANEL_STATUSES, TransitionError, allowed_transitions, change_status, status_label
+from app.services.order_status import (
+    ACTIVE_PANEL_STATUSES,
+    DONE_PANEL_STATUSES,
+    TransitionError,
+    allowed_transitions,
+    change_status,
+    status_label,
+)
 
 router = APIRouter()
 
@@ -101,18 +108,20 @@ def _scoped_orders(db: Session, user: User):
     return query
 
 
-def _refund_status(db: Session, order: CustomerOrder) -> str | None:
-    """O estorno mais recente do Order (qualquer fase), ou None se nenhum Pix foi invalidado."""
-    record = (
-        db.query(PaymentRecord)
-        .filter(PaymentRecord.order_id == order.id, PaymentRecord.refund_status.isnot(None))
-        .order_by(PaymentRecord.refund_flagged_at.desc(), PaymentRecord.id)
-        .first()
+def _refund_statuses(db: Session, order_ids: list[str]) -> dict[str, str]:
+    """O estorno mais recente de cada Order (qualquer fase), numa só consulta. Order sem Pix invalidado fica de fora."""
+    if not order_ids:
+        return {}
+    rows = (
+        db.query(PaymentRecord.order_id, PaymentRecord.refund_status)
+        .filter(PaymentRecord.order_id.in_(order_ids), PaymentRecord.refund_status.isnot(None))
+        .order_by(PaymentRecord.refund_flagged_at, PaymentRecord.id)
+        .all()
     )
-    return record.refund_status if record else None
+    return {order_id: refund_status for order_id, refund_status in rows}  # o último (mais recente) vence
 
 
-def _panel_row(db: Session, order: CustomerOrder) -> dict:
+def _panel_row(order: CustomerOrder, refunds: dict[str, str]) -> dict:
     return {
         "id": order.id,
         "order_number": order.order_number,
@@ -129,24 +138,38 @@ def _panel_row(db: Session, order: CustomerOrder) -> dict:
         "total_amount": float(order.total_amount or 0),
         "payment_method": order.payment_method,
         "delivery_type": order.delivery_type,
-        "refund_status": _refund_status(db, order),
+        "refund_status": refunds.get(order.id),
         "opened_at": order.opened_at.isoformat() if order.opened_at else None,
     }
 
 
+OrderFilter = Literal["active", "done", "all"]
+
+
+def _matches(filter_: OrderFilter):
+    """Confirmados pelo Contact: `active` (andamento + reaberto), `done` (entregue/cancelado) ou `all`."""
+    active = or_(
+        CustomerOrder.status.in_(ACTIVE_PANEL_STATUSES),
+        and_(CustomerOrder.status.in_(ACTIVE_STATUSES), CustomerOrder.closed_at.isnot(None)),
+    )
+    done = CustomerOrder.status.in_(DONE_PANEL_STATUSES)
+    return {"active": active, "done": done, "all": or_(active, done)}[filter_]
+
+
 @router.get("")
 def list_orders(
+    status: OrderFilter = Query("active"),
     limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Orders confirmados da Company, do mais recente ao mais antigo; inclui os reabertos para alteração."""
-    confirmed = or_(
-        CustomerOrder.status.in_(PANEL_STATUSES),
-        and_(CustomerOrder.status.in_(ACTIVE_STATUSES), CustomerOrder.closed_at.isnot(None)),
-    )
-    orders = _scoped_orders(db, current_user).filter(confirmed).order_by(CustomerOrder.opened_at.desc(), CustomerOrder.id).limit(limit).all()
-    return {"orders": [_panel_row(db, order) for order in orders]}
+    """Orders confirmados da Company por `status` (padrão `active`), do mais recente ao mais antigo, com `total`."""
+    query = _scoped_orders(db, current_user).filter(_matches(status))
+    total = query.order_by(None).count()
+    orders = query.order_by(CustomerOrder.opened_at.desc(), CustomerOrder.id).offset(offset).limit(limit).all()
+    refunds = _refund_statuses(db, [order.id for order in orders])
+    return {"orders": [_panel_row(order, refunds) for order in orders], "total": total}
 
 
 @router.post("/{order_id}/status")
@@ -164,4 +187,4 @@ async def change_order_status(
         notification = await change_status(db, order, body.status)
     except TransitionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    return {"order": _panel_row(db, order), "notification": notification}
+    return {"order": _panel_row(order, _refund_statuses(db, [order.id])), "notification": notification}

@@ -1,12 +1,12 @@
 import { apiRequest, jsonBody } from '@/services/http'
-import type { OrderStatusChangeResult, OrderTransition, PanelOrder } from '@/types/order'
+import type { OrderListFilter, OrderPage, OrderStatusChangeResult, OrderTransition } from '@/types/order'
 
 const FALLBACK = 'Erro ao carregar os pedidos'
 
 export const orderService = {
-  async list(): Promise<PanelOrder[]> {
-    const body = await apiRequest<{ orders: PanelOrder[] }>('/orders', { method: 'GET' }, FALLBACK)
-    return body.orders
+  list(status: OrderListFilter, offset: number, limit: number): Promise<OrderPage> {
+    const query = new URLSearchParams({ status, offset: String(offset), limit: String(limit) })
+    return apiRequest<OrderPage>(`/orders?${query}`, { method: 'GET' }, FALLBACK)
   },
 
   changeStatus(orderId: string, status: OrderTransition): Promise<OrderStatusChangeResult> {
