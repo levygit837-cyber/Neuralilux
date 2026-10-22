@@ -32,7 +32,8 @@ _Avoid_: Mensagem de chat, evento
 
 **Session**:
 Um trecho contínuo de uma Conversation. Começa na primeira Message do Contact depois de um tempo sem Messages (configurável por Company, padrão 3 h); pausas menores continuam a mesma. A Recent Window mostra só a Session atual, e um Order aberto na anterior vira `abandoned`.
-_Avoid_: Sessão de login, sessão do WhatsApp, atendimento
+_Avoid_: Sessão de login, sessão do WhatsApp
+_Também dito_: "atendimento" ("novo atendimento"), só em prosa informal e nos prompts do Agent
 
 ### Agente
 

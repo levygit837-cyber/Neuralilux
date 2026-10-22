@@ -1,6 +1,20 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Optional, Dict, Any
 from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from app.models.company import DEFAULT_SESSION_TIMEOUT_MINUTES
+
+DEFAULT_TIMEZONE = "America/Sao_Paulo"
+
+
+def _loadable_timezone(value: object) -> str:
+    """Só aceita um fuso que o `ZoneInfo` carrega; `None`, vazio e caminhos ("../x") são recusados."""
+    try:
+        ZoneInfo(value)  # type: ignore[arg-type]
+    except (ZoneInfoNotFoundError, ValueError, TypeError, OSError):
+        raise ValueError("Fuso horário inválido; use um nome IANA, como America/Sao_Paulo.") from None
+    return value  # type: ignore[return-value]
 
 
 class BusinessHours(BaseModel):
@@ -32,12 +46,15 @@ class CompanyCreate(BaseModel):
 
     # Business hours
     business_hours: Optional[Dict[str, Any]] = None
+    timezone: str = DEFAULT_TIMEZONE
 
     # AI Configuration
     ai_system_prompt: Optional[str] = None
     ai_model: str = "gpt-4-turbo-preview"
     ai_temperature: int = Field(70, ge=0, le=100)
     ai_max_tokens: int = Field(1000, ge=100, le=4000)
+
+    _check_timezone = field_validator("timezone")(_loadable_timezone)
 
 
 class CompanyUpdate(BaseModel):
@@ -63,6 +80,7 @@ class CompanyUpdate(BaseModel):
 
     # Business hours
     business_hours: Optional[Dict[str, Any]] = None
+    timezone: Optional[str] = None  # se informado, tem de ser um fuso válido (a coluna não aceita NULL)
 
     # AI Configuration
     ai_system_prompt: Optional[str] = None
@@ -72,6 +90,8 @@ class CompanyUpdate(BaseModel):
 
     # Atendimento: minutos sem Messages que encerram a Session (ADR 0007)
     session_timeout_minutes: Optional[int] = Field(None, ge=1, le=10080)
+
+    _check_timezone = field_validator("timezone")(_loadable_timezone)
 
     is_active: Optional[bool] = None
 
@@ -107,7 +127,7 @@ class CompanyResponse(BaseModel):
     ai_temperature: int
     ai_max_tokens: int
 
-    session_timeout_minutes: int = 180
+    session_timeout_minutes: int = DEFAULT_SESSION_TIMEOUT_MINUTES
 
     is_active: bool
     created_at: datetime

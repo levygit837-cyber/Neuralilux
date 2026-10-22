@@ -198,3 +198,38 @@ async def test_resume_is_refused_while_another_order_is_being_built(world, pack,
 
     assert result.is_error
     assert len([o for o in _orders(world) if o.status == "open"]) == 1
+
+
+async def test_same_as_yesterday_from_a_closed_order_via_status_then_add_item(world, pack, pedido):
+    status = tool_named(pack.tools(), "status_pedido")
+    await add_item(world, pedido, quantidade=2, observacao="sem cebola")
+    await add_item(world, pedido, name="Suco de Laranja")
+    old = _orders(world)[0]
+    old.status = "closed"  # fechado e entregue na Session anterior
+    world.db.commit()
+    pack.on_session_start(world.db, world.conversation)
+    world.db.commit()
+    assert _orders(world)[0].status == "closed"  # só o Order ativo é abandonado
+
+    world.items["Pizza Toscana"].price = Decimal("50.00")  # o cardápio mudou desde ontem
+    world.db.commit()
+    previous = payload(await call(status, world.ctx))["pedido"]
+    for line in previous["itens"]:
+        added = await call(
+            pedido,
+            world.ctx,
+            acao="adicionar_item",
+            item_id=line["item_id"],
+            quantidade=line["quantidade"],
+            **({"observacao": line["observacao"]} if line["observacao"] else {}),
+        )
+        assert not added.is_error
+
+    current = payload(await call(pedido, world.ctx, acao="ver"))["pedido"]
+    assert current["numero"] != previous["numero"] and current["status"] == "open"
+    assert [(i["nome"], i["quantidade"], i["observacao"], i["preco_unitario"]) for i in current["itens"]] == [
+        ("Pizza Toscana", 2, "sem cebola", 50.0),
+        ("Suco de Laranja", 1, None, 9.5),
+    ]
+    assert current["total"] == 109.5
+    assert _status(world, previous["numero"]) == "closed"

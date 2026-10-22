@@ -15,7 +15,7 @@ class CustomerOrder(Base):
     instance_id = Column(String, ForeignKey("instances.id"), nullable=False, index=True)
     contact_id = Column(String, ForeignKey("contacts.id"), nullable=False, index=True)
     remote_jid = Column(String, nullable=False, index=True)
-    status = Column(String(30), nullable=False, default="open")  # open, collecting_data, ready_for_confirmation, closed, cancelled, in_production, sent, delivered
+    status = Column(String(30), nullable=False, default="open")  # open, collecting_data, ready_for_confirmation, closed, cancelled, in_production, sent, delivered, abandoned (Session acabou com o Order ativo)
     customer_name = Column(String(200))
     customer_address = Column(Text)
     customer_phone = Column(String(30))

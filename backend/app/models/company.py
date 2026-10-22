@@ -6,6 +6,10 @@ from app.core.database import Base
 from app.models.base import generate_uuid
 
 
+# Limite padrão de inatividade da Session de atendimento (ADR 0007), em minutos.
+DEFAULT_SESSION_TIMEOUT_MINUTES = 180
+
+
 class BusinessType(Base):
     __tablename__ = "business_types"
 
@@ -47,7 +51,12 @@ class Company(Base):
     timezone = Column(String(64), nullable=False, default="America/Sao_Paulo", server_default="America/Sao_Paulo")
     minimum_order = Column(Numeric(10, 2))  # Pedido mínimo (soma dos itens) da Company
     # Minutos sem Messages que encerram a Session de atendimento (ADR 0007).
-    session_timeout_minutes = Column(Integer, nullable=False, default=180, server_default="180")
+    session_timeout_minutes = Column(
+        Integer,
+        nullable=False,
+        default=DEFAULT_SESSION_TIMEOUT_MINUTES,
+        server_default=str(DEFAULT_SESSION_TIMEOUT_MINUTES),
+    )
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

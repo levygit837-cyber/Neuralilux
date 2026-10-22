@@ -21,6 +21,18 @@ class RecordingPack(FakePack):
         self.started.append(conversation.id)
 
 
+class PackWithoutHook:
+    """Pack mínimo: só o que o Protocol exige, sem `on_session_start`."""
+
+    name = "sem-gancho"
+
+    def tools(self):
+        return []
+
+    def system_prompt_section(self, ctx) -> str:
+        return ""
+
+
 @pytest.fixture
 def company(db):
     company = Company(name="Pizzaria")
@@ -106,6 +118,19 @@ def test_expired_session_notifies_every_pack_and_a_continued_one_does_not(db, co
 
     sessions.roll_session(db, conversation, company, [pack], T0 + timedelta(hours=5))
     assert pack.started == [conversation.id]
+
+
+def test_pack_without_the_session_hook_does_not_break_a_new_session(db, conversation_factory, company):
+    conversation = conversation_factory("conv-no-hook")
+    recording = RecordingPack()
+    sessions.roll_session(db, conversation, company, [], T0)
+    conversation.last_message_at = T0
+
+    opened = sessions.roll_session(db, conversation, company, [PackWithoutHook(), recording], T0 + timedelta(hours=5))
+
+    assert opened is True
+    assert conversation.session_started_at == T0 + timedelta(hours=5)
+    assert recording.started == [conversation.id]
 
 
 def test_a_late_backlog_message_does_not_open_a_session(db, conversation_factory, company):

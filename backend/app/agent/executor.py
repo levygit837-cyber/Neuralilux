@@ -45,9 +45,6 @@ class CorePack:
     def system_prompt_section(self, ctx: ToolContext) -> str:
         return ""
 
-    def on_session_start(self, db: Session, conversation: Conversation) -> None:
-        return None
-
 
 def packs_for(company: Company) -> list[Pack]:
     pack = pack_for_company(company)

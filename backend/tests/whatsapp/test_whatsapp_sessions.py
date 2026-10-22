@@ -4,9 +4,10 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from app.agent import executor
 from app.models import Contact, Conversation, CustomerOrder
 from app.whatsapp.consumer import WhatsAppMessageConsumer
-from consumer_helpers import JID, process, upsert
+from consumer_helpers import JID, messages, process, upsert
 
 pytestmark = pytest.mark.asyncio
 
@@ -118,3 +119,30 @@ async def test_our_own_reply_after_a_long_pause_does_not_open_a_session(db, worl
     assert _conversation(db).session_started_at == started
     db.refresh(order)
     assert order.status == "open"
+
+
+class PackWithoutHook:
+    name = "sem-gancho"
+
+    def tools(self):
+        return []
+
+    def system_prompt_section(self, ctx) -> str:
+        return ""
+
+
+async def test_pack_without_the_session_hook_still_gets_the_message_saved_and_the_turn_run(
+    db, world, consumer, monkeypatch
+):
+    monkeypatch.setattr(executor, "packs_for", lambda company: [PackWithoutHook()])
+    t0 = datetime.now(timezone.utc) - timedelta(hours=8)
+    await process(consumer, upsert(message_id="m1", ts=_ts(t0)))
+    _replied_at(db, t0)
+    later = t0 + timedelta(hours=7)
+
+    await process(consumer, upsert(message_id="m2", text="Voltei", ts=_ts(later)))
+
+    assert "Voltei" in [m.content for m in messages(db)]
+    assert world["turns"] == ["Oi", "Voltei"]
+    started = _conversation(db).session_started_at.replace(tzinfo=timezone.utc)
+    assert abs(started - later) < timedelta(seconds=2)

@@ -35,7 +35,9 @@ class Pack(Protocol):
     name: str
     def tools(self) -> list[Tool]: ...
     def system_prompt_section(self, ctx: ToolContext) -> str: ...
-    def on_session_start(self, db: Session, conversation: Conversation) -> None: ...
+
+# Opcional, fora do Protocol: define-se só se o ramo tem pendência ao trocar de Session.
+#     def on_session_start(self, db: Session, conversation: Conversation) -> None: ...
 ```
 
 Regras que o `ToolRegistry` (`app/agent/tools.py`) impõe:
@@ -51,7 +53,7 @@ Regras que o `ToolRegistry` (`app/agent/tools.py`) impõe:
 - Escopo sempre pelo `ToolContext`: filtre dados da Company por `ctx.company_id`, dados do Contact por `ctx.contact_id` (e `ctx.instance_id`), estado da Conversation por `ctx.conversation_id`. Nunca confie num id que o modelo informou no input para escolher a Company.
 - Devolva JSON (`json.dumps(..., ensure_ascii=False)`) com chaves legíveis; o modelo lê o texto.
 - Uma Tool que grava só grava depois de validar tudo; falhou, nada muda (veja `catalog_orders/orders.py`).
-- `on_session_start` roda quando uma Session nova substitui a anterior ([ADR 0007](adr/0007-session-de-atendimento.md)), na transação que grava a Message, sem `commit`. Use para tratar o que ficou pendente do ramo; o Pack de pedidos marca o Order aberto como `abandoned`. Sem pendência, `return None`.
+- `on_session_start` é **opcional**: o núcleo só o chama se o Pack o definir (`getattr`). Roda quando uma Session nova substitui a anterior ([ADR 0007](adr/0007-session-de-atendimento.md)), na transação que grava a Message, sem `commit`. Use para tratar o que ficou pendente do ramo; o Pack de pedidos marca o Order aberto como `abandoned`. Sem pendência, não defina o método.
 - A `system_prompt_section` descreve o fluxo e as regras do ramo, citando as Tools pelo nome. Ela é anexada ao prompt base; não repita o que o prompt base já diz.
 
 ## Exemplo: Pack de academia
@@ -119,9 +121,6 @@ class GymPack:
 
     def system_prompt_section(self, ctx: ToolContext) -> str:
         return PROMPT_SECTION
-
-    def on_session_start(self, db: Session, conversation: Conversation) -> None:
-        return None
 ```
 
 ### Ligar o Pack a um Business Type

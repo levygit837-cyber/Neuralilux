@@ -97,17 +97,15 @@ class Tool:
 
 
 class Pack(Protocol):
-    """Tools and prompt instructions for one Business Type."""
+    """Tools and prompt instructions for one Business Type.
+
+    A Pack MAY also define `on_session_start(db, conversation) -> None` (ADR 0007), called inside the
+    transaction that stores the Message that opened a new Session (no commit). It is optional and
+    deliberately not part of this Protocol: `app.agent.sessions.roll_session` looks it up with `getattr`.
+    """
 
     name: str
 
     def tools(self) -> list[Tool]: ...
 
     def system_prompt_section(self, ctx: ToolContext) -> str: ...
-
-    def on_session_start(self, db: Session, conversation: Any) -> None:
-        """Uma Session nova substituiu a anterior (ADR 0007); o Pack trata o que ficou pendente.
-
-        Roda na transação que grava a Message que abriu a Session; não faz commit.
-        """
-        ...

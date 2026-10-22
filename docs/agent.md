@@ -75,7 +75,7 @@ Uma Conversation se divide em Sessions por inatividade ([ADR 0007](adr/0007-sess
 
 - **Quando abre**: o consumer chama `sessions.roll_session` antes de gravar a Message do Contact. Se passou mais que `Company.session_timeout_minutes` (padrão 180, exatamente o limite ainda é a mesma Session) desde a última Message da Conversation, `Conversation.session_started_at` recebe o horário da Message nova. Mensagens `fromMe` nunca abrem Session.
 - **O que muda**: a Recent Window só tem Messages com `timestamp >= session_started_at`. Messages anteriores contam como "fora da janela" para o Summary e continuam na History Search. `session_started_at` nulo (Conversation sem Session registrada) usa a Conversation inteira.
-- **Packs**: ao abrir a Session nova, cada Pack recebe `on_session_start(db, conversation)` na mesma transação da Message. No Pack de pedidos, o Order ativo vira `abandoned`.
+- **Packs**: ao abrir a Session nova, cada Pack que definir o gancho opcional `on_session_start(db, conversation)` o recebe, na mesma transação da Message. No Pack de pedidos, o Order ativo vira `abandoned`.
 - **Configurar**: `PUT /api/v1/companies/{id}` com `session_timeout_minutes` (1 a 10080 minutos).
 
 ## Eventos em tempo real

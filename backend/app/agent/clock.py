@@ -18,7 +18,7 @@ WEEKDAYS = ("segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "se
 def company_zone(company: Company) -> ZoneInfo:
     try:
         return ZoneInfo(company.timezone or DEFAULT_TIMEZONE)
-    except ZoneInfoNotFoundError:
+    except (ZoneInfoNotFoundError, ValueError):  # ValueError: chave com caminho ("../x", "/etc/x") ou vazia
         logger.warning("Unknown company timezone, using default", company_id=company.id, timezone=company.timezone)
         return ZoneInfo(DEFAULT_TIMEZONE)
 
