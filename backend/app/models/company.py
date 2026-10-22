@@ -57,6 +57,8 @@ class Company(Base):
         default=DEFAULT_SESSION_TIMEOUT_MINUTES,
         server_default=str(DEFAULT_SESSION_TIMEOUT_MINUTES),
     )
+    # Horas sem Attendant agir até a Conversation voltar sozinha ao Agent (Ticket vira `expired`).
+    handoff_timeout_hours = Column(Integer, nullable=False, default=4, server_default="4")
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

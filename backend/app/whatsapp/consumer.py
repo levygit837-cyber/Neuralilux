@@ -19,6 +19,7 @@ from app.core.database import SessionLocal
 from app.agent.sessions import roll_session
 from app.models import Agent, Company, Contact, Conversation, Instance, Message
 from app.whatsapp.message_queue import message_queue_service
+from app.whatsapp.handoff_tracking import track_handoff
 from app.whatsapp.sender import send_and_persist
 from app.whatsapp.status_events import (
     find_instance,
@@ -253,6 +254,8 @@ class WhatsAppMessageConsumer:
         )
 
         await publish_message(instance_name, remote_jid, contact, conversation, message_id, parsed.content, timestamp, from_me)
+
+        await track_handoff(db, instance, conversation, remote_jid, parsed.content, from_me)
 
         skip = self._skip_agent_reason(from_me, remote_jid, timestamp)
         if skip:

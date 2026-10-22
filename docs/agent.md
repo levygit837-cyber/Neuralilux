@@ -47,7 +47,7 @@ O Agent tem 6 Tools: 3 do núcleo (valem para qualquer Business Type) e 3 do Pac
 | Tool | Origem | O que faz |
 |---|---|---|
 | `info_empresa` | núcleo | Nome, endereço, telefone, horários, `aberto_agora`, formas de pagamento, chave Pix, pedido mínimo e taxas por Delivery Zone. |
-| `transferir_atendente` | núcleo | Abre um Ticket, liga o Handoff e encerra o Turn (`ends_turn`). Detalhes em [operations.md](operations.md#handoff-e-tickets). |
+| `transferir_atendente` | núcleo | Abre um Ticket, liga o Handoff e encerra o Turn (`ends_turn`) com a `frase_empatica` do Agent mais a janela de atendimento da Company. Detalhes em [operations.md](operations.md#handoff-e-tickets). |
 | `buscar_historico` | núcleo | History Search nas Messages antigas do Contact. |
 | `buscar_cardapio` | Pack `catalog_orders` | Busca Catalog Items disponíveis; até 15 resultados com id, nome, preço e descrição. |
 | `gerenciar_pedido` | Pack `catalog_orders` | Monta e fecha o Order. Ações: `adicionar_item`, `remover_item`, `ver`, `definir_dados`, `finalizar`. |
@@ -87,8 +87,9 @@ O Turn publica eventos no event bus Redis (`app/realtime/event_bus.py`, canal `n
 | `thinking_event` | início e fim do Turn | `conversation_id`, `event` (`thinking_start` ou `thinking_end`), `data` |
 | `tool_event` | ciclo de cada Tool | `tool_name`, `phase` (`started`, `completed`, `failed`; também `waiting_input`), `input_preview`, `output_preview`, `error`, `started_at`, `finished_at`, `request_id`, `trace_id` |
 | `human_handoff_requested` | a Tool `transferir_atendente` abriu o Handoff | `conversation_id`, `ticket_id`, `reason`, `contact_id`, `instance_id`, `timestamp` |
+| `handoff_updated` | um Attendant assumiu ou devolveu, ou o timeout devolveu ao Agent | `conversation_id`, `ticket_id`, `change` (`assumed`, `released`, `expired`), `human_in_loop`, `assigned_to`, `timestamp` |
 
 - Os previews são cortados em `TOOL_EVENT_PREVIEW_LIMIT` (240). Os payloads brutos (`input_payload`, `output_payload`) só saem com `TOOL_EVENT_INCLUDE_RAW_PAYLOADS=true`; deixe `false` fora de debug, pois podem conter dados do Contact.
 - Os eventos vão para duas salas: `conversation:{instance}:{conversation_id}` (depois de `join_conversation`) e `instance:{instance}` (depois de `subscribe_instance`). A conexão exige o JWT em `auth.token`.
-- O `conversation_id` **não é o mesmo em todos os eventos**: em `thinking_event` e `tool_event` ele é o `remote_jid` da Conversation (por exemplo `5511999999999@s.whatsapp.net`); em `human_handoff_requested` é o UUID da Conversation. Quem assina a sala por Conversation precisa tratar os dois formatos.
+- O `conversation_id` **não é o mesmo em todos os eventos**: em `thinking_event` e `tool_event` ele é o `remote_jid` da Conversation (por exemplo `5511999999999@s.whatsapp.net`); em `human_handoff_requested` e `handoff_updated` é o UUID da Conversation. Quem assina a sala por Conversation precisa tratar os dois formatos.
 - Os eventos que já existiam continuam: `new_message`, `conversation_updated`, `message_status_update`, `connection_status_update` e `qr_code_update`. A tradução de evento do bus para evento Socket.IO está em `app/realtime/socket.py` (`emit_realtime_event`).

@@ -14,6 +14,7 @@ export interface ConversationResponse {
   remote_jid: string
   unread_count: number
   human_in_loop?: boolean
+  handoff_assigned_to?: string | null
   last_message_at?: string | null
   last_message_preview?: string | null
   contact?: ContactResponse | null
@@ -111,6 +112,7 @@ export function mapConversation(raw: ConversationResponse): Conversation {
     lastMessageAt: lastMessageAt?.toISOString(),
     unreadCount: raw.unread_count ?? 0,
     humanHandoff: raw.human_in_loop ?? false,
+    handoffAssignedTo: raw.handoff_assigned_to ?? null,
     isOnline: false,
   }
 }

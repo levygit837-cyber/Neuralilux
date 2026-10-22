@@ -1,6 +1,7 @@
 """
 Saída do Agent: envia a resposta pela Evolution, grava a Message `from_me` e avisa a UI ao vivo.
 """
+import time
 from datetime import datetime, timezone
 
 import structlog
@@ -11,6 +12,41 @@ from app.whatsapp.evolution_client import evolution_api
 from app.whatsapp.status_events import publish_message, touch_conversation
 
 logger = structlog.get_logger()
+
+# Respostas do Agent enviadas sem id da Evolution: o eco `fromMe` delas chega depois pelo webhook e NÃO é um
+# Attendant escrevendo. Fica na memória do worker (quem envia é quem consome o eco) e expira sozinho.
+ECHO_TTL_SECONDS = 120.0
+_unmatched_sends: dict[tuple[str, str], list[tuple[str, float]]] = {}
+
+
+def _remember_send_without_id(instance_id: str, remote_jid: str, text: str) -> None:
+    now = time.monotonic()
+    key = (instance_id, remote_jid)
+    pending = [(t, at) for t, at in _unmatched_sends.get(key, []) if now - at < ECHO_TTL_SECONDS]
+    pending.append((text.strip(), now))
+    _unmatched_sends[key] = pending
+
+
+def claim_agent_echo(instance_id: str, remote_jid: str, text: str | None) -> bool:
+    """True se `text` é o eco de uma resposta do Agent enviada sem id; consome essa marca (vale uma vez)."""
+    key = (instance_id, remote_jid)
+    now = time.monotonic()
+    pending = [(t, at) for t, at in _unmatched_sends.get(key, []) if now - at < ECHO_TTL_SECONDS]
+    wanted = (text or "").strip()
+    for index, (sent, _at) in enumerate(pending):
+        if sent == wanted:
+            del pending[index]
+            _store(key, pending)
+            return True
+    _store(key, pending)
+    return False
+
+
+def _store(key: tuple[str, str], pending: list[tuple[str, float]]) -> None:
+    if pending:
+        _unmatched_sends[key] = pending
+    else:
+        _unmatched_sends.pop(key, None)
 
 
 async def send_and_persist(
@@ -30,6 +66,7 @@ async def send_and_persist(
     if not sent_id:
         # Sem id não há como deduplicar o eco; deixa o eco gravar a Message.
         logger.warning("Evolution did not return a message id; reply will be stored from the webhook echo")
+        _remember_send_without_id(instance.id, conversation.remote_jid, text)
         return
 
     timestamp = datetime.now(timezone.utc)

@@ -13,6 +13,7 @@ import structlog
 from app.api.access import get_instance_for_user, instance_ids_for_user
 from app.api.deps import get_current_user, get_db
 from app.models import User, Contact, Conversation, Message
+from app.services import handoff_service
 from app.schemas.conversation import ConversationResponse, PaginatedConversations
 from app.schemas.message import (
     ConversationSendMessageRequest,
@@ -221,6 +222,8 @@ async def send_conversation_message(
         conversation.last_message_at = datetime.utcnow()
         conversation.last_message_preview = request.content[:200] if request.content else None
         db.commit()
+        # Um Attendant escreveu pelo painel: reinicia o timeout do Handoff.
+        handoff_service.record_attendant_activity(db, conversation)
         db.refresh(db_message)
 
         logger.info(

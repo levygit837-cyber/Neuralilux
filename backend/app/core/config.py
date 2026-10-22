@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     # RabbitMQ
     RABBITMQ_URL: str = "amqp://neuralilux:rabbitmq_password@localhost:5672/neuralilux"
     RABBITMQ_PREFETCH: int = 8  # mensagens simultâneas por consumer
+    HANDOFF_SWEEP_INTERVAL_SECONDS: int = 60  # de quanto em quanto tempo o worker expira Handoffs sem Attendant
 
     # JWT
     SECRET_KEY: str = "change-me-in-production-use-strong-secret-key-here"

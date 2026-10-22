@@ -16,9 +16,12 @@ class Ticket(Base):
     agent_type = Column(String(20), nullable=False)  # "sales" ou "sac"
     reason = Column(Text, nullable=False)  # Motivo do ticket
     content = Column(Text, nullable=False)  # Conteúdo da reclamação/mensagem do usuário
-    status = Column(String(20), nullable=False, default="open")  # "open", "in_progress", "closed"
+    status = Column(String(20), nullable=False, default="open")  # "open", "in_progress", "closed", "expired"
     assigned_to = Column(String, ForeignKey("users.id"), nullable=True)  # ID do atendente humano
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # Última vez que um Attendant agiu na Conversation (assumiu ou escreveu); base do timeout do Handoff.
+    attendant_activity_at = Column(DateTime(timezone=True), nullable=True)
+    closed_at = Column(DateTime(timezone=True), nullable=True)  # devolvido ao Agent (closed) ou expirado (expired)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships

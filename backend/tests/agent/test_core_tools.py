@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import pytest
 from pack_helpers import call, make_world, payload, tool_named
 
-from app.agent import core_tools
+from app.agent import clock, core_tools
 from app.agent.core_tools import TRANSFER_MESSAGE, core_tools as build_core_tools
 from app.models import Message, Ticket
 
@@ -23,6 +23,8 @@ def events(monkeypatch):
         sent.append(event)
 
     monkeypatch.setattr(core_tools, "publish_event", publish)
+    # Segunda 19:00 em Fortaleza: a Company está aberta, então o Handoff usa a mensagem de horário comercial.
+    monkeypatch.setattr(clock, "utc_now", lambda: datetime(2026, 10, 19, 22, 0, tzinfo=timezone.utc))
     return sent
 
 
@@ -33,16 +35,16 @@ def tool(name):
 async def test_info_empresa_open_now_uses_company_timezone(world, events, monkeypatch):
     info = tool("info_empresa")
     # 2026-10-24 (sábado) 02:30 UTC == sexta 23:30 em Fortaleza (UTC-3): aberto pelo horário de sexta.
-    monkeypatch.setattr(core_tools, "utc_now", lambda: datetime(2026, 10, 24, 2, 30, tzinfo=timezone.utc))
+    monkeypatch.setattr(clock, "utc_now", lambda: datetime(2026, 10, 24, 2, 30, tzinfo=timezone.utc))
     assert payload(await call(info, world.ctx))["aberto_agora"] is True
     # Mesmo instante, mas 03:30 UTC == sábado 00:30 local: sexta já fechou às 00:00.
-    monkeypatch.setattr(core_tools, "utc_now", lambda: datetime(2026, 10, 24, 3, 30, tzinfo=timezone.utc))
+    monkeypatch.setattr(clock, "utc_now", lambda: datetime(2026, 10, 24, 3, 30, tzinfo=timezone.utc))
     assert payload(await call(info, world.ctx))["aberto_agora"] is False
 
 
 async def test_info_empresa_timezone_changes_the_answer(world, monkeypatch):
     info = tool("info_empresa")
-    monkeypatch.setattr(core_tools, "utc_now", lambda: datetime(2026, 10, 19, 22, 0, tzinfo=timezone.utc))  # seg 19:00 -03
+    monkeypatch.setattr(clock, "utc_now", lambda: datetime(2026, 10, 19, 22, 0, tzinfo=timezone.utc))  # seg 19:00 -03
     assert payload(await call(info, world.ctx))["aberto_agora"] is True
     world.company.timezone = "Asia/Tokyo"  # terça 07:00
     world.db.commit()
@@ -50,7 +52,7 @@ async def test_info_empresa_timezone_changes_the_answer(world, monkeypatch):
 
 
 async def test_info_empresa_fields(world, monkeypatch):
-    monkeypatch.setattr(core_tools, "utc_now", lambda: datetime(2026, 10, 19, 22, 0, tzinfo=timezone.utc))
+    monkeypatch.setattr(clock, "utc_now", lambda: datetime(2026, 10, 19, 22, 0, tzinfo=timezone.utc))
     data = payload(await call(tool("info_empresa"), world.ctx))
     assert data["nome"] == "Macedos"
     assert "Rua das Flores" in data["endereco"] and "100" in data["endereco"]
@@ -171,7 +173,7 @@ async def test_core_exposes_exactly_three_tools():
     tools = build_core_tools()
     assert [t.name for t in tools] == ["info_empresa", "transferir_atendente", "buscar_historico"]
     assert tools[0].input_schema["properties"] == {}
-    assert tools[1].input_schema["required"] == ["motivo"]
+    assert tools[1].input_schema["required"] == ["motivo"]  # a frase empática é pedida, mas opcional
     assert tools[2].input_schema["required"] == ["consulta"]
 
 

@@ -38,7 +38,7 @@ curl -s -X POST http://localhost:8000/api/v1/auth/login \
 | `GET /companies/{id}`, `PUT /companies/{id}` | Dados da Company, incluindo `business_hours`. |
 | `GET /conversations`, `GET /conversations/{id}/messages` | Conversations e Messages. |
 | `POST /conversations/{id}/messages` | Envia texto pela Instance (a Instance precisa estar `connected`). |
-| `POST /conversations/{id}/take-control`, `POST .../release-control`, `GET .../human-control-status` | Handoff manual, veja [operations.md](operations.md#handoff-e-tickets). |
+| `POST /conversations/{id}/take-control`, `POST .../release-control`, `GET .../human-control-status` | Assumir, devolver ao Agent (fecha o Ticket) e consultar o Handoff, veja [operations.md](operations.md#handoff-e-tickets). |
 | `GET /tickets`, `GET`/`PATCH /tickets/{id}`, `POST /tickets/{id}/assign` | Tickets de Handoff. |
 | `GET /instances/`, `POST /instances/{nome}`, `GET .../status`, `POST .../connect`, `DELETE .../logout`, `DELETE /instances/{nome}` | Instances do usuário e conexão com a Evolution (login obrigatório; a listagem não devolve o token da Evolution). Só o `POST` cria a Instance local, com a Company do usuário. |
 

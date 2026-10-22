@@ -42,6 +42,8 @@ interface ThinkingPayload {
 interface HandoffPayload {
   conversationId?: string
   conversation_id?: string
+  human_in_loop?: boolean
+  assigned_to?: string | null
 }
 
 /** A Conversation de um evento: o realtime a chama pelo `remote_jid`, o handoff pelo UUID. */
@@ -171,6 +173,17 @@ class SocketService {
       const ref = payload.conversationId ?? payload.conversation_id
       const conversation = ref ? findConversation(ref) : undefined
       if (conversation) useChatStore.getState().setConversationHandoff(conversation.id, true)
+    })
+
+    // Assumir, devolver ou timeout: chega a todas as abas abertas da Instance.
+    socket.on('handoff_updated', (payload: HandoffPayload) => {
+      const ref = payload.conversationId ?? payload.conversation_id
+      const conversation = ref ? findConversation(ref) : undefined
+      if (conversation) {
+        useChatStore
+          .getState()
+          .setConversationHandoff(conversation.id, payload.human_in_loop ?? false, payload.assigned_to ?? null)
+      }
     })
 
     socket.on('thinking_event', (payload: ThinkingPayload) => {

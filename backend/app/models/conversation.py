@@ -34,8 +34,16 @@ class Conversation(Base):
     instance = relationship("Instance", back_populates="conversations")
     contact = relationship("Contact", back_populates="conversations")
     assigned_agent = relationship("Agent")
+    handoff_ticket = relationship("Ticket", foreign_keys=[ticket_id], post_update=True)
     messages = relationship("Message", back_populates="conversation")
     orders = relationship("CustomerOrder", back_populates="conversation")
+
+    @property
+    def handoff_assigned_to(self) -> str | None:
+        """Attendant (User.id) que assumiu o Handoff em curso; None se ninguém assumiu ou o Agent atende."""
+        if not self.human_in_loop or self.handoff_ticket is None:
+            return None
+        return self.handoff_ticket.assigned_to
 
 
 class ConversationMemorySummary(Base):

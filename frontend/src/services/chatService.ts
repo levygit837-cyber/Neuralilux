@@ -9,6 +9,12 @@ import {
 } from '@/services/chatMapper'
 import type { Conversation, Message } from '@/types/chat'
 
+/** Estado do Handoff devolvido pelas rotas de assumir e devolver. */
+export interface HandoffState {
+  human_in_loop: boolean
+  assigned_to: string | null
+}
+
 export const chatService = {
   /** Conversations de uma Instance. `instanceId` é o UUID local, não o nome na Evolution. */
   async getConversations(instanceId: string): Promise<Conversation[]> {
@@ -32,6 +38,24 @@ export const chatService = {
     return response.items
       .map((raw) => mapMessage(raw, conversation.id, conversation.name))
       .reverse()
+  },
+
+  /** O Attendant assume a Conversation: o Agent para de responder. */
+  takeControl(conversationId: string): Promise<HandoffState> {
+    return apiRequest<HandoffState>(
+      `/conversations/${conversationId}/take-control`,
+      jsonBody('POST', {}),
+      'Falha ao assumir a conversa'
+    )
+  },
+
+  /** Devolve a Conversation ao Agent e fecha o Ticket. */
+  releaseControl(conversationId: string): Promise<HandoffState> {
+    return apiRequest<HandoffState>(
+      `/conversations/${conversationId}/release-control`,
+      { method: 'POST' },
+      'Falha ao devolver a conversa ao Agent'
+    )
   },
 
   /** Devolve o id da Message na Evolution, o mesmo que os eventos realtime usam. */
