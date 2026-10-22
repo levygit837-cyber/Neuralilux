@@ -3,10 +3,11 @@
 from datetime import datetime, timezone
 
 import pytest
-from pack_helpers import add_item, call, fill_delivery, make_world, order_of, payload, tool_named
+from pack_helpers import add_item, call, confirm_and_finalize, fill_delivery, make_world, order_of, payload, tool_named
 
 from app.agent import clock
 from app.agent.core_tools import core_tools
+from app.packs.catalog_orders import checkout
 from app.packs.catalog_orders.pack import CatalogOrdersPack
 from tests.access_helpers import make_user
 
@@ -44,7 +45,9 @@ async def test_info_empresa_returns_what_the_panel_saved(client, db, monkeypatch
     assert after["aberto_agora"] is True
 
 
-async def test_pix_is_accepted_at_closing_once_the_panel_saves_a_key(client, db):
+async def test_pix_is_accepted_at_closing_once_the_panel_saves_a_key(client, db, monkeypatch):
+    # Segunda 20:00 em Fortaleza: dentro do expediente do cenário.
+    monkeypatch.setattr(checkout, "utc_now", lambda: datetime(2026, 10, 19, 23, 0, tzinfo=timezone.utc))
     world = make_world(db, pix_key=None)
     owner = make_user(client, db, "dono@example.com", company=world.company)
     pedido = tool_named(CatalogOrdersPack().tools(), "gerenciar_pedido")
@@ -56,6 +59,6 @@ async def test_pix_is_accepted_at_closing_once_the_panel_saves_a_key(client, db)
     client.put(f"/api/v1/companies/{world.company.id}", headers=owner, json={"pix_key": "pagamentos@macedos.example"})
 
     assert not (await fill_delivery(world, pedido, forma_pagamento="pix")).is_error
-    closed = payload(await call(pedido, world.ctx, acao="finalizar"))
+    closed = payload(await confirm_and_finalize(world, pedido))
     assert closed["pix"]["chave"] == "pagamentos@macedos.example"
     assert order_of(world).status == "closed"

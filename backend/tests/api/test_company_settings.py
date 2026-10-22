@@ -1,8 +1,12 @@
 """Configuração da Company no painel: edição restrita ao dono, campos validados e Agent da Company."""
 
-import pytest
+from decimal import Decimal
 
-from app.models import Agent, Company
+import pytest
+from pydantic import ValidationError
+
+from app.models import Agent, BusinessType, Company
+from app.schemas.company import CompanyUpdate
 from tests.access_helpers import make_company, make_user
 
 HOURS = {
@@ -103,15 +107,68 @@ def test_another_company_gets_403_and_nothing_changes(client, db, world, who):
 
 
 @pytest.mark.parametrize("who", ["stranger", "loner"])
-def test_another_company_cannot_read_or_delete(client, db, world, who):
-    url = f"/api/v1/companies/{world['mine'].id}"
-    assert client.get(url, headers=world[who]).status_code == 403
-    assert client.delete(url, headers=world[who]).status_code == 403
+def test_another_company_cannot_read(client, world, who):
+    assert client.get(f"/api/v1/companies/{world['mine'].id}", headers=world[who]).status_code == 403
+
+
+# ---------- criar e desativar: só superusuário ----------
+
+
+@pytest.fixture
+def create_body(db):
+    business_type = BusinessType(name="Restaurante", slug="restaurante")
+    db.add(business_type)
+    db.commit()
+    return {"name": "Nova Pizzaria", "business_type_id": business_type.id}
+
+
+@pytest.mark.parametrize("who", ["owner", "stranger", "loner"])
+def test_a_regular_user_cannot_create_a_company(client, db, world, create_body, who):
+    response = client.post("/api/v1/companies/", json=create_body, headers=world[who])
+    assert response.status_code == 403
+    assert db.query(Company).filter(Company.name == "Nova Pizzaria").count() == 0
+
+
+def test_anonymous_cannot_create_a_company(client, db, create_body):
+    assert client.post("/api/v1/companies/", json=create_body).status_code == 401
+    assert db.query(Company).filter(Company.name == "Nova Pizzaria").count() == 0
+
+
+def test_superuser_creates_a_company(client, db, world, create_body):
+    response = client.post(
+        "/api/v1/companies/", json={**create_body, "pix_key": "pix@nova.example"}, headers=world["admin"]
+    )
+    assert response.status_code == 201, response.text
+    created = db.get(Company, response.json()["id"])
+    assert (created.name, created.pix_key) == ("Nova Pizzaria", "pix@nova.example")
+
+
+@pytest.mark.parametrize("who", ["owner", "stranger", "loner"])
+def test_only_a_superuser_deactivates_a_company(client, db, world, who):
+    """Nem o dono desativa a própria Company: `is_active` é do superusuário."""
+    response = client.delete(f"/api/v1/companies/{world['mine'].id}", headers=world[who])
+    assert response.status_code == 403
+    assert stored(db, world["mine"]).is_active is True
+
+
+def test_superuser_deactivates_a_company(client, db, world):
+    response = client.delete(f"/api/v1/companies/{world['mine'].id}", headers=world["admin"])
+    assert response.status_code == 204
+    assert stored(db, world["mine"]).is_active is False
+
+
+def test_deleting_a_missing_company_is_404_for_the_superuser(client, world):
+    assert client.delete("/api/v1/companies/nao-existe", headers=world["admin"]).status_code == 404
+
+
+@pytest.mark.parametrize("fields", [{"is_active": False}, {"business_type_id": "outro-ramo"}])
+def test_owner_cannot_change_superuser_only_fields(client, db, world, fields):
+    assert put(client, world["mine"], world["owner"], **fields).status_code == 403
     assert stored(db, world["mine"]).is_active is True
 
 
 def test_anonymous_gets_401(client, world):
-    response = client.put(f"/api/v1/companies/{world['mine'].id}", json={"phone": "1"})
+    response = client.put(f"/api/v1/companies/{world['mine'].id}", json={"phone": "(85) 99999-0000"})
     assert response.status_code == 401
 
 
@@ -121,16 +178,17 @@ def test_superuser_edits_any_company(client, db, world):
 
 
 def test_missing_company_is_404_for_the_superuser(client, world):
-    response = client.put("/api/v1/companies/nao-existe", json={"phone": "1"}, headers=world["admin"])
+    response = client.put("/api/v1/companies/nao-existe", json={"phone": "(85) 99999-0000"}, headers=world["admin"])
     assert response.status_code == 404
 
 
-def test_list_shows_only_the_own_company_unless_superuser(client, world):
-    own = client.get("/api/v1/companies/", headers=world["owner"]).json()
-    assert [c["id"] for c in own] == [world["mine"].id]
-    assert client.get("/api/v1/companies/", headers=world["loner"]).json() == []
-    everyone = client.get("/api/v1/companies/", headers=world["admin"]).json()
-    assert {c["id"] for c in everyone} == {world["mine"].id, world["other"].id}
+@pytest.mark.parametrize(
+    ("who", "expected"),
+    [("owner", ["mine"]), ("stranger", ["other"]), ("loner", []), ("admin", ["mine", "other"])],
+)
+def test_list_shows_only_the_own_company_unless_superuser(client, world, who, expected):
+    listed = client.get("/api/v1/companies/", headers=world[who]).json()
+    assert sorted(c["id"] for c in listed) == sorted(world[name].id for name in expected)
 
 
 # ---------- validação ----------
@@ -164,14 +222,26 @@ def test_list_shows_only_the_own_company_unless_superuser(client, world):
         {"name": ""},
         {"name": None},
         {"email": "nao-e-email"},
+        {"phone": "abc"},
+        {"phone": "(85) 9999x-0000"},
+        {"phone": "123456"},
+        {"phone": "----------"},
+        {"handoff_timeout_hours": True},
+        {"session_timeout_minutes": True},
+        {"minimum_order": True},
+        {"minimum_order": "NaN"},
+        {"minimum_order": "Infinity"},
+        {"minimum_order": "-Infinity"},
+        {"minimum_order": "100000.01"},
+        {"minimum_order": "99999999.99"},
     ],
 )
 def test_invalid_values_are_422_and_nothing_is_saved(client, db, world, fields):
     before = stored(db, world["mine"]).__dict__.copy()
-    response = put(client, world["mine"], world["owner"], **{"phone": "(85) 9", **fields})
+    response = put(client, world["mine"], world["owner"], **{"phone": "(85) 99999-0000", **fields})
     assert response.status_code == 422, response.text
     company = stored(db, world["mine"])
-    assert company.phone is None or fields.get("phone")  # o campo válido do mesmo corpo também não entrou
+    assert company.phone is None  # o campo válido do mesmo corpo também não entrou
     assert company.session_timeout_minutes == before["session_timeout_minutes"]
 
 
@@ -194,6 +264,24 @@ def test_overnight_interval_is_accepted_and_kept_as_typed(client, db, world):
     hours = {"fri": [["18:00", "00:00"]], "sat": [["22:00", "03:00"]]}
     assert put(client, world["mine"], world["owner"], business_hours=hours).status_code == 200
     assert stored(db, world["mine"]).business_hours == hours
+
+
+@pytest.mark.parametrize("phone", ["(85) 99999-0000", "+55 85 99999-0000", "85999990000", "3333-3333"])
+def test_common_phone_formats_are_accepted(client, db, world, phone):
+    assert put(client, world["mine"], world["owner"], phone=phone).status_code == 200
+    assert stored(db, world["mine"]).phone == phone
+
+
+@pytest.mark.parametrize("value", ["0", "30.5", "100000"])
+def test_minimum_order_accepts_zero_up_to_the_ceiling(client, db, world, value):
+    assert put(client, world["mine"], world["owner"], minimum_order=value).status_code == 200
+    assert float(stored(db, world["mine"]).minimum_order) == float(value)
+
+
+@pytest.mark.parametrize("value", [Decimal("NaN"), Decimal("Infinity"), Decimal("-Infinity")])
+def test_minimum_order_rejects_non_finite_values(value):
+    with pytest.raises(ValidationError):
+        CompanyUpdate(minimum_order=value)
 
 
 # ---------- Agent da Company ----------

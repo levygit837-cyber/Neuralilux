@@ -7,7 +7,14 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.agent.clock import DEFAULT_TIMEZONE
 from app.models.company import DEFAULT_SESSION_TIMEOUT_MINUTES
-from app.schemas.company_fields import blank_to_none, validate_business_hours, validate_pix_key
+from app.schemas.company_fields import (
+    MINIMUM_ORDER_MAX,
+    blank_to_none,
+    reject_bool,
+    validate_business_hours,
+    validate_phone,
+    validate_pix_key,
+)
 
 # Texto livre do cadastro: vazio limpa o campo (os limites seguem as colunas de `companies`).
 _TEXT_FIELDS = (
@@ -20,7 +27,6 @@ _TEXT_FIELDS = (
     "address_city",
     "address_state",
     "address_zip",
-    "phone",
     "email",
     "whatsapp",
 )
@@ -56,7 +62,9 @@ class CompanySettings(BaseModel):
     email: Optional[EmailStr] = None
     whatsapp: Optional[str] = Field(None, max_length=20)
     pix_key: Optional[str] = None
-    minimum_order: Optional[Decimal] = Field(None, ge=0, max_digits=10, decimal_places=2)
+    minimum_order: Optional[Decimal] = Field(
+        None, ge=0, le=MINIMUM_ORDER_MAX, max_digits=10, decimal_places=2, allow_inf_nan=False
+    )
 
     # Atendimento
     business_hours: Optional[dict[str, Any]] = None
@@ -65,6 +73,11 @@ class CompanySettings(BaseModel):
     handoff_timeout_hours: Optional[int] = Field(None, ge=1, le=720)
 
     _blank_text = field_validator(*_TEXT_FIELDS, mode="before")(blank_to_none)
+    _check_phone = field_validator("phone", mode="before")(validate_phone)
+    # `True` viraria 1 (bool é int no Python): número de verdade ou 422.
+    _no_bool = field_validator(
+        "minimum_order", "session_timeout_minutes", "handoff_timeout_hours", mode="before"
+    )(reject_bool)
     _check_hours = field_validator("business_hours")(validate_business_hours)
     _check_pix = field_validator("pix_key", mode="before")(validate_pix_key)
     _check_timezone = field_validator("timezone")(_loadable_timezone)

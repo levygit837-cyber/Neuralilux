@@ -37,6 +37,7 @@ curl -s -X POST http://localhost:8000/api/v1/auth/login \
 | `POST /menu/items`, `PATCH`/`DELETE /menu/items/{id}` | Catalog Items: `name`, `price`, `is_available`, `sku`, `stock_quantity`, `category_id`. |
 | `GET /companies/{id}`, `PUT /companies/{id}` | Configuração da Company, veja [agent.md](agent.md#configuração-da-company). Só a Company do usuário (outra: 403) ou superusuário. |
 | `GET /companies/{id}/agent`, `PUT /companies/{id}/agent` | Temperatura e `max_tokens` do Agent da Company. Mesma regra de acesso. |
+| `POST /companies/`, `DELETE /companies/{id}` | Criar e desativar uma Company. Só superusuário (403 para os demais, inclusive o dono). |
 | `GET /conversations`, `GET /conversations/{id}/messages` | Conversations e Messages. |
 | `POST /conversations/{id}/messages` | Envia texto pela Instance (a Instance precisa estar `connected`). |
 | `POST /conversations/{id}/take-control`, `POST .../release-control`, `GET .../human-control-status` | Assumir, devolver ao Agent (fecha o Ticket) e consultar o Handoff, veja [operations.md](operations.md#handoff-e-tickets). |

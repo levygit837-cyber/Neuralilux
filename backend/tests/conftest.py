@@ -1,10 +1,17 @@
 import os
+import tempfile
+
+# Arquivo SQLite próprio deste processo: duas suítes rodando juntas (worktrees diferentes, ou xdist) não
+# dividem o mesmo arquivo nem derrubam as tabelas uma da outra. Fica fora do repositório.
+TEST_DB_PATH = os.path.join(tempfile.gettempdir(), f"neuralilux-test-{os.getpid()}.db")
+if os.path.exists(TEST_DB_PATH):  # sobra de uma execução morta cujo pid foi reaproveitado
+    os.remove(TEST_DB_PATH)
 
 # Isola a suíte do banco de desenvolvimento: tem que vir antes de qualquer import de `app`,
 # porque app.core.database cria o engine com settings.DATABASE_URL na importação.
 # Com RUN_E2E=1 a suíte usa o banco configurado no ambiente (testes e2e criam dados reais).
 if os.environ.get("RUN_E2E") != "1":
-    os.environ["DATABASE_URL"] = "sqlite:///./test.db"
+    os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH}"
 
 import pytest
 import pytest_asyncio
@@ -28,10 +35,16 @@ from app.main import app
 from app.api.deps import get_db
 from app.core.database import Base
 
-# Test database
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
+# Test database (o mesmo arquivo do `DATABASE_URL` forçado acima)
+SQLALCHEMY_DATABASE_URL = f"sqlite:///{TEST_DB_PATH}"
 engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    engine.dispose()
+    if os.path.exists(TEST_DB_PATH):
+        os.remove(TEST_DB_PATH)
 
 
 # Custom marker for E2E tests
@@ -87,7 +100,7 @@ def db():
 
 @pytest.fixture
 def db_session():
-    """Sessão em SQLite em memória, isolada do `db` (que usa o arquivo test.db)."""
+    """Sessão em SQLite em memória, isolada do `db` (que usa o arquivo SQLite do processo)."""
     memory_engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.access import get_company_for_user
-from app.api.deps import get_current_user, get_db
+from app.api.deps import get_current_user, get_db, require_superuser
 from app.models import Agent, User
 from app.schemas.company import (
     AgentSettings,
@@ -44,9 +44,9 @@ def _agent_settings(agent: Agent) -> AgentSettings:
 async def create_new_company(
     company: CompanyCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    _: User = Depends(require_superuser),
 ):
-    """Create a new company"""
+    """Cria uma Company; só o superusuário (o dono comum só edita a que já tem)."""
     try:
         return create_company(db, company)
     except Exception as e:
@@ -99,11 +99,11 @@ async def update_existing_company(
 async def delete_existing_company(
     company_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    _: User = Depends(require_superuser),
 ):
-    """Delete company (soft delete)"""
-    get_company_for_user(db, company_id, current_user)
-    delete_company(db, company_id)
+    """Desativa a Company (soft delete); só o superusuário, como qualquer mudança em `is_active`."""
+    if not delete_company(db, company_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found")
     return None
 
 

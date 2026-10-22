@@ -9,9 +9,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from app.agent.business_hours import DAY_KEYS
+from app.agent.business_hours import DAY_KEYS, parse_clock
 
-_CLOCK = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 _MINUTES_PER_DAY = 24 * 60
 _MINUTES_PER_WEEK = 7 * _MINUTES_PER_DAY
 
@@ -24,18 +23,16 @@ _TAX_ID_KEY = re.compile(r"^(\d{11}|\d{14})$")
 _FORMATTED_TAX_ID = re.compile(r"^(\d{3}\.\d{3}\.\d{3}-\d{2}|\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2})$")
 
 
+_PHONE_CHARS = re.compile(r"^[\d\s+()\-]+$")
+PHONE_MIN_DIGITS, PHONE_MAX_DIGITS = 8, 20
+MINIMUM_ORDER_MAX = 100_000  # R$; acima disso é digitação errada, não um pedido mínimo
+
+
 def blank_to_none(value: Any) -> Any:
     """Texto só com espaços vira `None` (campo limpo); outros textos são aparados."""
     if isinstance(value, str):
         return value.strip() or None
     return value
-
-
-def _clock_minutes(value: Any) -> int:
-    if not isinstance(value, str) or not _CLOCK.match(value):
-        raise ValueError(f"Horário inválido: {value!r}; use HH:MM, de 00:00 a 23:59.")
-    hours, minutes = value.split(":")
-    return int(hours) * 60 + int(minutes)
 
 
 def validate_business_hours(raw: Any) -> dict[str, list[list[str]]] | None:
@@ -61,7 +58,7 @@ def validate_business_hours(raw: Any) -> dict[str, list[list[str]]] | None:
         for interval in intervals:
             if not isinstance(interval, (list, tuple)) or len(interval) != 2:
                 raise ValueError(f"Cada intervalo de {day} deve ter abertura e fechamento.")
-            start, end = _clock_minutes(interval[0]), _clock_minutes(interval[1])
+            start, end = parse_clock(interval[0]), parse_clock(interval[1])
             if start == end:
                 raise ValueError(f"Intervalo de {day} começa e termina às {interval[0]}.")
             length = end - start if end > start else end + _MINUTES_PER_DAY - start
@@ -97,3 +94,23 @@ def validate_pix_key(value: Any) -> str | None:
     if _TAX_ID_KEY.match(value) or _UUID_KEY.match(value) or _EMAIL_KEY.match(value):
         return value
     raise ValueError("Chave Pix inválida; use e-mail, CPF, CNPJ, celular com +55 ou chave aleatória.")
+
+
+def validate_phone(value: Any) -> str | None:
+    """Telefone livre, mas legível: só dígitos, espaços e `+()-`, com 8 a 20 dígitos (cabe na coluna)."""
+    value = blank_to_none(value)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not _PHONE_CHARS.match(value):
+        raise ValueError("Telefone inválido; use só dígitos, espaços e + ( ) -.")
+    digits = sum(ch.isdigit() for ch in value)
+    if not PHONE_MIN_DIGITS <= digits <= PHONE_MAX_DIGITS:
+        raise ValueError(f"Telefone inválido; informe de {PHONE_MIN_DIGITS} a {PHONE_MAX_DIGITS} dígitos.")
+    return value
+
+
+def reject_bool(value: Any) -> Any:
+    """`True`/`False` não são números aqui: o Python os trata como 1/0 e o valor mudaria em silêncio."""
+    if isinstance(value, bool):
+        raise ValueError("Informe um número.")
+    return value

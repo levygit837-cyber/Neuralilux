@@ -87,6 +87,8 @@ function AgentForm({ agent, saveAgent }: { agent: AgentSettings; saveAgent: Comp
               max="1"
               step="0.1"
               disabled={useGatewayTemperature}
+              aria-invalid={Boolean(errors.temperature)}
+              aria-describedby={errors.temperature ? 'agent-temperature-error' : undefined}
               value={temperature}
               onChange={(e) => {
                 setTemperature(parseFloat(e.target.value))

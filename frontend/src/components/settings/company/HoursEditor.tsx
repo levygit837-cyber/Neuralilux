@@ -13,6 +13,8 @@ interface Props {
 const timeInput =
   'h-10 rounded-lg border border-border-color bg-dark px-3 text-sm text-text-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
 
+export const HOURS_ERROR_ID = 'company-business-hours-error'
+
 export function HoursEditor({ hours, onChange, error }: Props) {
   const setDay = (day: DayKey, intervals: Interval[]) => onChange({ ...hours, [day]: intervals })
 
@@ -29,6 +31,8 @@ export function HoursEditor({ hours, onChange, error }: Props) {
                 <input
                   type="time"
                   aria-label={`${DAY_LABELS[day]}: abre`}
+                  aria-invalid={Boolean(error)}
+                  aria-describedby={error ? HOURS_ERROR_ID : undefined}
                   value={interval[0]}
                   className={timeInput}
                   onChange={(e) =>
@@ -39,6 +43,8 @@ export function HoursEditor({ hours, onChange, error }: Props) {
                 <input
                   type="time"
                   aria-label={`${DAY_LABELS[day]}: fecha`}
+                  aria-invalid={Boolean(error)}
+                  aria-describedby={error ? HOURS_ERROR_ID : undefined}
                   value={interval[1]}
                   className={timeInput}
                   onChange={(e) =>
@@ -67,7 +73,7 @@ export function HoursEditor({ hours, onChange, error }: Props) {
         </div>
       ))}
       {error && (
-        <p role="alert" className="text-xs text-red-300">
+        <p id={HOURS_ERROR_ID} role="alert" className="text-xs text-red-300">
           {error}
         </p>
       )}

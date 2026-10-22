@@ -60,7 +60,7 @@ rm -f test.db && env -u DATABASE_URL ./venv/bin/python -m pytest tests --ignore=
 ./venv/bin/python -m pytest --cov=app tests --ignore=tests/e2e
 ```
 
-Os testes rodam em SQLite (`tests/conftest.py` força `DATABASE_URL=sqlite:///./test.db`); `env -u DATABASE_URL` evita tocar no banco de desenvolvimento. Os e2e só rodam com `RUN_E2E=1`.
+Os testes rodam em SQLite (`tests/conftest.py` força `DATABASE_URL` para um arquivo SQLite próprio de cada processo em `$TMPDIR/neuralilux-test-<pid>.db`, removido ao fim; duas suítes em paralelo não se atrapalham e `rm -f test.db` é inofensivo); `env -u DATABASE_URL` evita tocar no banco de desenvolvimento. Os e2e só rodam com `RUN_E2E=1`.
 
 ## Gateways de inferência
 
