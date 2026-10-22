@@ -16,7 +16,8 @@ from sqlalchemy.orm import Session
 
 from app.agent import executor
 from app.core.database import SessionLocal
-from app.models import Agent, Contact, Conversation, Instance, Message
+from app.agent.sessions import roll_session
+from app.models import Agent, Company, Contact, Conversation, Instance, Message
 from app.whatsapp.message_queue import message_queue_service
 from app.whatsapp.sender import send_and_persist
 from app.whatsapp.status_events import (
@@ -224,6 +225,9 @@ class WhatsAppMessageConsumer:
             db.add(conversation)
             db.flush()
 
+        if not from_me:
+            self._roll_session(db, instance, conversation, timestamp)
+
         db.add(
             Message(
                 instance_id=instance.id,
@@ -255,6 +259,18 @@ class WhatsAppMessageConsumer:
             logger.info("Message not processed by agent", message_id=message_id, reason=skip)
             return
         await self._try_process_with_agent(db, instance, conversation, contact, parsed)
+
+    @staticmethod
+    def _roll_session(db: Session, instance: Instance, conversation: Conversation, timestamp: datetime) -> None:
+        """Message do Contact depois do limite de inatividade da Company abre uma Session nova (ADR 0007).
+
+        Entra na transação que grava a Message: Session nova e Order abandonado saem juntos ou nenhum.
+        Contact novo numa Instance sem Company também ganha Session; só não há Pack para avisar.
+        """
+        company = db.get(Company, instance.company_id) if instance.company_id else None
+        if company is None:
+            return
+        roll_session(db, conversation, company, executor.packs_for(company), timestamp)
 
     def _skip_agent_reason(self, from_me: bool, remote_jid: str, timestamp: datetime) -> Optional[str]:
         if from_me:

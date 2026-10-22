@@ -8,12 +8,12 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import structlog
 
+from app.agent.clock import DEFAULT_TIMEZONE, company_zone, utc_now
 from app.agent.contracts import Tool, ToolContext, ToolResult
 from app.agent.memory import search_history
 from app.models import Company, Conversation, DeliveryZone, Instance, Message, Ticket
@@ -21,7 +21,6 @@ from app.models import Company, Conversation, DeliveryZone, Instance, Message, T
 logger = structlog.get_logger()
 
 TRANSFER_MESSAGE = "Vou te passar para um de nossos atendentes. Em instantes alguém continua essa conversa por aqui."
-DEFAULT_TIMEZONE = "America/Sao_Paulo"
 
 # Ordem de `datetime.weekday()`: segunda = 0.
 DAY_KEYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
@@ -29,10 +28,6 @@ DAY_LABELS = ("segunda", "terca", "quarta", "quinta", "sexta", "sabado", "doming
 
 # Ticket.agent_type é obrigatório; o Agent é um só por Company, então o valor é neutro.
 HANDOFF_AGENT_TYPE = "whatsapp_agent"
-
-
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
 
 
 async def publish_event(event: dict[str, Any]) -> None:
@@ -82,14 +77,6 @@ def is_open_at(hours: dict[str, list[list[str]]] | None, local_now: datetime) ->
     return False
 
 
-def _company_zone(company: Company) -> ZoneInfo:
-    try:
-        return ZoneInfo(company.timezone or DEFAULT_TIMEZONE)
-    except ZoneInfoNotFoundError:
-        logger.warning("Unknown company timezone, using default", company_id=company.id, timezone=company.timezone)
-        return ZoneInfo(DEFAULT_TIMEZONE)
-
-
 def _format_address(company: Company) -> str | None:
     street = ", ".join(p for p in (company.address_street, company.address_number) if p)
     city = "/".join(p for p in (company.address_city, company.address_state) if p)
@@ -120,7 +107,7 @@ async def _info_empresa(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
         .order_by(DeliveryZone.name)
         .all()
     )
-    local_now = utc_now().astimezone(_company_zone(company))
+    local_now = utc_now().astimezone(company_zone(company))
     payment_methods = ["pix"] if company.pix_key else []
     payment_methods += ["dinheiro", "cartao"]
 

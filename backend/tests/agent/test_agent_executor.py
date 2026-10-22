@@ -255,3 +255,94 @@ async def test_refresh_summary_usa_session_propria_e_falha_nao_afeta_a_resposta(
     assert seen["conversation_id"] == conversation.id
     assert seen["session"] is opened[0]
     assert seen["session"] is not db
+
+
+# ---------- hora local e tempo desde a última Message no prompt ----------
+
+NOW = datetime(2026, 10, 22, 23, 30, tzinfo=timezone.utc)  # quinta, 20:30 em Fortaleza (-03)
+
+
+def _at(db, conversation, content, direction, moment):
+    message = Message(
+        instance_id=conversation.instance_id,
+        conversation_id=conversation.id,
+        remote_jid=conversation.remote_jid,
+        message_type="text",
+        content=content,
+        direction=direction,
+        timestamp=moment,
+    )
+    db.add(message)
+    db.commit()
+
+
+async def _prompt(turn_setup, agent, monkeypatch, timezone_name="America/Fortaleza"):
+    db, conversation, contact, instance = turn_setup
+    db.get(Company, instance.company_id).timezone = timezone_name
+    db.commit()
+    monkeypatch.setattr(executor, "utc_now", lambda: NOW)
+    agent["client"].script = [reply(text("ok"))]
+    await executor.handle_incoming(db, conversation, contact, instance, "oi")
+    return agent["client"].requests[0].system
+
+
+@pytest.mark.asyncio
+async def test_prompt_traz_data_e_hora_no_fuso_da_company(turn_setup, agent, monkeypatch):
+    db, conversation, *_ = turn_setup
+    _at(db, conversation, "oi", "incoming", NOW)
+
+    system = await _prompt(turn_setup, agent, monkeypatch)
+
+    assert "quinta-feira, 22/10/2026, 20:30 (fuso America/Fortaleza)" in system
+
+
+@pytest.mark.asyncio
+async def test_prompt_muda_de_dia_conforme_o_fuso_da_company(turn_setup, agent, monkeypatch):
+    db, conversation, *_ = turn_setup
+    _at(db, conversation, "oi", "incoming", NOW)
+
+    system = await _prompt(turn_setup, agent, monkeypatch, "Asia/Tokyo")
+
+    assert "sexta-feira, 23/10/2026, 08:30 (fuso Asia/Tokyo)" in system
+
+
+@pytest.mark.asyncio
+async def test_prompt_diz_ha_quanto_tempo_foi_a_mensagem_anterior(turn_setup, agent, monkeypatch):
+    db, conversation, *_ = turn_setup
+    _at(db, conversation, "quero uma toscana", "incoming", NOW - timedelta(hours=2, minutes=10))
+    _at(db, conversation, "anotado", "outgoing", NOW - timedelta(hours=2, minutes=9))
+    _at(db, conversation, "oi", "incoming", NOW)
+
+    system = await _prompt(turn_setup, agent, monkeypatch)
+
+    assert "foi há 2 h 9 min" in system
+    assert "novo atendimento" not in system
+
+
+@pytest.mark.asyncio
+async def test_prompt_marca_a_volta_depois_de_pausa_longa_e_a_janela_so_tem_a_session_atual(
+    turn_setup, agent, monkeypatch
+):
+    db, conversation, *_ = turn_setup
+    _at(db, conversation, "quero uma toscana", "incoming", NOW - timedelta(hours=7, minutes=5))
+    _at(db, conversation, "anotado", "outgoing", NOW - timedelta(hours=7, minutes=4))
+    _at(db, conversation, "oi", "incoming", NOW)
+    conversation.session_started_at = NOW
+    db.commit()
+
+    system = await _prompt(turn_setup, agent, monkeypatch)
+
+    assert "foi há 7 h 4 min" in system
+    assert "novo atendimento depois de uma pausa longa" in system
+    assert agent["client"].requests[0].messages == [{"role": "user", "content": "oi"}]
+
+
+@pytest.mark.asyncio
+async def test_prompt_da_primeira_mensagem_nao_inventa_mensagem_anterior(turn_setup, agent, monkeypatch):
+    db, conversation, *_ = turn_setup
+    _at(db, conversation, "oi", "incoming", NOW)
+
+    system = await _prompt(turn_setup, agent, monkeypatch)
+
+    assert "primeira mensagem deste cliente" in system
+    assert "mensagem anterior" not in system

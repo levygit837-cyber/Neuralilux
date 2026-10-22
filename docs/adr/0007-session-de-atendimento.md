@@ -1,0 +1,11 @@
+# Session de atendimento: a Conversation se divide por inatividade
+
+Depois de um tempo sem Messages (`Company.session_timeout_minutes`, padrão 180), a próxima Message do Contact abre uma **Session** nova (`Conversation.session_started_at`). A Recent Window passa a mostrar só as Messages da Session atual; o que veio antes fica no Summary e na History Search, que continuam por Conversation. Pausas curtas continuam a mesma Session.
+
+- **Por que**: sem isso o Agent trata "boa noite" às 20h como continuação de um pedido montado de manhã, e arrasta um Order velho para a conversa nova. A Recent Window era só contagem de Messages; não distinguia uma retomada de uma volta horas depois.
+- **Limite exclusivo**: exatamente no limite ainda é a mesma Session; um segundo depois abre a nova. A medida é entre a Message do Contact e a última Message da Conversation, do Contact ou do Agent. Mensagem enviada por nós (`fromMe`) nunca abre Session.
+- **Order**: ao abrir a Session nova, o Order ativo (`open`, `collecting_data`, `ready_for_confirmation`) vira `abandoned` na mesma transação que grava a Message. Order abandonado nunca volta a ser montado sozinho. O Pack avisa o Agent no system prompt e a ação `retomar_pedido` cria um Order novo com os itens dele, a preços de hoje e sem os itens indisponíveis. O Agent só chama depois que o Contact aceita.
+- **Núcleo genérico (ADR 0004)**: o núcleo só sabe que uma Session nova substituiu a anterior e chama o gancho opcional `on_session_start` dos Packs que o definem. O que isso significa para o ramo (abandonar Order, no Pack de pedidos) vive no Pack.
+- **Hora no prompt**: o system prompt traz data e hora no fuso da Company e há quanto tempo foi a Message anterior, para saudação e "hoje/ontem" saírem certos.
+- **Rejeitado**: janela por contagem de Messages mais um aviso de data (não separa o Order velho); cancelar o Order em vez de abandonar (perde a informação de que o Contact chegou a montá-lo, que o Agent usa para oferecer a retomada); fixar o limite em código (o ritmo de atendimento varia por negócio).
+- **Conversations antigas**: a migração `0007` preenche `session_started_at` com a Message que veio depois da última pausa maior que 3 h. `NULL` significa "sem Session registrada": a Recent Window usa a Conversation inteira até a próxima Message.

@@ -39,6 +39,14 @@ def _text_messages(db: Session, conversation_id: str) -> Query:
     )
 
 
+def _session_messages(db: Session, conversation: Conversation) -> Query:
+    """Messages de texto da Session atual; sem Session registrada, a Conversation inteira."""
+    query = _text_messages(db, conversation.id)
+    if conversation.session_started_at is not None:
+        query = query.filter(Message.timestamp >= conversation.session_started_at)
+    return query
+
+
 def _newest_first(query: Query) -> Query:
     return query.order_by(Message.timestamp.desc(), Message.id.desc())
 
@@ -52,10 +60,10 @@ def build_context(
 ) -> tuple[str | None, list[ChatMessage]]:
     """Summary (se houver) e Recent Window da Conversation, prontos para o prompt.
 
-    A janela são as últimas `window` Messages de texto, em ordem cronológica.
-    Messages consecutivas do mesmo papel viram uma só e a primeira é sempre `user`.
+    A janela são as últimas `window` Messages de texto da Session atual (ADR 0007), em ordem cronológica;
+    o que veio antes da Session fica para o Summary e a History Search. Messages consecutivas do mesmo papel viram uma só e a primeira é sempre `user`.
     """
-    recent = _newest_first(_text_messages(db, conversation.id)).limit(window).all()
+    recent = _newest_first(_session_messages(db, conversation)).limit(window).all()
     recent.reverse()
 
     history: list[ChatMessage] = []
@@ -101,10 +109,14 @@ async def _refresh_summary(
     db: Session, client: MessagesClient, model: str, conversation: Conversation, window: int
 ) -> None:
     outside = _text_messages(db, conversation.id)
-    window_start = _newest_first(outside).offset(window).first()
+    # A Message mais recente fora da janela: a primeira além de `window` na Session atual ou, se a
+    # Session cabe na janela, a última de uma Session anterior.
+    window_start = _newest_first(_session_messages(db, conversation)).offset(window).first()
+    if window_start is None and conversation.session_started_at is not None:
+        window_start = _newest_first(outside.filter(Message.timestamp < conversation.session_started_at)).first()
     if window_start is None:
         return
-    # `window_start` é a Message mais recente fora da janela; tudo até ela ainda pode ser resumido.
+    # Tudo até `window_start` ainda pode ser resumido.
     outside = outside.filter(
         tuple_(Message.timestamp, Message.id) <= (window_start.timestamp, window_start.id)
     )

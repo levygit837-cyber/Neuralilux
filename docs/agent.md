@@ -9,9 +9,9 @@ Como o Agent de uma Company executa um Turn. Termos conforme o [glossário](../C
 1. Lê `Conversation.human_in_loop` do **banco**, não do objeto carregado. Em Handoff devolve `reply_text=None` e o Agent fica em silêncio.
 2. Carrega a Company da Instance. Sem Company, loga erro e não responde.
 3. Monta o `ToolContext` e emite `thinking_start`.
-4. Monta o contexto: Summary + Recent Window, com a Message atual sempre no fim.
+4. Monta o contexto: Summary + Recent Window da Session atual, com a Message atual sempre no fim.
 5. Resolve o Gateway do tipo `whatsapp_agent` (`app/llm/registry.py`): atribuição própria, senão `default`, senão `LLMNotConfiguredError`.
-6. Monta o system prompt (`prompts.py`): base genérica + seção de cada Pack + Summary.
+6. Monta o system prompt (`prompts.py`): base genérica + data/hora local da Company e há quanto tempo foi a Message anterior (`clock.py`) + seção de cada Pack + Summary.
 7. Roda `loop.run_turn` com as Tools do núcleo e do Pack do Business Type da Company.
 8. Emite `thinking_end` e relê o Handoff. Se um Attendant assumiu enquanto o modelo respondia, a resposta é descartada, exceto quando foi a própria Tool de Handoff que encerrou o Turn.
 9. Converte o markdown para WhatsApp (`formatting.to_whatsapp`) e devolve o `TurnResult`.
@@ -57,17 +57,26 @@ Todo acesso das Tools é escopado pelo `ToolContext`: Catalog Items e Delivery Z
 
 ## Memória
 
-Três camadas, todas por Conversation ([ADR 0003](adr/0003-memory-window-summary-fts.md)). Os limites vêm de `app/core/config.py` e podem ser trocados por variável de ambiente.
+Três camadas ([ADR 0003](adr/0003-memory-window-summary-fts.md)); a Recent Window é por Session, as outras duas por Conversation. Os limites vêm de `app/core/config.py` e podem ser trocados por variável de ambiente.
 
 | Camada | Parâmetro | Padrão | Como funciona |
 |---|---|---|---|
-| Recent Window | `MEMORY_WINDOW` | 20 | As últimas 20 Messages de texto, em ordem cronológica. Messages seguidas do mesmo papel viram uma só e a primeira é sempre `user`. |
+| Recent Window | `MEMORY_WINDOW` | 20 | As últimas 20 Messages de texto **da Session atual**, em ordem cronológica. Messages seguidas do mesmo papel viram uma só e a primeira é sempre `user`. |
 | Summary | `SUMMARY_EVERY` | 20 | Quando há 20 Messages fora da janela ainda não resumidas, o modelo une o Summary anterior a elas (até 1200 caracteres, lotes de no máximo 100). |
 | History Search | `HISTORY_SEARCH_LIMIT` | 8 | Tool `buscar_historico`: full-text search do Postgres (`portuguese`) nas Messages do Contact dentro da Instance. |
 
 - O Summary é atualizado **depois** que a resposta já foi enviada (`executor.refresh_summary`, tarefa de fundo do worker com Session própria). Falha só vai para o log; o próximo Turn tenta de novo.
 - A History Search nunca devolve Messages de outro Contact. No SQLite dos testes ela cai para `ILIKE`; só o Postgres usa `ts_rank` e o índice GIN da migração `0004`.
 - Não há embeddings nem vetores.
+
+### Session
+
+Uma Conversation se divide em Sessions por inatividade ([ADR 0007](adr/0007-session-de-atendimento.md)).
+
+- **Quando abre**: o consumer chama `sessions.roll_session` antes de gravar a Message do Contact. Se passou mais que `Company.session_timeout_minutes` (padrão 180, exatamente o limite ainda é a mesma Session) desde a última Message da Conversation, `Conversation.session_started_at` recebe o horário da Message nova. Mensagens `fromMe` nunca abrem Session.
+- **O que muda**: a Recent Window só tem Messages com `timestamp >= session_started_at`. Messages anteriores contam como "fora da janela" para o Summary e continuam na History Search. `session_started_at` nulo (Conversation sem Session registrada) usa a Conversation inteira.
+- **Packs**: ao abrir a Session nova, cada Pack que definir o gancho opcional `on_session_start(db, conversation)` o recebe, na mesma transação da Message. No Pack de pedidos, o Order ativo vira `abandoned`.
+- **Configurar**: `PUT /api/v1/companies/{id}` com `session_timeout_minutes` (1 a 10080 minutos).
 
 ## Eventos em tempo real
 

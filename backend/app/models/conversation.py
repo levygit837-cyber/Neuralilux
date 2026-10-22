@@ -17,6 +17,8 @@ class Conversation(Base):
     is_archived = Column(Boolean, default=False)
     unread_count = Column(Integer, default=0)
     last_message_at = Column(DateTime(timezone=True))
+    # Início da Session de atendimento atual (ADR 0007). NULL: Conversation anterior às Sessions, janela inteira.
+    session_started_at = Column(DateTime(timezone=True))
     last_message_preview = Column(Text)
     assigned_agent_id = Column(String, ForeignKey("agents.id"), nullable=True)
     human_in_loop = Column(Boolean, default=False, nullable=False)  # True when human took control

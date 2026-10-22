@@ -16,7 +16,7 @@ _Avoid_: Segmento, categoria de empresa
 
 **Instance**:
 Um número de WhatsApp conectado via Evolution API e vinculado a uma Company.
-_Avoid_: Sessão, conexão, bot
+_Avoid_: Conexão, bot
 
 **Contact**:
 A pessoa do outro lado do WhatsApp, identificada pelo número dentro de uma Instance.
@@ -24,11 +24,16 @@ _Avoid_: Cliente, usuário, lead
 
 **Conversation**:
 O fio de mensagens entre uma Instance e um Contact.
-_Avoid_: Chat, sessão, thread
+_Avoid_: Chat, thread
 
 **Message**:
 Uma unidade de texto ou mídia numa Conversation, enviada pelo Contact, pelo Agent ou por um Attendant.
 _Avoid_: Mensagem de chat, evento
+
+**Session**:
+Um trecho contínuo de uma Conversation. Começa na primeira Message do Contact depois de um tempo sem Messages (configurável por Company, padrão 3 h); pausas menores continuam a mesma. A Recent Window mostra só a Session atual, e um Order aberto na anterior vira `abandoned`.
+_Avoid_: Sessão de login, sessão do WhatsApp
+_Também dito_: "atendimento" ("novo atendimento"), só em prosa informal e nos prompts do Agent
 
 ### Agente
 
@@ -55,7 +60,7 @@ _Avoid_: Provider, LLM, backend de IA
 ### Memória
 
 **Recent Window**:
-As últimas Messages da Conversation que o Agent vê literalmente em cada Turn.
+As últimas Messages da Session atual que o Agent vê literalmente em cada Turn.
 _Avoid_: Contexto, buffer
 
 **Summary**:
@@ -87,7 +92,7 @@ Um produto ou serviço que a Company oferece, com preço e disponibilidade.
 _Avoid_: Produto, item de menu, SKU
 
 **Order**:
-O pedido que o Contact monta e confirma na Conversation.
+O pedido que o Contact monta e confirma na Conversation. Fica `abandoned` se a Session acaba com ele aberto; nunca é retomado sozinho, o Agent só recria um Order novo a partir dele se o Contact pedir.
 _Avoid_: Compra, carrinho, venda
 
 **Delivery Zone**:

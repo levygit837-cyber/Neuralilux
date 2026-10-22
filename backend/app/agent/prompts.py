@@ -33,8 +33,11 @@ def build_system_prompt(
     packs: Iterable[Pack],
     ctx: ToolContext,
     summary: str | None,
+    time_context: str | None = None,
 ) -> str:
     sections = [BASE_PROMPT.format(company_name=company_name or "nossa empresa")]
+    if time_context:
+        sections.append(time_context)
     sections.extend(section.strip() for pack in packs if (section := pack.system_prompt_section(ctx)).strip())
     if summary and summary.strip():
         sections.append(f"Resumo da conversa até aqui (mensagens antigas):\n{summary.strip()}")

@@ -11,12 +11,12 @@ from typing import Any
 
 from app.agent.contracts import Tool, ToolContext, ToolResult
 from app.models import CustomerOrder
-from app.packs.catalog_orders import checkout, items
+from app.packs.catalog_orders import checkout, items, session_orders
 from app.packs.catalog_orders.order_state import error, ok, view
 from app.packs.catalog_orders.pix import PixError
 from app.packs.catalog_orders.validation import DELIVERY_TYPES, PAYMENT_METHODS, OrderError
 
-ACTIONS = ["adicionar_item", "remover_item", "ver", "definir_dados", "finalizar"]
+ACTIONS = ["adicionar_item", "remover_item", "ver", "definir_dados", "finalizar", "retomar_pedido"]
 
 _ACTION_HANDLERS = {
     "adicionar_item": items.adicionar_item,
@@ -24,6 +24,7 @@ _ACTION_HANDLERS = {
     "ver": items.ver,
     "definir_dados": checkout.definir_dados,
     "finalizar": checkout.finalizar,
+    "retomar_pedido": session_orders.retomar_pedido,
 }
 
 
@@ -60,7 +61,8 @@ def gerenciar_pedido_tool() -> Tool:
             "Monta e fecha o pedido do cliente. Ações: adicionar_item (item_id vindo de buscar_cardapio, "
             "quantidade, observacao), remover_item (item_id, quantidade opcional), ver, definir_dados (nome, "
             "tipo_entrega, endereco, forma_pagamento, troco_para) e finalizar. Só finalize com o pedido e os "
-            "dados completos; o total inclui a taxa de entrega e respeita o pedido mínimo."
+            "dados completos; o total inclui a taxa de entrega e respeita o pedido mínimo. retomar_pedido recria, a partir "
+            "do pedido abandonado de um atendimento anterior, um pedido novo, só depois de o cliente aceitar."
         ),
         input_schema={
             "type": "object",

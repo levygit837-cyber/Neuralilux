@@ -146,13 +146,16 @@ async def test_ver_without_order_says_empty(world, pedido):
     assert payload(result)["pedido"] is None
 
 
+async def test_action_enum_is_exactly_the_set_of_handlers(pedido):
+    from app.packs.catalog_orders.orders import _ACTION_HANDLERS
+
+    enum = pedido.input_schema["properties"]["acao"]["enum"]
+    assert set(enum) == set(_ACTION_HANDLERS)
+    assert "retomar_pedido" in enum
+
+
 async def test_unknown_action_is_error(world, pedido):
     assert (await call(pedido, world.ctx, acao="iniciar_finalizacao")).is_error
-
-
-async def test_action_enum_matches_handler(pedido):
-    enum = pedido.input_schema["properties"]["acao"]["enum"]
-    assert enum == ["adicionar_item", "remover_item", "ver", "definir_dados", "finalizar"]
 
 
 # ---------- status_pedido ----------
