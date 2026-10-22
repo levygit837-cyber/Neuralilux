@@ -48,6 +48,14 @@ Toda mudança (assumir, devolver, expirar) publica `handoff_updated`; o chat atu
 - `PATCH /tickets/{id}` recebe `status` e `assigned_to` como query string, não JSON, e aceita `open`, `in_progress` e `closed`; `expired` só o sistema grava.
 - Sem o worker rodando, o timeout só é aplicado quando o Contact escreve de novo. `GET .../human-control-status` não aplica o timeout; só informa `timeout_due`.
 
+## Cancelamento, alteração e estorno de Pix
+
+O Contact cancela ou altera um Order sem Handoff enquanto ele está `closed` ("recebido, aguardando preparo"). Quando o Order passa para `in_production` (ou `sent`/`delivered`), as Tools recusam e o Agent oferece Handoff com o motivo. Hoje nada no sistema move o Order para `in_production`: a Company muda o status à mão.
+
+- **Cancelar** (`cancelar_pedido`): o Order vira `cancelled`, com `cancelled_at` e `cancel_reason`. O Pix válido vira `cancelled`.
+- **Alterar** (`alterar_pedido`): o Order volta a `ready_for_confirmation` com a Recap zerada; o fechamento passa de novo por `recapitular` e pela confirmação do Contact. O Pix válido vira `superseded` e o `finalizar` seguinte gera outro com o total novo. Nunca há dois Pix válidos para o mesmo Order (índice único parcial `uq_payment_records_order_pix`, só `pending`/`paid`).
+- **Estorno manual**: todo Pix invalidado fica com `refund_status="pending"` e `refund_flagged_at`. O sistema não sabe se o Contact pagou; a Company confere no banco e devolve à mão. `GET /api/v1/orders/refunds` lista os pendentes das Instances do usuário e `POST /api/v1/orders/refunds/{id}/refunded` marca como estornado (`refunded_at`). Fora do escopo do usuário, a resposta é 404.
+
 ## Troubleshooting
 
 Os logs são estruturados (`structlog`). API e worker são processos separados: procure no log certo.

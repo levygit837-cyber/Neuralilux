@@ -9,7 +9,10 @@ from decimal import Decimal
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.agent.clock import utc_now
 from app.models import Company, CustomerOrder, PaymentRecord
+
+VALID_STATUSES = ("pending", "paid")  # os demais (cancelled, superseded, expired) não cobram mais nada
 
 
 class PixError(ValueError):
@@ -63,17 +66,45 @@ def build_emv(*, key: str, amount: Decimal, txid: str, merchant_name: str, merch
 def _existing_record(db: Session, order_id: str) -> PaymentRecord | None:
     return (
         db.query(PaymentRecord)
-        .filter(PaymentRecord.order_id == order_id, PaymentRecord.payment_method == "pix")
+        .filter(
+            PaymentRecord.order_id == order_id,
+            PaymentRecord.payment_method == "pix",
+            PaymentRecord.status.in_(VALID_STATUSES),
+        )
         .order_by(PaymentRecord.created_at, PaymentRecord.id)
         .first()
     )
 
 
+def invalidate_records(db: Session, order: CustomerOrder, status: str) -> list[PaymentRecord]:
+    """Tira de circulação o Pix válido do Order (`cancelled` no cancelamento, `superseded` na alteração).
+
+    Não há confirmação de pagamento automática, então só a Company sabe se o Contact chegou a pagar: todo Pix
+    válido invalidado fica com `refund_status="pending"` para ela conferir e estornar à mão. Não faz `commit`.
+    """
+    records = (
+        db.query(PaymentRecord)
+        .filter(
+            PaymentRecord.order_id == order.id,
+            PaymentRecord.payment_method == "pix",
+            PaymentRecord.status.in_(VALID_STATUSES),
+        )
+        .all()
+    )
+    now = utc_now()
+    for record in records:
+        record.status = status
+        record.refund_status = "pending"
+        record.refund_flagged_at = now
+    db.flush()
+    return records
+
+
 def ensure_payment_record(db: Session, order: CustomerOrder, company: Company) -> PaymentRecord:
-    """Devolve o Payment Record Pix do Order, criando-o só na primeira vez.
+    """Devolve o Payment Record Pix válido do Order, criando-o se não houver (primeira vez ou depois de uma alteração).
 
     O valor é o `total_amount` real do Order e a chave é a da Company dona dele. O dedup tem duas
-    camadas: a leitura prévia e o índice único parcial `uq_payment_records_order_pix`. Se duas
+    camadas: a leitura prévia e o índice único parcial `uq_payment_records_order_pix` (só Pix `pending`/`paid`). Se duas
     chamadas concorrentes passarem pela leitura, a segunda perde no índice, faz rollback e relê o
     registro vencedor. Levanta `PixError` quando o Pix não pode ser gerado.
     """

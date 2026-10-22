@@ -26,7 +26,7 @@ curl -s -X POST http://localhost:8000/api/v1/auth/login \
 - O token expira em `ACCESS_TOKEN_EXPIRE_MINUTES` (padrão 30). Uma integração de servidor tem de refazer o login ao receber 401.
 - **Não há chave de API para máquinas.** A integração usa um usuário comum da Company, criado por um superusuário (`POST /auth/register` com `company_id` exige um superusuário autenticado) ou por `scripts/create_superuser.py`. O registro público só cria usuário **sem** Company. Use um usuário dedicado, com senha forte guardada no cofre do sistema de gestão, nunca a conta de uma pessoa.
 - O escopo da Company vem do usuário: as rotas de `/menu` operam sobre `current_user.company_id`.
-- O escopo das Instances vem do dono: `/instances`, `/conversations`, `/contacts`, `/dashboard` e `/tickets` só alcançam as Instances do usuário (`Instance.owner_id`); o superusuário alcança todas. Instance de outro dono responde 403 em `/instances`; Ticket fora do escopo responde 404.
+- O escopo das Instances vem do dono: `/instances`, `/conversations`, `/contacts`, `/dashboard`, `/tickets` e `/orders` só alcançam as Instances do usuário (`Instance.owner_id`); o superusuário alcança todas. Instance de outro dono responde 403 em `/instances`; Ticket fora do escopo responde 404.
 
 ### Rotas úteis
 
@@ -42,6 +42,7 @@ curl -s -X POST http://localhost:8000/api/v1/auth/login \
 | `POST /conversations/{id}/messages` | Envia texto pela Instance (a Instance precisa estar `connected`). |
 | `POST /conversations/{id}/take-control`, `POST .../release-control`, `GET .../human-control-status` | Assumir, devolver ao Agent (fecha o Ticket) e consultar o Handoff, veja [operations.md](operations.md#handoff-e-tickets). |
 | `GET /tickets`, `GET`/`PATCH /tickets/{id}`, `POST /tickets/{id}/assign` | Tickets de Handoff. |
+| `GET /orders/refunds`, `POST /orders/refunds/{id}/refunded` | Estornos Pix pendentes (Order cancelado ou alterado) e a baixa manual, veja [operations.md](operations.md#cancelamento-alteração-e-estorno-de-pix). |
 | `GET /instances/`, `POST /instances/{nome}`, `GET .../status`, `POST .../connect`, `DELETE .../logout`, `DELETE /instances/{nome}` | Instances do usuário e conexão com a Evolution (login obrigatório; a listagem não devolve o token da Evolution). Só o `POST` cria a Instance local, com a Company do usuário. |
 
 `/products` existe só por compatibilidade e está marcado como obsoleto no código; use `/menu`.

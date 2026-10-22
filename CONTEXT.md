@@ -92,7 +92,7 @@ Um produto ou serviço que a Company oferece, com preço e disponibilidade.
 _Avoid_: Produto, item de menu, SKU
 
 **Order**:
-O pedido que o Contact monta e confirma na Conversation. Só fecha depois que o Contact vê a Recap e confirma numa Message posterior, e a Company fechada recusa o fechamento. Fica `abandoned` se a Session acaba com ele aberto; nunca é retomado sozinho, o Agent só recria um Order novo a partir dele se o Contact pedir.
+O pedido que o Contact monta e confirma na Conversation. Só fecha depois que o Contact vê a Recap e confirma numa Message posterior, e a Company fechada recusa o fechamento. Fica `abandoned` se a Session acaba com ele aberto; nunca é retomado sozinho, o Agent só recria um Order novo a partir dele se o Contact pedir. Depois de confirmado (`closed`) e até entrar em preparo, o Contact pode cancelá-lo ou alterá-lo sem Handoff; alterar reabre a montagem e exige nova Recap. Em preparo ou depois, só por Handoff.
 _Avoid_: Compra, carrinho, venda
 
 **Recap** (Recapitulação):
@@ -104,5 +104,5 @@ Uma área de entrega da Company com sua taxa.
 _Avoid_: Região, bairro, faixa de CEP
 
 **Payment Record**:
-A cobrança gerada para um Order, como um Pix com valor e identificador.
+A cobrança gerada para um Order, como um Pix com valor e identificador. Um Order tem no máximo um válido: cancelar ou alterar o Order o invalida (`cancelled` ou `superseded`) e o deixa sinalizado para estorno manual da Company.
 _Avoid_: Pagamento, transação, fatura
