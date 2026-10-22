@@ -19,9 +19,18 @@ export function ChatListItem({ conversation, isActive, onClick }: ChatListItemPr
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      aria-current={isActive ? 'true' : undefined}
       onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick?.()
+        }
+      }}
       className={cn(
-        'p-3 rounded-xl cursor-pointer relative overflow-hidden flex items-center gap-3 group transition-colors',
+        'p-3 rounded-xl cursor-pointer relative overflow-hidden flex items-center gap-3 group transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
         isActive
           ? 'bg-brand-hover/80 border border-primary/20'
           : 'hover:bg-brand-hover border border-transparent'
@@ -77,6 +86,9 @@ export function ChatListItem({ conversation, isActive, onClick }: ChatListItemPr
         <div className="flex justify-between items-center mb-1">
           <div className="flex items-center gap-2">
             <h3 className="font-semibold text-content-light truncate text-[15px]">{conversation.name}</h3>
+            {conversation.humanHandoff && (
+              <span className="bg-warning/10 border border-warning/20 text-warning text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded font-bold">Humano</span>
+            )}
             {isBot && (
               <span className="bg-accent/10 border border-accent/20 text-accent text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded font-bold">Bot</span>
             )}

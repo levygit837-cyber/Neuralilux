@@ -1,48 +1,25 @@
-import axios from 'axios'
+import { apiRequest, jsonBody } from '@/services/http'
 
-const EVOLUTION_API_URL =
-  process.env.NEXT_PUBLIC_EVOLUTION_API_URL || 'http://localhost:8081'
-// Sem fallback no código: a chave vem de NEXT_PUBLIC_EVOLUTION_API_KEY (veja .env.example).
-const EVOLUTION_API_KEY = process.env.NEXT_PUBLIC_EVOLUTION_API_KEY ?? ''
+export type InstanceStatus = 'connected' | 'disconnected' | 'connecting'
 
-const BACKEND_API_URL =
-  process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
-
-type InstanceState = 'open' | 'close' | 'connecting'
-
-const evolutionApi = axios.create({
-  baseURL: EVOLUTION_API_URL,
-  headers: {
-    apikey: EVOLUTION_API_KEY,
-    'Content-Type': 'application/json',
-  },
-})
-
-export interface EvolutionInstance {
-  instance: {
-    instanceName: string
-    instanceId: string
-    status: InstanceState
-    state: InstanceState
-    qrcode?: {
-      base64: string
-      code: string
-    }
-  }
-  socket?: {
-    state: InstanceState
-  }
+export interface Instance {
+  /** UUID local; é o `instance_id` das Conversations. */
+  id: string
+  /** Nome na Evolution; é o que as rotas e o Socket.IO usam para endereçar a Instance. */
+  name: string
+  status: InstanceStatus
+  agentEnabled: boolean
+  profileName: string
+  profilePicUrl: string
 }
 
-interface RawEvolutionInstance {
-  id?: string
-  name?: string
-  connectionStatus?: string
-  status?: string
-  instance?: Partial<EvolutionInstance['instance']>
-  socket?: {
-    state?: string
-  }
+interface InstanceListItem {
+  id: string
+  name: string
+  status: string
+  agent_enabled: boolean
+  profile_name?: string
+  profile_pic_url?: string
 }
 
 export interface InstanceAgentStatusResponse {
@@ -54,185 +31,85 @@ export interface InstanceAgentStatusResponse {
   message?: string
 }
 
-const getBackendHeaders = () => {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
-
-  return {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  }
+export interface ConnectResult {
+  qrCode: string | null
+  status: InstanceStatus
 }
 
-const rethrowApiError = (error: unknown, fallbackMessage: string): never => {
-  if (axios.isAxiosError(error)) {
-    const detail = error.response?.data?.detail
-    throw new Error(typeof detail === 'string' ? detail : fallbackMessage)
-  }
-
-  throw error instanceof Error ? error : new Error(fallbackMessage)
-}
-
-const normalizeState = (value?: string | null): InstanceState => {
+/** A Evolution fala `open`/`close`; o backend, `connected`/`disconnected`. A UI usa só o segundo vocabulário. */
+export function normalizeInstanceStatus(value?: string | null): InstanceStatus {
   switch (value) {
     case 'open':
     case 'connected':
-      return 'open'
+      return 'connected'
     case 'connecting':
       return 'connecting'
-    case 'close':
-    case 'closed':
-    case 'disconnected':
     default:
-      return 'close'
+      return 'disconnected'
   }
 }
 
-const normalizeInstance = (raw: RawEvolutionInstance): EvolutionInstance => {
-  const rawInstance = raw.instance ?? {}
-  const state = normalizeState(
-    rawInstance.state ??
-      rawInstance.status ??
-      raw.socket?.state ??
-      raw.connectionStatus ??
-      raw.status
-  )
-
-  return {
-    instance: {
-      instanceName: rawInstance.instanceName ?? raw.name ?? '',
-      instanceId: rawInstance.instanceId ?? raw.id ?? raw.name ?? '',
-      status: normalizeState(rawInstance.status ?? state),
-      state,
-      qrcode: rawInstance.qrcode,
-    },
-    socket: {
-      state: normalizeState(raw.socket?.state ?? state),
-    },
-  }
-}
+const path = (name: string) => `/instances/${encodeURIComponent(name)}`
 
 export const instanceService = {
-  async fetchInstances(): Promise<EvolutionInstance[]> {
-    const response = await evolutionApi.get<RawEvolutionInstance[]>('/instance/fetchInstances')
-
-    if (!Array.isArray(response.data)) {
-      return []
-    }
-
-    return response.data.map(normalizeInstance)
+  async list(): Promise<Instance[]> {
+    const response = await apiRequest<{ instances: InstanceListItem[] }>('/instances/', {}, 'Falha ao listar as instâncias')
+    return response.instances.map((item) => ({
+      id: item.id,
+      name: item.name,
+      status: normalizeInstanceStatus(item.status),
+      agentEnabled: item.agent_enabled,
+      profileName: item.profile_name ?? '',
+      profilePicUrl: item.profile_pic_url ?? '',
+    }))
   },
 
-  async fetchInstance(instanceId: string): Promise<EvolutionInstance> {
-    const response = await evolutionApi.get<RawEvolutionInstance[] | RawEvolutionInstance>(
-      `/instance/fetchInstances?instanceId=${instanceId}`
+  /** Cria a Instance na Evolution e a linha local; devolve o QR quando já disponível. */
+  async create(name: string): Promise<{ qrCode: string | null }> {
+    const response = await apiRequest<{ qr_code: string | null }>(
+      path(name),
+      { method: 'POST' },
+      'Falha ao criar a instância'
     )
-
-    if (Array.isArray(response.data) && response.data.length > 0) {
-      return normalizeInstance(response.data[0])
-    }
-
-    return normalizeInstance(response.data as RawEvolutionInstance)
+    return { qrCode: response.qr_code }
   },
 
-  async connectInstance(instanceName: string): Promise<{
-    base64: string
-    code: string
-    count: number
-  }> {
-    const response = await evolutionApi.get(`/instance/connect/${instanceName}`)
-    return response.data
+  async getStatus(name: string): Promise<InstanceStatus> {
+    const response = await apiRequest<{ status: string }>(`${path(name)}/status`, {}, 'Falha ao ler o status')
+    return normalizeInstanceStatus(response.status)
   },
 
-  async getConnectionState(instanceName: string): Promise<{
-    instance: {
-      instanceName: string
-      state: InstanceState
-    }
-  }> {
-    const response = await evolutionApi.get(`/instance/connectionState/${instanceName}`)
-    return response.data
+  async connect(name: string): Promise<ConnectResult> {
+    const response = await apiRequest<{ qr_code: string | null; status: string }>(
+      `${path(name)}/connect`,
+      { method: 'POST' },
+      'Falha ao gerar o QR code'
+    )
+    return { qrCode: response.qr_code, status: normalizeInstanceStatus(response.status) }
   },
 
-  async logoutInstance(instanceName: string): Promise<void> {
-    await evolutionApi.delete(`/instance/logout/${instanceName}`)
+  async logout(name: string): Promise<void> {
+    await apiRequest(`${path(name)}/logout`, { method: 'DELETE' }, 'Falha ao desconectar')
   },
 
-  async deleteInstance(instanceName: string): Promise<void> {
-    await evolutionApi.delete(`/instance/delete/${instanceName}`)
+  async remove(name: string): Promise<void> {
+    await apiRequest(path(name), { method: 'DELETE' }, 'Falha ao apagar a instância')
   },
 
-  async updateAgentStatus(
-    instanceName: string,
-    agentEnabled: boolean
-  ): Promise<InstanceAgentStatusResponse> {
-    try {
-      const response = await axios.patch<InstanceAgentStatusResponse>(
-        `${BACKEND_API_URL}/api/v1/instances/${instanceName}/agent-status`,
-        { agent_enabled: agentEnabled },
-        {
-          headers: getBackendHeaders(),
-        }
-      )
-      return response.data
-    } catch (error) {
-      return rethrowApiError(error, 'Failed to update agent status')
-    }
-  },
+  getAgentStatus: (name: string) =>
+    apiRequest<InstanceAgentStatusResponse>(`${path(name)}/agent-status`, {}, 'Failed to get agent status'),
 
-  async getAgentStatus(instanceName: string): Promise<InstanceAgentStatusResponse> {
-    try {
-      const response = await axios.get<InstanceAgentStatusResponse>(
-        `${BACKEND_API_URL}/api/v1/instances/${instanceName}/agent-status`,
-        {
-          headers: getBackendHeaders(),
-        }
-      )
-      return response.data
-    } catch (error) {
-      return rethrowApiError(error, 'Failed to get agent status')
-    }
-  },
+  updateAgentStatus: (name: string, agentEnabled: boolean) =>
+    apiRequest<InstanceAgentStatusResponse>(
+      `${path(name)}/agent-status`,
+      jsonBody('PATCH', { agent_enabled: agentEnabled }),
+      'Failed to update agent status'
+    ),
 
-  async enableWebSocket(instanceName: string): Promise<void> {
-    try {
-      await evolutionApi.post(`/websocket/set/${instanceName}`, {
-        websocket: {
-          enabled: true,
-          events: [
-            'MESSAGES_UPSERT',
-            'MESSAGES_UPDATE',
-            'MESSAGES_DELETE',
-            'SEND_MESSAGE',
-            'CONTACTS_UPSERT',
-            'CONTACTS_UPDATE',
-            'PRESENCE_UPDATE',
-            'CHATS_UPSERT',
-            'CHATS_UPDATE',
-            'CHATS_DELETE',
-            'CONNECTION_UPDATE',
-          ],
-        },
-      })
-    } catch (error) {
-      console.error('Failed to enable WebSocket for instance:', instanceName, error)
-    }
-  },
-
-  async updateAgentBinding(
-    instanceName: string,
-    agentId: string | null
-  ): Promise<InstanceAgentStatusResponse> {
-    try {
-      const response = await axios.patch<InstanceAgentStatusResponse>(
-        `${BACKEND_API_URL}/api/v1/instances/${instanceName}/agent-binding`,
-        { agent_id: agentId },
-        {
-          headers: getBackendHeaders(),
-        }
-      )
-      return response.data
-    } catch (error) {
-      return rethrowApiError(error, 'Failed to update agent binding')
-    }
-  },
+  updateAgentBinding: (name: string, agentId: string | null) =>
+    apiRequest<InstanceAgentStatusResponse>(
+      `${path(name)}/agent-binding`,
+      jsonBody('PATCH', { agent_id: agentId }),
+      'Failed to update agent binding'
+    ),
 }

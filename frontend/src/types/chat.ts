@@ -1,4 +1,4 @@
-export type MessageStatus = 'pending' | 'sending' | 'sent' | 'delivered' | 'read'
+export type MessageStatus = 'pending' | 'sending' | 'sent' | 'delivered' | 'read' | 'failed'
 
 export type MessageType = 'text' | 'audio' | 'image' | 'video' | 'system'
 
@@ -52,11 +52,16 @@ export interface Message {
 }
 
 export interface Conversation {
+  /** UUID da Conversation no backend. Os eventos realtime a identificam pelo `remoteJid`. */
   id: string
+  remoteJid: string
   name: string
   avatar?: string
   lastMessage: string
+  /** Horário já formatado para a lista. */
   timestamp: string
+  /** ISO 8601 do último movimento; é a chave de ordenação. */
+  lastMessageAt?: string
   unreadCount: number
   isOnline?: boolean
   isTyping?: boolean
@@ -64,6 +69,8 @@ export interface Conversation {
   isBot?: boolean
   groupAvatars?: string[]
   conversationType?: ConversationType
+  /** A Conversation passou para um Attendant (evento `human_handoff_requested`). */
+  humanHandoff?: boolean
 }
 
 export interface TypingIndicator {

@@ -14,13 +14,6 @@ export interface AIAgentConfig {
   debugMode: boolean
 }
 
-export interface WhatsAppConnection {
-  apiUrl: string
-  apiKey: string
-  instanceName: string
-  status: 'connected' | 'disconnected' | 'connecting'
-}
-
 export interface ThemeConfig {
   theme: 'dark' | 'light'
   language: string
@@ -30,7 +23,6 @@ export interface ThemeConfig {
 export interface Settings {
   company: CompanyProfile
   aiAgent: AIAgentConfig
-  whatsapp: WhatsAppConnection
   theme: ThemeConfig
 }
 

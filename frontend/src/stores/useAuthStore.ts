@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 import type { User, AuthState } from '@/types/auth'
 import { cookieStorage } from '@/lib/cookieStorage'
 import { isTokenExpired, syncTokenToLocalStorage } from '@/lib/authToken'
+import { useChatStore } from '@/stores/useChatStore'
 
 interface AuthStore extends AuthState {
   hasHydrated: boolean
@@ -25,6 +26,8 @@ export const useAuthStore = create<AuthStore>()(
       },
       logout: () => {
         syncTokenToLocalStorage(null)
+        // As Conversations e Messages em memória são do usuário que saiu.
+        useChatStore.getState().reset()
         set({ user: null, token: null, isAuthenticated: false })
       },
       setUser: (user) => set({ user }),

@@ -66,7 +66,6 @@ O endpoint `/webhooks/evolution` é exclusivo da Evolution ([ADR 0006](adr/0006-
 
 ### Limites atuais
 
-- O dashboard embute `NEXT_PUBLIC_EVOLUTION_API_KEY` no bundle do navegador ([#26](https://github.com/levygit837-cyber/Neuralilux/issues/26)).
 - Não há rate limit por integração nem chave de API revogável.
 
 ## Via Tools de Pack

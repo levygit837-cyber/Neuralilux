@@ -3,65 +3,54 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { ROUTES } from '@/lib/constants'
-import { instanceService, type EvolutionInstance } from '@/services/instanceService'
+import { instanceService, type Instance } from '@/services/instanceService'
 import { useInstanceStore, type SelectedInstance } from '@/stores/useInstanceStore'
 
-const toSelectedInstance = (instance: EvolutionInstance): SelectedInstance => ({
-  instanceName: instance.instance.instanceName,
-  instanceId: instance.instance.instanceId,
-  status: instance.instance.state || instance.socket?.state || 'close',
+const toSelected = (instance: Instance): SelectedInstance => ({
+  id: instance.id,
+  name: instance.name,
+  status: instance.status,
 })
 
 /**
- * Resolve a Instance ativa: prefere a selecionada (por id ou nome), depois uma
- * conectada, depois a primeira. Persiste a escolha no store e volta para a home
- * quando a Company não tem nenhuma Instance.
+ * Resolve a Instance ativa entre as do usuário (`GET /instances/`): prefere a selecionada,
+ * depois uma conectada, depois a primeira. Sem nenhuma Instance, leva para `/instances`,
+ * onde ele cria a primeira.
  */
 export function useResolvedInstance() {
   const router = useRouter()
   const { selectedInstance, setSelectedInstance } = useInstanceStore()
   const [resolvedInstance, setResolvedInstance] = useState<SelectedInstance | null>(selectedInstance)
   const [isResolvingInstance, setIsResolvingInstance] = useState(true)
+  const [resolveError, setResolveError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
 
     instanceService
-      .fetchInstances()
+      .list()
       .then((instances) => {
         if (cancelled) return
-        const available = instances.map(toSelectedInstance)
-
-        if (available.length === 0) {
-          setResolvedInstance(null)
-          return
-        }
-
-        const selectedName = selectedInstance?.instanceName?.toLowerCase()
+        const available = instances.map(toSelected)
         const match =
-          available.find(
-            (instance) =>
-              instance.instanceId === selectedInstance?.instanceId ||
-              instance.instanceName.toLowerCase() === selectedName
-          ) ||
-          available.find((instance) => instance.status === 'open') ||
-          available[0]
+          available.find((instance) => instance.id === selectedInstance?.id) ||
+          available.find((instance) => instance.status === 'connected') ||
+          available[0] ||
+          null
 
         setResolvedInstance(match)
+        setResolveError(null)
 
-        if (
-          !selectedInstance ||
-          match.instanceId !== selectedInstance.instanceId ||
-          match.instanceName !== selectedInstance.instanceName ||
-          match.status !== selectedInstance.status
-        ) {
-          setSelectedInstance(match)
-        }
+        const changed =
+          match?.id !== selectedInstance?.id ||
+          match?.name !== selectedInstance?.name ||
+          match?.status !== selectedInstance?.status
+        if (changed) setSelectedInstance(match)
       })
       .catch((error: unknown) => {
         if (cancelled) return
-        console.error('Failed to resolve active instance:', error)
-        setResolvedInstance(selectedInstance ?? null)
+        setResolveError(error instanceof Error ? error.message : 'Falha ao carregar as instâncias')
+        setResolvedInstance(selectedInstance)
       })
       .finally(() => {
         if (!cancelled) setIsResolvingInstance(false)
@@ -73,10 +62,10 @@ export function useResolvedInstance() {
   }, [selectedInstance, setSelectedInstance])
 
   useEffect(() => {
-    if (!isResolvingInstance && !resolvedInstance) {
-      router.push(ROUTES.HOME)
+    if (!isResolvingInstance && !resolvedInstance && !resolveError) {
+      router.push(ROUTES.INSTANCES)
     }
-  }, [isResolvingInstance, resolvedInstance, router])
+  }, [isResolvingInstance, resolvedInstance, resolveError, router])
 
-  return { resolvedInstance, isResolvingInstance }
+  return { resolvedInstance, isResolvingInstance, resolveError }
 }

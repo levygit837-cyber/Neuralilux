@@ -37,7 +37,6 @@ Fechar o Ticket **não** devolve a Conversation ao Agent, e `release-control` **
 
 ### Limites conhecidos
 
-- `NEXT_PUBLIC_EVOLUTION_API_KEY` vai para o bundle do navegador, então a chave da Evolution fica visível a quem abrir o dashboard ([#26](https://github.com/levygit837-cyber/Neuralilux/issues/26)).
 - Não há Handoff automático quando um Attendant escreve pelo celular; só `take-control` ou a Tool ligam o estado.
 - `PATCH /tickets/{id}` recebe `status` e `assigned_to` como query string, não JSON.
 
