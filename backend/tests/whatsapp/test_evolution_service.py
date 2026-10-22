@@ -271,3 +271,37 @@ class TestCreateInstance:
         await svc.create_instance("test-instance")
         body = json.loads(route.calls[0].request.content)
         assert body["integration"] == "WHATSAPP-BAILEYS"
+
+
+class TestSendPresence:
+    """send_presence: POST /chat/sendPresence/{instance} com `number`, `presence` e `delay` (todos obrigatórios na Evolution)."""
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_posts_composing_with_the_number_and_delay(self, svc):
+        route = respx.post(f"{BASE_URL}/chat/sendPresence/test-instance").mock(
+            return_value=httpx.Response(201, json={"presence": "composing"})
+        )
+
+        await svc.send_presence("test-instance", "5511999999999@s.whatsapp.net", "composing", 20000)
+
+        assert json.loads(route.calls[0].request.content) == {
+            "number": "5511999999999",
+            "presence": "composing",
+            "delay": 20000,
+        }
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_http_error_raises_evolution_error(self, svc):
+        respx.post(f"{BASE_URL}/chat/sendPresence/test-instance").mock(
+            return_value=httpx.Response(500, json={"error": "instância desconectada"})
+        )
+
+        with pytest.raises(EvolutionAPIError):
+            await svc.send_presence("test-instance", "5511999999999@s.whatsapp.net")
+
+    @pytest.mark.asyncio
+    async def test_rejects_a_jid_without_digits(self, svc):
+        with pytest.raises(EvolutionAPIError):
+            await svc.send_presence("test-instance", "status@broadcast")
