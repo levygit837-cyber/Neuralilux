@@ -40,9 +40,18 @@ def _ascii_upper(text: str, limit: int) -> str:
     return re.sub(r"[^A-Za-z0-9 ]", "", plain).upper().strip()[:limit]
 
 
-def txid_for(order: CustomerOrder) -> str:
-    """Identificador do Pix: o número do Order sem separadores (alfanumérico, até 25 caracteres)."""
-    return re.sub(r"[^A-Za-z0-9]", "", order.order_number)[:25]
+TXID_MAX = 25
+
+
+def txid_for(order: CustomerOrder, revision: int = 0) -> str:
+    """Identificador do Pix: o número do Order sem separadores (alfanumérico, até 25 caracteres).
+
+    Cada Pix novo do mesmo Order (depois de uma alteração) leva o sufixo `R<revisão>`, para o banco nunca ver o
+    mesmo txid em cobranças de valores diferentes. A revisão 0 não tem sufixo.
+    """
+    base = re.sub(r"[^A-Za-z0-9]", "", order.order_number)
+    suffix = f"R{revision}" if revision else ""
+    return base[: TXID_MAX - len(suffix)] + suffix
 
 
 def build_emv(*, key: str, amount: Decimal, txid: str, merchant_name: str, merchant_city: str) -> str:
@@ -76,13 +85,8 @@ def _existing_record(db: Session, order_id: str) -> PaymentRecord | None:
     )
 
 
-def invalidate_records(db: Session, order: CustomerOrder, status: str) -> list[PaymentRecord]:
-    """Tira de circulação o Pix válido do Order (`cancelled` no cancelamento, `superseded` na alteração).
-
-    Não há confirmação de pagamento automática, então só a Company sabe se o Contact chegou a pagar: todo Pix
-    válido invalidado fica com `refund_status="pending"` para ela conferir e estornar à mão. Não faz `commit`.
-    """
-    records = (
+def valid_records(db: Session, order: CustomerOrder) -> list[PaymentRecord]:
+    return (
         db.query(PaymentRecord)
         .filter(
             PaymentRecord.order_id == order.id,
@@ -91,13 +95,34 @@ def invalidate_records(db: Session, order: CustomerOrder, status: str) -> list[P
         )
         .all()
     )
+
+
+def invalidate_records(db: Session, order: CustomerOrder, status: str) -> list[PaymentRecord]:
+    """Tira de circulação o Pix válido do Order (`cancelled` no cancelamento, `superseded` na alteração).
+
+    O sistema não detecta pagamento (nada marca um Pix como `paid`), então o Contact pode ter pago um Pix ainda
+    `pending`. Por isso todo Pix invalidado entra na lista de estornos da Company: `refund_status="pending"` se
+    estava `paid` (devolver) e `"verify"` se estava `pending` (conferir no banco se o Contact pagou, e devolver
+    só nesse caso). Não faz `commit`.
+    """
+    records = valid_records(db, order)
     now = utc_now()
     for record in records:
-        record.status = status
-        record.refund_status = "pending"
+        record.refund_status = "pending" if record.status == "paid" else "verify"
         record.refund_flagged_at = now
+        record.status = status
     db.flush()
     return records
+
+
+def revive_record(db: Session, record_id: str, status: str) -> None:
+    """Devolve a validade ao Pix que uma alteração tinha substituído (a alteração foi desfeita) e limpa o estorno."""
+    record = db.get(PaymentRecord, record_id)
+    if record is not None and record.status == "superseded":
+        record.status = status
+        record.refund_status = None
+        record.refund_flagged_at = None
+        db.flush()
 
 
 def ensure_payment_record(db: Session, order: CustomerOrder, company: Company) -> PaymentRecord:
@@ -116,15 +141,18 @@ def ensure_payment_record(db: Session, order: CustomerOrder, company: Company) -
         raise PixError("a empresa não tem chave Pix cadastrada")
 
     amount = Decimal(order.total_amount).quantize(Decimal("0.01"))
+    revision = db.query(PaymentRecord).filter(PaymentRecord.order_id == order_id, PaymentRecord.payment_method == "pix").count()
+    txid = txid_for(order, revision)
     record = PaymentRecord(
         order_id=order_id,
         conversation_id=order.conversation_id,
         amount=amount,
         pix_key=company.pix_key,
+        txid=txid,
         qr_code_data=build_emv(
             key=company.pix_key,
             amount=amount,
-            txid=txid_for(order),
+            txid=txid,
             merchant_name=company.name,
             merchant_city=company.address_city or "",
         ),

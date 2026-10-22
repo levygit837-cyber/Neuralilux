@@ -13,8 +13,9 @@ from sqlalchemy.orm import Session
 
 from app.agent.contracts import ToolContext
 from app.models import CustomerOrder, CustomerOrderItem
+from app.packs.catalog_orders import changes
 from app.packs.catalog_orders.items import catalog_item
-from app.packs.catalog_orders.order_state import ACTIVE_STATUSES, active_order, new_order, view
+from app.packs.catalog_orders.order_state import ACTIVE_STATUSES, active_order, is_reopened, new_order, view
 from app.packs.catalog_orders.totals import brl, cents, recompute, subtotal
 from app.packs.catalog_orders.validation import OrderError
 
@@ -32,9 +33,21 @@ Não use os itens dele antes disso.\
 
 
 def abandon_active_orders(db: Session, conversation_id: str) -> None:
-    db.query(CustomerOrder).filter(
-        CustomerOrder.conversation_id == conversation_id, CustomerOrder.status.in_(ACTIVE_STATUSES)
-    ).update({CustomerOrder.status: ABANDONED}, synchronize_session="fetch")
+    """Order em montagem vira `abandoned`; o confirmado e reaberto por `alterar_pedido` nunca é perdido.
+
+    Sem a alteração reconfirmada, ele volta ao estado confirmado (`changes.restore_confirmed`); sem snapshot
+    continua reaberto, visível como "em alteração", mas não abandonado.
+    """
+    orders = (
+        db.query(CustomerOrder)
+        .filter(CustomerOrder.conversation_id == conversation_id, CustomerOrder.status.in_(ACTIVE_STATUSES))
+        .all()
+    )
+    for order in orders:
+        if is_reopened(order):
+            changes.restore_confirmed(db, order)
+        else:
+            order.status = ABANDONED
 
 
 def pending_abandoned(ctx: ToolContext) -> CustomerOrder | None:

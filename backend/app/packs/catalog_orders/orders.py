@@ -83,6 +83,10 @@ def gerenciar_pedido_tool() -> Tool:
                 "endereco": {"type": "string", "description": "Rua, número e bairro. Só para entrega."},
                 "tipo_entrega": {"type": "string", "enum": DELIVERY_TYPES},
                 "forma_pagamento": {"type": "string", "enum": PAYMENT_METHODS},
+                "numero": {
+                    "type": "string",
+                    "description": "Número do pedido, em cancelar_pedido/alterar_pedido, quando há mais de um pedido.",
+                },
                 "motivo": {"type": "string", "description": "Por que o cliente cancela (cancelar_pedido), se ele disse."},
                 "troco_para": {"type": "number", "description": "Valor da nota, se pagar em dinheiro e precisar de troco."},
             },

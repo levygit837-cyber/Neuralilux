@@ -1,70 +1,22 @@
-"""Cancelar e alterar o Order antes do preparo (#33): transições permitidas e proibidas, Recap e Pix."""
+"""Cancelar e alterar o Order antes do preparo (#33): transições permitidas e proibidas, Recap, Pix e txid."""
 
 from decimal import Decimal
 
 import pytest
-from pack_helpers import (
-    add_item,
-    call,
-    confirm_and_finalize,
-    deliver_reply,
-    fill_delivery,
-    make_world,
-    new_turn,
-    order_of,
-    payload,
-    tool_named,
+from changes_helpers import (
+    IN_PREPARATION_OR_LATER,
+    closed_order,
+    pix_records,
+    reconfirm,
+    set_status,
+    valid_pix,
 )
+from pack_helpers import add_item, call, confirm_and_finalize, deliver_reply, fill_delivery, new_turn, order_of, payload
 
-from app.models import Conversation, CustomerOrder, PaymentRecord, Ticket
+from app.models import Conversation, CustomerOrder, Ticket
 from app.packs.catalog_orders.pack import CatalogOrdersPack
 
 pytestmark = pytest.mark.asyncio
-
-IN_PREPARATION_OR_LATER = ["in_production", "sent", "delivered"]
-
-
-@pytest.fixture
-def world(db):
-    return make_world(db)
-
-
-@pytest.fixture
-def pedido(world):
-    return tool_named(CatalogOrdersPack().tools(), "gerenciar_pedido")
-
-
-async def closed_order(world, pedido, payment="dinheiro"):
-    """Order confirmado e fechado: 2 Pizza Toscana (90) + taxa 5 = 95."""
-    await add_item(world, pedido, quantidade=2)
-    await fill_delivery(world, pedido, forma_pagamento=payment)
-    result = await confirm_and_finalize(world, pedido)
-    assert not result.is_error, result.content
-    new_turn(world)  # o Contact escreve de novo depois da confirmação
-    return order_of(world)
-
-
-async def reconfirm(world, pedido):
-    """Recapitula a alteração, a resposta chega ao Contact e ele confirma num Turn seguinte."""
-    assert not (await call(pedido, world.ctx, acao="recapitular")).is_error
-    deliver_reply(world)
-    new_turn(world)
-    return await call(pedido, world.ctx, acao="finalizar")
-
-
-def pix_records(world):
-    world.db.expire_all()
-    return world.db.query(PaymentRecord).order_by(PaymentRecord.created_at, PaymentRecord.id).all()
-
-
-def valid_pix(world):
-    return [r for r in pix_records(world) if r.status in ("pending", "paid")]
-
-
-def set_status(world, status):
-    order = order_of(world)
-    order.status = status
-    world.db.commit()
 
 
 # ---------- cancelar ----------
@@ -137,8 +89,21 @@ async def test_cancel_with_pix_invalidates_the_record_and_flags_the_refund(world
     assert "estorno" in payload(result)["mensagem"].lower()
     (record,) = pix_records(world)
     assert record.status == "cancelled"
-    assert record.refund_status == "pending" and record.refund_flagged_at is not None
+    # nada marca o Pix como pago: pendente vai para a lista "conferir", não para "devolver"
+    assert record.refund_status == "verify" and record.refund_flagged_at is not None
     assert valid_pix(world) == []
+
+
+async def test_cancel_of_a_paid_pix_flags_it_to_be_refunded(world, pedido):
+    await closed_order(world, pedido, payment="pix")
+    (record,) = pix_records(world)
+    record.status = "paid"
+    world.db.commit()
+
+    assert not (await call(pedido, world.ctx, acao="cancelar_pedido")).is_error
+
+    (record,) = pix_records(world)
+    assert record.status == "cancelled" and record.refund_status == "pending"
 
 
 async def test_cancel_without_pix_leaves_no_refund_flag(world, pedido):
@@ -267,7 +232,7 @@ async def test_alter_with_pix_supersedes_the_old_record_and_issues_a_new_one_wit
     assert valid_pix(world) == []
     (superseded,) = pix_records(world)
     assert superseded.id == old_id and superseded.status == "superseded"
-    assert superseded.refund_status == "pending"
+    assert superseded.refund_status == "verify"
 
     await add_item(world, pedido, name="Refrigerante Cola 2L")
     closed = payload(await reconfirm(world, pedido))
@@ -312,3 +277,76 @@ async def test_alter_abandoned_midway_keeps_no_valid_pix_for_the_reopened_order(
     # o Contact some sem reconfirmar: o Order segue reaberto, sem cobrança válida
     assert order_of(world).status == "ready_for_confirmation"
     assert valid_pix(world) == []
+
+
+# ---------- txid distinto a cada Pix do Order ----------
+
+
+async def test_regenerated_pix_has_a_distinct_valid_txid(world, pedido):
+    first = payload(await closed_order_result(world, pedido))["pix"]["txid"]
+    await call(pedido, world.ctx, acao="alterar_pedido")
+    await add_item(world, pedido, name="Refrigerante Cola 2L")
+    second = payload(await reconfirm(world, pedido))["pix"]["txid"]
+    await call(pedido, world.ctx, acao="alterar_pedido")
+    await add_item(world, pedido, name="Suco de Laranja")
+    third = payload(await reconfirm(world, pedido))["pix"]["txid"]
+
+    assert len({first, second, third}) == 3
+    for txid in (first, second, third):
+        assert txid.isalnum() and len(txid) <= 25
+    by_txid = {r.txid: r for r in pix_records(world)}  # created_at empata no SQLite: não depende da ordem
+    assert set(by_txid) == {first, second, third}
+    # o txid do BR Code (campo 62, subcampo 05) é o mesmo gravado no registro
+    assert f"05{len(second):02d}{second}" in by_txid[second].qr_code_data
+
+
+async def closed_order_result(world, pedido):
+    await add_item(world, pedido, quantidade=2)
+    await fill_delivery(world, pedido, forma_pagamento="pix")
+    result = await confirm_and_finalize(world, pedido)
+    new_turn(world)
+    return result
+
+
+# ---------- cancelar com pedido em montagem ----------
+
+
+async def test_cancel_refuses_to_pick_between_a_building_order_and_a_closed_one(world, pedido):
+    await closed_order(world, pedido)
+    await add_item(world, pedido, name="Suco de Laranja")  # pedido novo em montagem
+
+    result = await call(pedido, world.ctx, acao="cancelar_pedido")
+
+    assert result.is_error and "qual dos dois" in payload(result)["erro"]
+    world.db.expire_all()
+    assert {o.status for o in world.db.query(CustomerOrder).all()} == {"closed", "open"}
+
+
+async def test_cancel_with_the_order_number_cancels_exactly_that_order(world, pedido):
+    closed = await closed_order(world, pedido)
+    await add_item(world, pedido, name="Suco de Laranja")
+
+    result = await call(pedido, world.ctx, acao="cancelar_pedido", numero=closed.order_number)
+
+    assert not result.is_error, result.content
+    world.db.expire_all()
+    statuses = {o.order_number: o.status for o in world.db.query(CustomerOrder).all()}
+    assert statuses.pop(closed.order_number) == "cancelled" and list(statuses.values()) == ["open"]
+
+
+async def test_cancel_of_a_building_order_is_refused(world, pedido):
+    await add_item(world, pedido)
+    result = await call(pedido, world.ctx, acao="cancelar_pedido")
+    assert result.is_error and "remover_item" in payload(result)["erro"]
+
+
+async def test_cancel_of_an_abandoned_order_is_refused_and_points_to_resume(world, pedido):
+    await add_item(world, pedido)
+    CatalogOrdersPack().on_session_start(world.db, world.conversation)
+    world.db.commit()
+    assert order_of(world).status == "abandoned"
+
+    result = await call(pedido, world.ctx, acao="cancelar_pedido")
+
+    assert result.is_error and "retomar_pedido" in payload(result)["erro"]
+    assert order_of(world).status == "abandoned"
