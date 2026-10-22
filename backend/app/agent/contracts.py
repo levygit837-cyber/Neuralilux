@@ -44,6 +44,9 @@ class ChatMessage(TypedDict):
     content: str | list[ContentBlock]
 
 
+DEFAULT_MAX_TOKENS = 1024
+
+
 @dataclass(frozen=True)
 class MessagesRequest:
     model: str
@@ -51,7 +54,7 @@ class MessagesRequest:
     messages: list[ChatMessage]
     # Each tool schema is {"name", "description", "input_schema"}.
     tools: list[dict[str, Any]] = field(default_factory=list)
-    max_tokens: int = 1024
+    max_tokens: int = DEFAULT_MAX_TOKENS
     effort: str | None = None
     temperature: float | None = None
 

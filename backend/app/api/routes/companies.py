@@ -1,31 +1,54 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+"""Company e o Agent dela: cada usuário vê e edita só a própria Company; o superusuário, todas."""
 from typing import List
 
-from app.api.deps import get_db
-from app.schemas.company import CompanyCreate, CompanyUpdate, CompanyResponse
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+
+from app.api.access import get_company_for_user
+from app.api.deps import get_current_user, get_db
+from app.models import Agent, User
+from app.schemas.company import (
+    AgentSettings,
+    AgentSettingsUpdate,
+    CompanyCreate,
+    CompanyResponse,
+    CompanyUpdate,
+)
 from app.services.company_service import (
+    company_agent,
     create_company,
-    get_company,
+    delete_company,
     list_companies,
     update_company,
-    delete_company
 )
-from app.api.deps import get_current_user
 
 router = APIRouter()
+
+# Só o superusuário muda: o ramo escolhe o Pack do Agent e `is_active` liga/desliga a Company.
+_SUPERUSER_ONLY_FIELDS = ("business_type_id", "is_active")
+
+
+def _agent_for_user(db: Session, company_id: str, user: User) -> Agent:
+    get_company_for_user(db, company_id, user)
+    agent = company_agent(db, company_id)
+    if agent is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company has no active agent")
+    return agent
+
+
+def _agent_settings(agent: Agent) -> AgentSettings:
+    return AgentSettings(temperature=agent.temperature, max_tokens=agent.max_tokens or 1000)
 
 
 @router.post("/", response_model=CompanyResponse, status_code=status.HTTP_201_CREATED)
 async def create_new_company(
     company: CompanyCreate,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """Create a new company"""
     try:
-        db_company = create_company(db, company)
-        return db_company
+        return create_company(db, company)
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -38,27 +61,24 @@ async def read_companies(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
-    """List all companies"""
-    companies = list_companies(db, skip=skip, limit=limit)
-    return companies
+    """Companies visíveis ao usuário: a dele (ou todas, para o superusuário)."""
+    if current_user.is_superuser:
+        return list_companies(db, skip=skip, limit=limit)
+    if current_user.company_id is None:  # sem Company: nada a listar (`company_id=None` listaria todas)
+        return []
+    return list_companies(db, skip=skip, limit=limit, company_id=current_user.company_id)
 
 
 @router.get("/{company_id}", response_model=CompanyResponse)
 async def read_company(
     company_id: str,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """Get company by ID"""
-    company = get_company(db, company_id)
-    if not company:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Company not found"
-        )
-    return company
+    return get_company_for_user(db, company_id, current_user)
 
 
 @router.put("/{company_id}", response_model=CompanyResponse)
@@ -66,29 +86,48 @@ async def update_existing_company(
     company_id: str,
     company_update: CompanyUpdate,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
-    """Update company"""
-    company = update_company(db, company_id, company_update)
-    if not company:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Company not found"
-        )
-    return company
+    """Atualiza a configuração da Company (só campos enviados); 403 fora da própria Company."""
+    get_company_for_user(db, company_id, current_user)
+    if not current_user.is_superuser and any(f in company_update.model_fields_set for f in _SUPERUSER_ONLY_FIELDS):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only a superuser can change this field")
+    return update_company(db, company_id, company_update)
 
 
 @router.delete("/{company_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_existing_company(
     company_id: str,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """Delete company (soft delete)"""
-    success = delete_company(db, company_id)
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Company not found"
-        )
+    get_company_for_user(db, company_id, current_user)
+    delete_company(db, company_id)
     return None
+
+
+@router.get("/{company_id}/agent", response_model=AgentSettings)
+async def read_company_agent(
+    company_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Ajustes de resposta do Agent da Company."""
+    return _agent_settings(_agent_for_user(db, company_id, current_user))
+
+
+@router.put("/{company_id}/agent", response_model=AgentSettings)
+async def update_company_agent(
+    company_id: str,
+    update: AgentSettingsUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Atualiza temperatura e limite de tokens do Agent (só campos enviados); o modelo vem do Gateway."""
+    agent = _agent_for_user(db, company_id, current_user)
+    for field in update.model_fields_set:
+        setattr(agent, field, getattr(update, field))
+    db.commit()
+    db.refresh(agent)
+    return _agent_settings(agent)

@@ -35,7 +35,8 @@ curl -s -X POST http://localhost:8000/api/v1/auth/login \
 | `GET /menu` | Cardápio ativo da Company: catálogo, categorias e Catalog Items. |
 | `POST /menu/categories`, `PATCH`/`DELETE /menu/categories/{id}` | Categorias. |
 | `POST /menu/items`, `PATCH`/`DELETE /menu/items/{id}` | Catalog Items: `name`, `price`, `is_available`, `sku`, `stock_quantity`, `category_id`. |
-| `GET /companies/{id}`, `PUT /companies/{id}` | Dados da Company, incluindo `business_hours`. |
+| `GET /companies/{id}`, `PUT /companies/{id}` | Configuração da Company, veja [agent.md](agent.md#configuração-da-company). Só a Company do usuário (outra: 403) ou superusuário. |
+| `GET /companies/{id}/agent`, `PUT /companies/{id}/agent` | Temperatura e `max_tokens` do Agent da Company. Mesma regra de acesso. |
 | `GET /conversations`, `GET /conversations/{id}/messages` | Conversations e Messages. |
 | `POST /conversations/{id}/messages` | Envia texto pela Instance (a Instance precisa estar `connected`). |
 | `POST /conversations/{id}/take-control`, `POST .../release-control`, `GET .../human-control-status` | Assumir, devolver ao Agent (fecha o Ticket) e consultar o Handoff, veja [operations.md](operations.md#handoff-e-tickets). |

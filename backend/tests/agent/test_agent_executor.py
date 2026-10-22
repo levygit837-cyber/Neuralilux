@@ -5,9 +5,9 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.agent import executor
-from app.agent.contracts import Tool, ToolResult
+from app.agent.contracts import DEFAULT_MAX_TOKENS, Tool, ToolResult
 from app.core import database
-from app.models import Company, Contact, Conversation, ConversationMemorySummary, Instance, Message
+from app.models import Agent, Company, Contact, Conversation, ConversationMemorySummary, Instance, Message
 from tests.agent_fakes import FakeMessagesClient, FakePack, reply, text, tool_use
 from tests.conftest import TestingSessionLocal
 
@@ -346,3 +346,27 @@ async def test_prompt_da_primeira_mensagem_nao_inventa_mensagem_anterior(turn_se
 
     assert "primeira mensagem deste cliente" in system
     assert "mensagem anterior" not in system
+
+
+@pytest.mark.asyncio
+async def test_turn_usa_temperatura_e_limite_de_tokens_do_agent_da_company(turn_setup, agent):
+    db, conversation, contact, instance = turn_setup
+    db.add(Agent(name="Atendente", system_prompt="p", company_id=instance.company_id, temperature=0.2, max_tokens=700))
+    db.commit()
+    agent["client"].script = [reply(text("Olá!"))]
+
+    await executor.handle_incoming(db, conversation, contact, instance, "oi")
+
+    request = agent["client"].requests[0]
+    assert (request.temperature, request.max_tokens) == (0.2, 700)
+
+
+@pytest.mark.asyncio
+async def test_company_sem_agent_cadastrado_usa_os_padroes(turn_setup, agent):
+    db, conversation, contact, instance = turn_setup
+    agent["client"].script = [reply(text("Olá!"))]
+
+    await executor.handle_incoming(db, conversation, contact, instance, "oi")
+
+    request = agent["client"].requests[0]
+    assert (request.temperature, request.max_tokens) == (None, DEFAULT_MAX_TOKENS)

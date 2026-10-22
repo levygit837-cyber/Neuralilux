@@ -8,10 +8,12 @@ import { InferenceProviderCard } from '@/components/settings/InferenceProviderCa
 import { WhatsAppConnectionCard } from '@/components/settings/WhatsAppConnectionCard'
 import { ThemeAppearanceCard } from '@/components/settings/ThemeAppearanceCard'
 import { GatewaysPanel } from '@/components/settings/GatewaysPanel'
+import { useCompanySettings } from '@/hooks/useCompanySettings'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 
 export default function SettingsPage() {
   const { activeTab } = useSettingsStore()
+  const companySettings = useCompanySettings()
 
   return (
     <div className="flex min-h-screen bg-dark">
@@ -25,9 +27,9 @@ export default function SettingsPage() {
             {/* General Tab Content */}
             {activeTab === 'general' && (
               <div className="space-y-6">
-                <CompanyProfileCard />
+                <CompanyProfileCard settings={companySettings} />
                 <InferenceProviderCard />
-                <AIAgentCard />
+                <AIAgentCard settings={companySettings} />
                 <ThemeAppearanceCard />
               </div>
             )}

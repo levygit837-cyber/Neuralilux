@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from app.agent.contracts import (
+    DEFAULT_MAX_TOKENS,
     ChatMessage,
     ContentBlock,
     MessagesClient,
@@ -60,6 +61,8 @@ async def run_turn(
     *,
     max_steps: int = 6,
     effort: str | None = None,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+    temperature: float | None = None,
     observer: TurnObserver | None = None,
 ) -> TurnResult:
     messages: list[ChatMessage] = list(history)
@@ -69,7 +72,15 @@ async def run_turn(
 
     while True:
         response = await client.create(
-            MessagesRequest(model=model, system=system, messages=messages, tools=tools, effort=effort)
+            MessagesRequest(
+                model=model,
+                system=system,
+                messages=messages,
+                tools=tools,
+                max_tokens=max_tokens,
+                effort=effort,
+                temperature=temperature,
+            )
         )
         steps += 1
         uses = [block for block in response.content if block["type"] == "tool_use"]
@@ -92,7 +103,15 @@ async def run_turn(
             results.append({"type": "text", "text": FINAL_ANSWER_INSTRUCTION})
             messages.append({"role": "user", "content": results})
             final = await client.create(
-                MessagesRequest(model=model, system=system, messages=messages, tools=tools, effort=effort)
+                MessagesRequest(
+                model=model,
+                system=system,
+                messages=messages,
+                tools=tools,
+                max_tokens=max_tokens,
+                effort=effort,
+                temperature=temperature,
+            )
             )
             # Só o texto conta: um tool_use aqui não é executado. Sem texto, resposta fixa.
             reply_text = _reply_text(final) or MAX_STEPS_FALLBACK_REPLY

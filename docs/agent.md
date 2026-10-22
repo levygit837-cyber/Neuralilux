@@ -77,7 +77,17 @@ Uma Conversation se divide em Sessions por inatividade ([ADR 0007](adr/0007-sess
 - **O que muda**: a Recent Window só tem Messages com `timestamp >= session_started_at`. Messages anteriores contam como "fora da janela" para o Summary e continuam na History Search. `session_started_at` nulo (Conversation sem Session registrada) usa a Conversation inteira.
 - **Packs**: ao abrir a Session nova, cada Pack que definir o gancho opcional `on_session_start(db, conversation)` o recebe, na mesma transação da Message. No Pack de pedidos, o Order ativo vira `abandoned`.
 - **Entrega da resposta**: depois de enviar a resposta, o consumer chama `executor.reply_delivered`, que avisa os Packs com o gancho opcional `on_reply_delivered(db, conversation, turn_id, at)`. Turn que falha, fica sem resposta, tem a resposta descartada (Handoff) ou cujo envio falha não chama o gancho. No Pack de pedidos é isso que torna a Recap válida (`recap_delivered_at`); `finalizar` ainda exige que a Message do Contact seja posterior à entrega.
-- **Configurar**: `PUT /api/v1/companies/{id}` com `session_timeout_minutes` (1 a 10080 minutos).
+- **Configurar**: `PUT /api/v1/companies/{id}` com `session_timeout_minutes` (1 a 10080 minutos), ou pelo painel (Configurações > Geral).
+
+## Configuração da Company
+
+O painel (Configurações > Geral) lê e grava a Company no backend; nada fica em `localStorage`. As Tools leem a mesma linha, então o que o painel salva vale no próximo Turn.
+
+- **Acesso**: `GET`/`PUT`/`DELETE /api/v1/companies/{id}` e `/companies/{id}/agent` só aceitam o usuário da própria Company ou um superusuário; outro usuário recebe 403. A listagem devolve só a Company do usuário. `business_type_id` e `is_active` só o superusuário altera.
+- **Campos**: endereço (`address_*`), `phone`, `email`, `pix_key`, `minimum_order`, `business_hours`, `timezone`, `session_timeout_minutes` e `handoff_timeout_hours` (1 a 720). Texto vazio limpa o campo; campo ausente no `PUT` não muda.
+- **Horários**: `{"mon": [["11:00", "14:00"], ["18:00", "02:00"]], ...}`, `HH:MM` no fuso da Company. Fim menor ou igual ao início cruza a meia-noite (`"00:00"` é o fim do dia). Dia ausente ou lista vazia é fechado. Janelas que se sobrepõem são recusadas (422).
+- **Pix**: aceita e-mail, CPF, CNPJ, celular (`+55...`) ou chave aleatória (UUID), até 77 caracteres (limite do campo EMV). Sem chave, `info_empresa` não lista `pix` e o fechamento recusa Pix.
+- **Agent**: `PUT /companies/{id}/agent` com `temperature` (0 a 1; `null` usa a do Gateway) e `max_tokens` (100 a 4000). O executor passa os dois ao modelo em cada chamada do Turn.
 
 ## Eventos em tempo real
 

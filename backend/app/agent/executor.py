@@ -15,7 +15,7 @@ import structlog
 from sqlalchemy.orm import Session
 
 from app.agent.clock import time_context, utc_now
-from app.agent.contracts import ChatMessage, Pack, Tool, ToolContext
+from app.agent.contracts import DEFAULT_MAX_TOKENS, ChatMessage, Pack, Tool, ToolContext
 from app.agent.delivery import notify_reply_delivered
 from app.agent.core_tools import core_tools
 from app.agent.events import TurnEvents
@@ -29,6 +29,7 @@ from app.core import database
 from app.llm.registry import resolve as resolve_gateway
 from app.models import Company, Contact, Conversation, Instance
 from app.packs.registry import pack_for_company
+from app.services.company_service import company_agent
 
 logger = structlog.get_logger()
 
@@ -103,6 +104,7 @@ async def handle_incoming(
         system = build_system_prompt(
             company_name=company.name, packs=packs, ctx=ctx, summary=summary, time_context=when
         )
+        agent = company_agent(db, company.id)
         result = await run_turn(
             client,
             model,
@@ -111,6 +113,8 @@ async def handle_incoming(
             ToolRegistry.from_packs(packs),
             ctx,
             effort=effort,
+            max_tokens=(agent.max_tokens if agent else None) or DEFAULT_MAX_TOKENS,
+            temperature=agent.temperature if agent else None,
             observer=events,
         )
     except Exception:
