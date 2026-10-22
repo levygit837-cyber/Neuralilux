@@ -208,11 +208,17 @@ def alterar_pedido(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
         raise OrderError(
             "O cliente tem outro pedido em montagem. Termine ou esvazie esse antes de alterar o pedido já confirmado."
         )
+    try:
+        claim_status(ctx.db, order, status="ready_for_confirmation")  # antes de qualquer outra escrita: a Company pode ter movido o Order
+    except OrderChanged:
+        ctx.db.refresh(order)
+        if order.status in _PAST_PREPARATION:
+            raise OrderError(_handoff_hint(order, "alterar", f"acabou de ficar {STATUS_LABELS[order.status]}")) from None
+        raise
     if order.closed_at is None:  # `closed_at` é o que marca o Order como reaberto; Order antigo sem ele o ganha aqui
         order.closed_at = utc_now()
     order.confirmed_snapshot = _snapshot(order, pix.valid_records(ctx.db, order))
     pix.invalidate_records(ctx.db, order, "superseded")
-    order.status = "ready_for_confirmation"
     set_recap(order, None, None)
     ctx.db.commit()
     return {
