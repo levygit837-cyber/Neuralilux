@@ -9,7 +9,7 @@ interface BadgeProps extends React.HTMLAttributes<HTMLDivElement> {
 const variantClasses = {
   default: 'bg-primary',
   success: 'bg-success',
-  warning: 'bg-warning-yellow',
+  warning: 'bg-warning',
   error: 'bg-error',
 }
 

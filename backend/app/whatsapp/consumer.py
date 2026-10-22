@@ -23,6 +23,7 @@ from app.models import Company, Contact, Conversation, Instance, Message
 from app.models.base import generate_uuid
 from app.whatsapp.agent_turn import resolve_default_agent, run_agent_turn
 from app.whatsapp.message_queue import message_queue_service
+from app.whatsapp import system_notice
 from app.whatsapp.handoff_tracking import track_handoff
 from app.whatsapp.sender import send_and_persist
 from app.whatsapp.turn_batcher import Entry, Hold, TurnBatcher
@@ -172,6 +173,11 @@ class WhatsAppMessageConsumer:
         # Dedup antes de qualquer escrita: inclui o eco do webhook para a resposta do próprio Agent.
         if message_id and db.query(Message.id).filter(Message.message_id == message_id).first():
             logger.info("Message already exists", message_id=message_id, from_me=from_me)
+            return
+
+        # Eco de um aviso da API enviado sem id (#34): já está gravado; não é Attendant nem Message nova.
+        if from_me and system_notice.adopt_echo(db, instance.id, remote_jid, parsed.content, message_id):
+            logger.info("Echo of a system notice matched", message_id=message_id)
             return
 
         local_part = remote_jid.split("@")[0] if "@" in remote_jid else remote_jid

@@ -1,17 +1,33 @@
-"""Estornos Pix (#33): Pix invalidado por cancelamento ou alteração do Order, para a Company estornar à mão.
+"""Orders da Company (#34) e estornos Pix (#33).
 
-`refund_status`: `pending` (o Pix estava pago: devolver), `verify` (estava pendente, mas o Contact pode ter pago:
-conferir no banco), `refunded` (devolvido) e `dismissed` (conferido, nada a devolver). As baixas são idempotentes.
-Escopo pelas Instances do usuário (`instance_ids_for_user`); fora dele a resposta é 404.
+Painel: a Company lista os Orders confirmados e move o status (`services/order_status.py`); o Contact é avisado
+no WhatsApp a cada mudança. Estornos: Pix invalidado por cancelamento ou alteração do Order, para a Company
+estornar à mão. `refund_status`: `pending` (o Pix estava pago: devolver), `verify` (estava pendente, mas o Contact
+pode ter pago: conferir no banco), `refunded` (devolvido) e `dismissed` (conferido, nada a devolver). As baixas
+são idempotentes.
+
+Escopo pelas Instances do usuário (`instance_ids_for_user`); Order ou estorno fora dele é 404.
 """
 from datetime import datetime, timezone
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+from sqlalchemy import and_, or_
+from sqlalchemy.orm import Session, selectinload
 
 from app.api.access import instance_ids_for_user
 from app.api.deps import get_current_user, get_db
 from app.models import CustomerOrder, PaymentRecord, User
+from app.packs.catalog_orders.order_state import ACTIVE_STATUSES, is_reopened
+from app.services.order_status import (
+    ACTIVE_PANEL_STATUSES,
+    DONE_PANEL_STATUSES,
+    TransitionError,
+    allowed_transitions,
+    change_status,
+    status_label,
+)
 
 router = APIRouter()
 
@@ -75,3 +91,100 @@ def mark_refunded(record_id: str, db: Session = Depends(get_db), current_user: U
 @router.post("/refunds/{record_id}/dismissed")
 def dismiss_refund(record_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     return _resolve(db, current_user, record_id, "dismissed")
+
+
+# ---------- painel de Orders (#34) ----------
+
+
+class StatusChange(BaseModel):
+    status: Literal["in_production", "sent", "delivered", "cancelled"]
+
+
+def _scoped_orders(db: Session, user: User):
+    query = db.query(CustomerOrder).options(selectinload(CustomerOrder.items))
+    instance_ids = instance_ids_for_user(db, user)
+    if instance_ids is not None:
+        query = query.filter(CustomerOrder.instance_id.in_(instance_ids))
+    return query
+
+
+def _refund_statuses(db: Session, order_ids: list[str]) -> dict[str, str]:
+    """O estorno mais recente de cada Order (qualquer fase), numa só consulta. Order sem Pix invalidado fica de fora."""
+    if not order_ids:
+        return {}
+    rows = (
+        db.query(PaymentRecord.order_id, PaymentRecord.refund_status)
+        .filter(PaymentRecord.order_id.in_(order_ids), PaymentRecord.refund_status.isnot(None))
+        .order_by(PaymentRecord.refund_flagged_at, PaymentRecord.id)
+        .all()
+    )
+    return {order_id: refund_status for order_id, refund_status in rows}  # o último (mais recente) vence
+
+
+def _panel_row(order: CustomerOrder, refunds: dict[str, str]) -> dict:
+    return {
+        "id": order.id,
+        "order_number": order.order_number,
+        "status": order.status,
+        "status_label": status_label(order),
+        "being_altered": is_reopened(order),
+        "allowed_transitions": allowed_transitions(order),
+        "customer_name": order.customer_name,
+        "customer_phone": order.customer_phone,
+        "items": [
+            {"name": line.item_name, "quantity": line.quantity, "subtotal": float(line.subtotal_price)}
+            for line in order.items
+        ],
+        "total_amount": float(order.total_amount or 0),
+        "payment_method": order.payment_method,
+        "delivery_type": order.delivery_type,
+        "refund_status": refunds.get(order.id),
+        "opened_at": order.opened_at.isoformat() if order.opened_at else None,
+    }
+
+
+OrderFilter = Literal["active", "done", "all"]
+
+
+def _matches(filter_: OrderFilter):
+    """Confirmados pelo Contact: `active` (andamento + reaberto), `done` (entregue/cancelado) ou `all`."""
+    active = or_(
+        CustomerOrder.status.in_(ACTIVE_PANEL_STATUSES),
+        and_(CustomerOrder.status.in_(ACTIVE_STATUSES), CustomerOrder.closed_at.isnot(None)),
+    )
+    done = CustomerOrder.status.in_(DONE_PANEL_STATUSES)
+    return {"active": active, "done": done, "all": or_(active, done)}[filter_]
+
+
+@router.get("")
+def list_orders(
+    status: OrderFilter = Query("active"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Orders confirmados da Company por `status` (padrão `active`), do mais recente ao mais antigo, com `total`."""
+    query = _scoped_orders(db, current_user).filter(_matches(status))
+    total = query.order_by(None).count()
+    orders = query.order_by(CustomerOrder.opened_at.desc(), CustomerOrder.id).offset(offset).limit(limit).all()
+    refunds = _refund_statuses(db, [order.id for order in orders])
+    return {"orders": [_panel_row(order, refunds) for order in orders], "total": total}
+
+
+@router.post("/{order_id}/status")
+async def change_order_status(
+    order_id: str,
+    body: StatusChange,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Move o Order na máquina de status e avisa o Contact. Falha no aviso não desfaz a mudança (`notification`)."""
+    order = _scoped_orders(db, current_user).filter(CustomerOrder.id == order_id).first()
+    if order is None:
+        raise HTTPException(status_code=404, detail="Pedido não encontrado")
+    try:
+        notification = await change_status(db, order, body.status)
+    except TransitionError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"order": _panel_row(order, _refund_statuses(db, [order.id])), "notification": notification}

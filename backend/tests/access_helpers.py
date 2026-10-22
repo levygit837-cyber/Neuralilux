@@ -97,3 +97,17 @@ def fake_evolution(monkeypatch, instances: list | None = None) -> dict[str, Asyn
     for name, mock in mocks.items():
         monkeypatch.setattr(evolution_api, name, mock)
     return mocks
+
+
+def fake_text_sender(monkeypatch, *, fail: Exception | None = None) -> AsyncMock:
+    """Troca só o envio de texto da Evolution; cada envio devolve um id novo (`Message.message_id` é único)."""
+    counter = iter(range(1, 1000))
+
+    async def send(**_kwargs):
+        if fail is not None:
+            raise fail
+        return {"key": {"id": f"wamid-{next(counter)}"}}
+
+    mock = AsyncMock(side_effect=send)
+    monkeypatch.setattr(evolution_api, "send_text_message", mock)
+    return mock

@@ -50,13 +50,16 @@ def _store(key: tuple[str, str], pending: list[tuple[str, float]]) -> None:
 
 
 async def send_and_persist(
-    db: Session, instance: Instance, conversation: Conversation, contact: Contact, text: str
+    db: Session, instance: Instance, conversation: Conversation, contact: Contact, text: str, *, sent_by: str | None = None
 ) -> datetime:
     """Envia pela Evolution e grava a resposta como Message `from_me`, com o id devolvido.
 
     Devolve quando a resposta saiu. Falha no envio levanta; falha só ao gravar não desfaz o envio.
 
     Assim o eco do webhook (mesmo id) é descartado pelo dedup, e a UI recebe a resposta aqui.
+
+    `sent_by="system"` marca um aviso da API (não é o Agent nem um Attendant). Esse aviso é sempre gravado, mesmo sem
+    id da Evolution (`message_id` NULL): o eco depois o reconhece no banco (`system_notice.adopt_echo`), entre processos.
     """
     instance_name = instance.evolution_instance_id or instance.name
     response = await evolution_api.send_text_message(
@@ -66,10 +69,11 @@ async def send_and_persist(
     )
     sent_id = ((response or {}).get("key") or {}).get("id")
     if not sent_id:
-        # Sem id não há como deduplicar o eco; deixa o eco gravar a Message.
-        logger.warning("Evolution did not return a message id; reply will be stored from the webhook echo")
-        _remember_send_without_id(instance.id, conversation.remote_jid, text)
-        return datetime.now(timezone.utc)
+        logger.warning("Evolution did not return a message id", sent_by=sent_by)
+        if sent_by is None:
+            # Sem id não há como deduplicar o eco; deixa o eco gravar a Message.
+            _remember_send_without_id(instance.id, conversation.remote_jid, text)
+            return datetime.now(timezone.utc)
 
     timestamp = datetime.now(timezone.utc)
     try:
@@ -84,6 +88,7 @@ async def send_and_persist(
                 direction="outgoing",
                 status="sent",
                 is_from_me=True,
+                sent_by=sent_by,
                 timestamp=timestamp,
             )
         )

@@ -7,6 +7,7 @@ export const ROUTES = {
   LOGIN: '/login',
   DASHBOARD: '/dashboard',
   STOCK: '/estoque',
+  ORDERS: '/pedidos',
   CHAT: '/chat',
   QR: '/qr',
   INSTANCES: '/instances',

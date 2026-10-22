@@ -3,7 +3,7 @@ import type { NextRequest } from 'next/server'
 import { isTokenExpired } from '@/lib/authToken'
 
 // Protected routes that require authentication
-const PROTECTED_ROUTES = ['/dashboard', '/chat', '/instances', '/qr', '/estoque', '/settings']
+const PROTECTED_ROUTES = ['/dashboard', '/chat', '/instances', '/qr', '/estoque', '/pedidos', '/settings']
 
 // Public routes that should redirect authenticated users
 const AUTH_ROUTES = ['/login']
@@ -69,5 +69,5 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/', '/dashboard/:path*', '/chat/:path*', '/login', '/instances/:path*', '/qr/:path*', '/estoque/:path*', '/settings/:path*'],
+  matcher: ['/', '/dashboard/:path*', '/chat/:path*', '/login', '/instances/:path*', '/qr/:path*', '/estoque/:path*', '/pedidos/:path*', '/settings/:path*'],
 }
