@@ -4,7 +4,9 @@ from changes_helpers import closed_order
 from pack_helpers import call, payload
 
 from app.models import Conversation, CustomerOrder, Ticket
+from app.packs.catalog_orders import changes
 from tests.access_helpers import fake_text_sender, make_user, user_id
+from tests.conftest import TestingSessionLocal
 
 pytestmark = pytest.mark.asyncio
 
@@ -71,3 +73,28 @@ async def test_order_the_company_cancelled_is_reported_as_cancelled_to_the_conta
     world.db.expire_all()
     assert payload(await call(status_pedido, world.ctx))["pedido"]["status_descricao"] == "cancelado"
     assert (await call(pedido, world.ctx, acao="cancelar_pedido")).is_error  # já cancelado: não cancela de novo
+
+
+async def test_alteration_loses_when_the_company_starts_preparing_between_the_read_and_the_write(monkeypatch, world, pedido):
+    order = await closed_order(world, pedido)
+    read_then_company_moves = changes._require_changeable
+
+    def company_moves_after_the_read(*args, **kwargs):
+        found = read_then_company_moves(*args, **kwargs)
+        other_side = TestingSessionLocal()
+        try:
+            other_side.query(CustomerOrder).filter_by(id=order.id).update({"status": "in_production"})
+            other_side.commit()
+        finally:
+            other_side.close()
+        return found
+
+    monkeypatch.setattr(changes, "_require_changeable", company_moves_after_the_read)
+
+    result = await call(pedido, world.ctx, acao="alterar_pedido")
+
+    assert result.is_error
+    world.db.expire_all()
+    reloaded = world.db.get(CustomerOrder, order.id)
+    assert reloaded.status == "in_production"  # não volta a "em alteração" depois de o Contact ouvir "em preparo"
+    assert reloaded.confirmed_snapshot is None

@@ -74,7 +74,7 @@ _Avoid_: RAG, busca semântica, retrieval
 ### Atendimento humano
 
 **Handoff**:
-A passagem da Conversation do Agent para um Attendant. Enquanto vale, o Agent não responde.
+A passagem da Conversation do Agent para um Attendant. Enquanto vale, o Agent não responde. Termina quando o Attendant devolve a Conversation ou quando o prazo da Company vence sem ninguém atender; em ambos o Agent volta a responder na Message seguinte do Contact.
 _Avoid_: Escalonamento, transbordo, human in the loop
 
 **Attendant**:
@@ -92,7 +92,7 @@ Um produto ou serviço que a Company oferece, com preço e disponibilidade.
 _Avoid_: Produto, item de menu, SKU
 
 **Order**:
-O pedido que o Contact monta e confirma na Conversation. Só fecha depois que o Contact vê a Recap e confirma numa Message posterior, e a Company fechada recusa o fechamento. Fica `abandoned` se a Session acaba com ele aberto; nunca é retomado sozinho, o Agent só recria um Order novo a partir dele se o Contact pedir. Depois de confirmado (`closed`) e até entrar em preparo, o Contact pode cancelá-lo ou alterá-lo sem Handoff; alterar reabre a montagem e exige nova Recap. Alteração não reconfirmada até a Session acabar volta ao estado confirmado. Em preparo ou depois, só por Handoff.
+O pedido que o Contact monta e confirma na Conversation. Só fecha depois que o Contact vê a Recap e confirma numa Message posterior, e a Company fechada recusa o fechamento. Fica `abandoned` se a Session acaba com ele aberto; nunca é retomado sozinho, o Agent só recria um Order novo a partir dele se o Contact pedir. Depois de confirmado (`closed`) e até entrar em preparo, o Contact pode cancelá-lo ou alterá-lo sem Handoff; alterar reabre a montagem e exige nova Recap. Alteração não reconfirmada até a Session acabar volta ao estado confirmado. Depois de confirmado, a Company o move (`in_production`, `sent`, `delivered`, ou cancela) no painel Pedidos e o Contact recebe um aviso no WhatsApp a cada mudança. Em preparo ou depois, o Contact só mexe por Handoff.
 _Avoid_: Compra, carrinho, venda
 
 **Recap** (Recapitulação):

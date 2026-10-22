@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { orderService } from '@/services/orderService'
 import { useAuthStore } from '@/stores/useAuthStore'
@@ -28,6 +28,7 @@ export function useOrderPanel() {
   const [error, setError] = useState<string | null>(null)
   const [pendingOrderId, setPendingOrderId] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<OrderFeedback | null>(null)
+  const listGeneration = useRef(0) // sobe a cada troca de filtro; resposta de geração antiga é descartada
   const isLoggedOut = hasHydrated && !token
   const displayedError = isLoggedOut ? 'Faça login para acessar os pedidos.' : error
 
@@ -63,27 +64,33 @@ export function useOrderPanel() {
 
   const selectFilter = (next: OrderListFilter) => {
     if (next === filter) return
+    listGeneration.current += 1
     setOrders([])
     setTotal(0)
     setIsLoading(true)
+    setIsLoadingMore(false)
     setFeedback(null)
     setFilter(next)
   }
 
   const loadMore = async () => {
+    const generation = listGeneration.current
     setIsLoadingMore(true)
     try {
       // O servidor ordena por data: o que já está na tela é o começo da lista, então o próximo trecho começa após ele.
       const page = await orderService.list(filter, orders.length, ORDER_PAGE_SIZE)
+      // O filtro mudou durante a requisição: as linhas são da lista antiga e não podem entrar na nova.
+      if (listGeneration.current !== generation) return
       setOrders((current) => {
         const known = new Set(current.map((row) => row.id))
         return [...current, ...page.orders.filter((row) => !known.has(row.id))]
       })
       setTotal(page.total)
     } catch (err) {
+      if (listGeneration.current !== generation) return
       setError(err instanceof Error ? err.message : 'Não foi possível carregar mais pedidos.')
     } finally {
-      setIsLoadingMore(false)
+      if (listGeneration.current === generation) setIsLoadingMore(false)
     }
   }
 

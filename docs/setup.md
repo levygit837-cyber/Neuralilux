@@ -168,11 +168,29 @@ Reexecutar o seed não religa uma Instance que o administrador desligou. O Agent
 
 ## 7. Conferir de ponta a ponta
 
-1. Mande "oi, qual o horário?" de outro número para o WhatsApp conectado.
+1. Mande "oi, qual o horário?" de outro número para o WhatsApp conectado. Para ver o fluxo do pedido, peça uma pizza, informe os dados e diga "pode fechar": o Agent deve recapitular e só fechar depois de um "confirmo".
 2. No log do worker devem aparecer `Message saved to database`, `Turn finished` e `Agent response sent`. Com a Instance ainda não conectada ao WhatsApp, o `Turn finished` aparece (o Agent responde de fato pelo Gateway), mas o envio falha com `Evolution API request error`; conecte o QR code antes de esperar a resposta no celular.
 3. O dashboard mostra a Message, o indicador de `thinking_event` e a resposta.
 
 Se algo não responde, veja o [troubleshooting](operations.md#troubleshooting).
+
+## 8. Ajustar o atendimento da Company
+
+O comportamento do Agent vem de duas fontes: variáveis do `backend/.env` (valem para o worker inteiro) e a linha da Company, editada em **Configurações > Geral** (vale já no próximo Turn, sem reiniciar). Detalhes em [agent.md](agent.md#configuração-da-company).
+
+| O que | Onde | Padrão | Efeito |
+|---|---|---|---|
+| Pausa para agrupar Messages picadas | `DEBOUNCE_SECONDS` | 3 | O Agent espera esse silêncio do Contact e responde uma vez só. `0` desliga. |
+| Renovação do "digitando…" | `TYPING_REFRESH_SECONDS` | 20 | Só cosmético. |
+| Intervalo do sweeper de Handoff | `HANDOFF_SWEEP_INTERVAL_SECONDS` | 60 | De quanto em quanto o worker devolve ao Agent os Handoffs vencidos. |
+| Limite da Session | `session_timeout_minutes` (painel) | 180 | Sem Messages por esse tempo, começa um novo atendimento e o Order aberto vira `abandoned`. |
+| Timeout do Handoff | `handoff_timeout_hours` (painel) | 4 | Sem Attendant agir por esse tempo, o Agent volta a responder. |
+| Horários e fuso | `business_hours`, `timezone` (painel) | do seed | Fora do horário o Agent não fecha pedido e informa a próxima abertura. Sem horários cadastrados, nunca bloqueia. |
+| Chave Pix e pedido mínimo | `pix_key`, `minimum_order` (painel) | do seed | Sem chave Pix o fechamento recusa Pix; abaixo do mínimo o `finalizar` diz quanto falta. |
+
+O worker faz duas coisas além de consumir a fila: agrupa as Messages e roda o sweeper de Handoff. Sem ele rodando, o timeout só vale quando o Contact escreve de novo ([operations.md](operations.md#como-o-handoff-termina)).
+
+Para acompanhar os pedidos que o Agent fecha, abra **Pedidos** (`/pedidos`) no dashboard: a Company move o status e o Contact recebe o aviso no WhatsApp ([operations.md](operations.md#painel-de-pedidos-status-pela-company)).
 
 ## Testes
 
