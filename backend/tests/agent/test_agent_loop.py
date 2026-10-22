@@ -183,6 +183,23 @@ async def test_max_steps_faz_chamada_final_com_schemas_e_ignora_tool_use_dela():
 
 
 @pytest.mark.asyncio
+async def test_max_tokens_e_temperature_chegam_a_toda_chamada_inclusive_a_final():
+    client = FakeMessagesClient(
+        [
+            reply(tool_use("buscar_cardapio", {}, "toolu_1")),
+            reply(tool_use("buscar_cardapio", {}, "toolu_2")),
+            reply(text("Pronto.")),
+        ]
+    )
+
+    await _run(client, _registry(buscar_cardapio=_returning("nada")), max_steps=2, max_tokens=700, temperature=0.2)
+
+    assert len(client.requests) == 3
+    assert {(r.max_tokens, r.temperature) for r in client.requests} == {(700, 0.2)}
+
+
+
+@pytest.mark.asyncio
 async def test_max_steps_sem_texto_na_chamada_final_responde_mensagem_fixa():
     client = FakeMessagesClient(
         [

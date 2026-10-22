@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from app.models import Company
+from app.models import Agent, Company
 from app.schemas.company import CompanyCreate, CompanyUpdate
 
 
@@ -18,9 +18,12 @@ def get_company(db: Session, company_id: str) -> Optional[Company]:
     return db.query(Company).filter(Company.id == company_id).first()
 
 
-def list_companies(db: Session, skip: int = 0, limit: int = 100) -> List[Company]:
-    """List all companies with pagination"""
-    return db.query(Company).filter(Company.is_active == True).offset(skip).limit(limit).all()
+def list_companies(db: Session, skip: int = 0, limit: int = 100, company_id: Optional[str] = None) -> List[Company]:
+    """Companies ativas com paginação; `company_id` restringe a uma Company (sem ele, todas)."""
+    query = db.query(Company).filter(Company.is_active == True)  # noqa: E712
+    if company_id is not None:
+        query = query.filter(Company.id == company_id)
+    return query.order_by(Company.name, Company.id).offset(skip).limit(limit).all()
 
 
 def update_company(db: Session, company_id: str, company_update: CompanyUpdate) -> Optional[Company]:
@@ -47,3 +50,15 @@ def delete_company(db: Session, company_id: str) -> bool:
     db_company.is_active = False
     db.commit()
     return True
+
+
+def company_agent(db: Session, company_id: Optional[str]) -> Optional[Agent]:
+    """O Agent ativo da Company (o mesmo critério do worker em `_resolve_default_agent`)."""
+    if not company_id:
+        return None
+    return (
+        db.query(Agent)
+        .filter(Agent.company_id == company_id, Agent.is_active == True)  # noqa: E712
+        .order_by(Agent.created_at, Agent.id)
+        .first()
+    )

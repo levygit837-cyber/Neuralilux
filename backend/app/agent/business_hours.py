@@ -6,6 +6,7 @@ As funções puras recebem o "agora" já convertido para o fuso da Company (`app
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -15,13 +16,20 @@ DAY_LABELS = ("segunda", "terca", "quarta", "quinta", "sexta", "sabado", "doming
 WEEKDAY_NAMES = ("segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo")
 
 
-def _minutes(clock: str) -> int:
-    hours, minutes = clock.split(":")
+_CLOCK = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+def parse_clock(value: Any) -> int:
+    """Minutos desde 00:00 de um `HH:MM` estrito (00:00 a 23:59). Único parser: o painel valida com ele
+    o que `is_open_at` e `next_opening` leem depois, então os dois sempre concordam."""
+    if not isinstance(value, str) or not _CLOCK.match(value):
+        raise ValueError(f"Horário inválido: {value!r}; use HH:MM, de 00:00 a 23:59.")
+    hours, minutes = value.split(":")
     return int(hours) * 60 + int(minutes)
 
 
 def _intervals(raw: Any) -> list[tuple[int, int]]:
-    return [(_minutes(start), _minutes(end)) for start, end in (raw or [])]
+    return [(parse_clock(start), parse_clock(end)) for start, end in (raw or [])]
 
 
 def is_open_at(hours: dict[str, list[list[str]]] | None, local_now: datetime) -> bool | None:

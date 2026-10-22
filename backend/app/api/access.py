@@ -10,7 +10,8 @@ Regras:
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.models import Agent, Instance, User
+from app.models import Company, Instance, User
+from app.services.company_service import company_agent
 
 
 def resolve_instance(db: Session, instance_ref: str, *, only_active: bool = True) -> Instance | None:
@@ -57,16 +58,17 @@ def instance_ids_for_user(db: Session, user: User) -> list[str] | None:
     return [row.id for row in rows]
 
 
-def company_agent(db: Session, company_id: str | None) -> Agent | None:
-    """O Agent ativo da Company (o mesmo critério do worker em `_resolve_default_agent`)."""
-    if not company_id:
-        return None
-    return (
-        db.query(Agent)
-        .filter(Agent.company_id == company_id, Agent.is_active == True)  # noqa: E712
-        .order_by(Agent.created_at, Agent.id)
-        .first()
-    )
+def get_company_for_user(db: Session, company_id: str, user: User) -> Company:
+    """Company do próprio usuário (ou qualquer uma, para o superusuário).
+
+    Quem não é da Company recebe 403 mesmo se o id não existe, para não revelar quais ids existem.
+    """
+    if not user.is_superuser and user.company_id != company_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not enough permissions to access this company")
+    company = db.get(Company, company_id)
+    if company is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found")
+    return company
 
 
 def _find_by_evolution_name(db: Session, name: str) -> Instance | None:

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Palette, Globe, Clock, Save } from 'lucide-react'
+import { Palette, Globe, Save } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { useSettingsStore } from '@/stores/useSettingsStore'
@@ -96,8 +96,8 @@ export function ThemeAppearanceCard() {
         </div>
       </div>
 
-      {/* Row: Idioma + Fuso Horário */}
-      <div className="grid grid-cols-2 gap-4">
+      {/* Idioma */}
+      <div className="grid grid-cols-1 gap-4">
         <div className="space-y-1.5">
           <div className="flex items-center gap-1.5">
             <Globe className="h-3.5 w-3.5 text-text-gray" />
@@ -107,17 +107,6 @@ export function ThemeAppearanceCard() {
             value={formData.language}
             onChange={(e) => handleChange('language', e.target.value)}
             placeholder="Português (BR)"
-          />
-        </div>
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-1.5">
-            <Clock className="h-3.5 w-3.5 text-text-gray" />
-            <label className="text-sm font-medium text-text-light">Fuso horário</label>
-          </div>
-          <Input
-            value={formData.timezone}
-            onChange={(e) => handleChange('timezone', e.target.value)}
-            placeholder="America/Sao_Paulo (GMT-3)"
           />
         </div>
       </div>

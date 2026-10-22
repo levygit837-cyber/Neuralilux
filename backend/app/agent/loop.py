@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from app.agent.contracts import (
+    DEFAULT_MAX_TOKENS,
     ChatMessage,
     ContentBlock,
     MessagesClient,
@@ -60,6 +61,8 @@ async def run_turn(
     *,
     max_steps: int = 6,
     effort: str | None = None,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+    temperature: float | None = None,
     observer: TurnObserver | None = None,
 ) -> TurnResult:
     messages: list[ChatMessage] = list(history)
@@ -67,10 +70,20 @@ async def run_turn(
     tool_calls: list[ToolCall] = []
     steps = 0
 
-    while True:
-        response = await client.create(
-            MessagesRequest(model=model, system=system, messages=messages, tools=tools, effort=effort)
+    def request() -> MessagesRequest:
+        # `messages` é a mesma lista que o loop vai anexando; cada chamada vê o estado atual.
+        return MessagesRequest(
+            model=model,
+            system=system,
+            messages=messages,
+            tools=tools,
+            max_tokens=max_tokens,
+            effort=effort,
+            temperature=temperature,
         )
+
+    while True:
+        response = await client.create(request())
         steps += 1
         uses = [block for block in response.content if block["type"] == "tool_use"]
         if response.stop_reason != "tool_use" or not uses:
@@ -91,9 +104,7 @@ async def run_turn(
         if steps >= max_steps:
             results.append({"type": "text", "text": FINAL_ANSWER_INSTRUCTION})
             messages.append({"role": "user", "content": results})
-            final = await client.create(
-                MessagesRequest(model=model, system=system, messages=messages, tools=tools, effort=effort)
-            )
+            final = await client.create(request())
             # Só o texto conta: um tool_use aqui não é executado. Sem texto, resposta fixa.
             reply_text = _reply_text(final) or MAX_STEPS_FALLBACK_REPLY
             return TurnResult(reply_text=reply_text, tool_calls=tool_calls, steps=steps + 1)

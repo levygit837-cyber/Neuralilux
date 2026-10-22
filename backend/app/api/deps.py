@@ -56,3 +56,10 @@ async def get_optional_user(
     if token is None:
         return None
     return _user_from_token(token, db)
+
+
+async def require_superuser(current_user=Depends(get_current_user)):
+    """Usuário do JWT, só se for superusuário; 403 para os demais."""
+    if not current_user.is_superuser:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only a superuser can do this")
+    return current_user
