@@ -1,7 +1,11 @@
 """Assumir e devolver pelo painel: estado, Ticket, listagem e eventos em tempo real."""
+from datetime import timedelta
+
 from access_helpers import make_company, make_conversation, make_instance, make_user, user_id
 
+from app.agent import clock
 from app.models import Conversation, Ticket
+from app.services import handoff_service
 
 
 def _setup(client, db, email="atendente@example.com"):
@@ -99,3 +103,93 @@ def test_other_users_cannot_take_or_release(client, db, realtime):
     assert client.post(f"/api/v1/conversations/{conversation.id}/release-control", headers=intruder).status_code == 403
     db.expire_all()
     assert db.get(Conversation, conversation.id).human_in_loop is False
+
+
+def _colleague(client, db, instance, email="colega@example.com"):
+    """Segundo Attendant com acesso à Instance. O acesso é por dono (`owner_id`) ou superusuário, então é superusuário."""
+    return make_user(client, db, email, superuser=True)
+
+
+def test_second_attendant_cannot_take_a_conversation_already_held(client, db, realtime):
+    headers, instance, conversation = _setup(client, db)
+    colleague = _colleague(client, db, instance)
+    client.post(f"/api/v1/conversations/{conversation.id}/take-control", json={}, headers=headers)
+    realtime.clear()
+
+    response = client.post(f"/api/v1/conversations/{conversation.id}/take-control", json={}, headers=colleague)
+
+    assert response.status_code == 409
+    db.expire_all()
+    ticket = db.query(Ticket).one()
+    assert ticket.assigned_to == user_id(db, "atendente@example.com")
+    assert realtime == []
+
+
+def test_same_attendant_taking_again_is_idempotent(client, db, realtime):
+    headers, _instance, conversation = _setup(client, db)
+    first = client.post(f"/api/v1/conversations/{conversation.id}/take-control", json={}, headers=headers)
+
+    second = client.post(f"/api/v1/conversations/{conversation.id}/take-control", json={}, headers=headers)
+
+    assert first.status_code == second.status_code == 200
+    assert second.json()["assigned_to"] == first.json()["assigned_to"]
+    assert db.query(Ticket).count() == 1
+
+
+def test_another_attendant_can_take_after_the_conversation_was_released(client, db, realtime):
+    headers, instance, conversation = _setup(client, db)
+    colleague = _colleague(client, db, instance)
+    client.post(f"/api/v1/conversations/{conversation.id}/take-control", json={}, headers=headers)
+    client.post(f"/api/v1/conversations/{conversation.id}/release-control", headers=headers)
+
+    response = client.post(f"/api/v1/conversations/{conversation.id}/take-control", json={}, headers=colleague)
+
+    assert response.status_code == 200
+    assert response.json()["assigned_to"] == user_id(db, "colega@example.com")
+
+
+def test_attendant_can_take_an_unassigned_agent_handoff(client, db, realtime):
+    headers, instance, conversation = _setup(client, db)
+    ticket = handoff_service.open_handoff(db, conversation, "Pedido veio errado")
+    assert ticket.assigned_to is None
+
+    response = client.post(f"/api/v1/conversations/{conversation.id}/take-control", json={}, headers=headers)
+
+    assert response.status_code == 200 and db.query(Ticket).count() == 1
+
+
+def test_release_after_timeout_already_returned_it_changes_and_announces_nothing(client, db, realtime):
+    headers, instance, conversation = _setup(client, db)
+    handoff_service.open_handoff(db, conversation, "Reclamação")
+    handoff_service.release(db, conversation, status="expired")
+
+    response = client.post(f"/api/v1/conversations/{conversation.id}/release-control", headers=headers)
+
+    assert response.status_code == 200 and response.json()["human_in_loop"] is False
+    assert realtime == []
+    assert db.query(Ticket).one().status == "expired"
+
+
+def test_status_endpoint_is_read_only_even_when_the_timeout_is_due(client, db, realtime, monkeypatch):
+    headers, instance, conversation = _setup(client, db)
+    ticket = handoff_service.open_handoff(db, conversation, "Reclamação")
+    monkeypatch.setattr(clock, "utc_now", lambda: ticket.created_at.replace(tzinfo=None).astimezone() + timedelta(hours=9))
+
+    response = client.get(f"/api/v1/conversations/{conversation.id}/human-control-status", headers=headers)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["human_in_loop"] is True and body["timeout_due"] is True
+    db.expire_all()
+    assert db.get(Conversation, conversation.id).human_in_loop is True
+    assert db.query(Ticket).one().status == "open"
+    assert realtime == []
+
+
+def test_status_endpoint_reports_not_due_inside_the_timeout(client, db, realtime):
+    headers, _instance, conversation = _setup(client, db)
+    handoff_service.open_handoff(db, conversation, "Reclamação")
+
+    body = client.get(f"/api/v1/conversations/{conversation.id}/human-control-status", headers=headers).json()
+
+    assert body["human_in_loop"] is True and body["timeout_due"] is False

@@ -13,7 +13,8 @@ from typing import Any
 import structlog
 
 from app.agent.business_hours import DAY_KEYS, DAY_LABELS, describe_opening, is_open_at, next_opening
-from app.agent.clock import DEFAULT_TIMEZONE, company_zone, utc_now
+from app.agent import clock
+from app.agent.clock import DEFAULT_TIMEZONE, company_zone
 from app.agent.contracts import Tool, ToolContext, ToolResult
 from app.agent.memory import search_history
 from app.models import Company, Conversation, DeliveryZone, Instance
@@ -74,7 +75,7 @@ async def _info_empresa(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
         .order_by(DeliveryZone.name)
         .all()
     )
-    local_now = utc_now().astimezone(company_zone(company))
+    local_now = clock.utc_now().astimezone(company_zone(company))
     payment_methods = ["pix"] if company.pix_key else []
     payment_methods += ["dinheiro", "cartao"]
 
@@ -113,6 +114,8 @@ async def _transferir_atendente(ctx: ToolContext, args: dict[str, Any]) -> ToolR
         return ToolResult(content=farewell, ends_turn=True)
 
     ticket = open_handoff(ctx.db, conversation, reason)
+    if ticket is None:  # outra requisição abriu o Handoff no meio: o Turn termina do mesmo jeito
+        return ToolResult(content=farewell, ends_turn=True)
     instance = ctx.db.get(Instance, conversation.instance_id)
     try:
         await publish_event(
@@ -125,7 +128,7 @@ async def _transferir_atendente(ctx: ToolContext, args: dict[str, Any]) -> ToolR
                     "contact_id": conversation.contact_id,
                     "ticket_id": ticket.id,
                     "reason": reason,
-                    "timestamp": utc_now().isoformat(),
+                    "timestamp": clock.utc_now().isoformat(),
                 },
             }
         )
@@ -148,7 +151,7 @@ def _handoff_availability(company: Company | None) -> str:
     """Fixa em horário comercial; fora dele, informa a próxima janela de atendimento."""
     if company is None or not company.business_hours:
         return TRANSFER_MESSAGE
-    local_now = utc_now().astimezone(company_zone(company))
+    local_now = clock.utc_now().astimezone(company_zone(company))
     if is_open_at(company.business_hours, local_now):
         return TRANSFER_MESSAGE
     opening = next_opening(company.business_hours, local_now)
@@ -202,7 +205,7 @@ def core_tools() -> list[Tool]:
                         "description": "Uma ou duas frases empáticas ao cliente, em português, sem prazo nem horário.",
                     },
                 },
-                "required": ["motivo", "frase_empatica"],
+                "required": ["motivo"],
                 "additionalProperties": False,
             },
             handler=_transferir_atendente,

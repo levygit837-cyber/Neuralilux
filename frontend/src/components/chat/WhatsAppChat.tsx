@@ -33,7 +33,7 @@ export function WhatsAppChat() {
   const { resolvedInstance, isResolvingInstance, resolveError } = useResolvedInstance()
   const instanceName = resolvedInstance?.name
   const agent = useAgentControl(instanceName, token)
-  const handoff = useHandoffControl()
+  const handoff = useHandoffControl(activeConversationId)
 
   const { isConnected } = useChatRealtime({
     token,

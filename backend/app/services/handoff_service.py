@@ -4,19 +4,23 @@ O estado mora na Conversation (`human_in_loop`, `human_handoff_reason`, `ticket_
 atende (`assigned_to`), quando o Attendant agiu por último (`attendant_activity_at`) e como terminou
 (`closed` = devolvido por um Attendant, `expired` = timeout da Company).
 
-As funções de banco são síncronas e fazem commit; `announce` publica `handoff_updated` para a UI em tempo real.
+API e sweeper do worker mexem na mesma Conversation ao mesmo tempo, então toda transição é um UPDATE
+condicional no banco (`WHERE human_in_loop = ...`) e só quem muda a linha (`rowcount == 1`) age e avisa a UI.
+Um Ticket já `closed` nunca vira `expired`. Os testes injetam `now=`; sem ele vale `clock.utc_now()`.
 """
 
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import structlog
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
-from app.agent.clock import utc_now
+from app.agent import clock
 from app.core import database
 from app.models import Company, Conversation, Instance, Message, Ticket, User
 
@@ -26,6 +30,17 @@ logger = structlog.get_logger()
 HANDOFF_AGENT_TYPE = "whatsapp_agent"
 OPEN_STATUSES = ("open", "in_progress")
 DEFAULT_TIMEOUT_HOURS = 4
+
+
+class HeldByAnotherAttendant(Exception):
+    """Outro Attendant já segura a Conversation (a API responde 409)."""
+
+
+@dataclass(frozen=True)
+class Released:
+    """Resultado de uma devolução que de fato aconteceu; `ticket` é None em Handoff antigo, sem Ticket."""
+
+    ticket: Ticket | None
 
 
 def _aware(value: datetime) -> datetime:
@@ -52,9 +67,20 @@ def last_incoming_content(db: Session, conversation: Conversation) -> str | None
     return message.content if message else None
 
 
-def open_handoff(db: Session, conversation: Conversation, reason: str, *, attendant: User | None = None) -> Ticket:
-    """Liga o Handoff e abre o Ticket. Com `attendant`, o Ticket já nasce atribuído a ele (`in_progress`)."""
-    now = utc_now()
+def open_handoff(
+    db: Session,
+    conversation: Conversation,
+    reason: str,
+    *,
+    attendant: User | None = None,
+    now: datetime | None = None,
+) -> Ticket | None:
+    """Liga o Handoff e abre o Ticket. Com `attendant`, o Ticket já nasce atribuído a ele (`in_progress`).
+
+    Devolve None, sem criar nada, se outra requisição abriu o Handoff antes. Um Handoff antigo, ligado sem Ticket,
+    não conta como aberto: ele ganha o Ticket.
+    """
+    now = now or clock.utc_now()
     ticket = Ticket(
         conversation_id=conversation.id,
         instance_id=conversation.instance_id,
@@ -68,52 +94,118 @@ def open_handoff(db: Session, conversation: Conversation, reason: str, *, attend
     )
     db.add(ticket)
     db.flush()
-    conversation.human_in_loop = True
-    conversation.human_handoff_reason = reason
-    conversation.ticket_id = ticket.id
-    db.commit()
-    return ticket
-
-
-def assume(db: Session, conversation: Conversation, attendant: User, reason: str | None = None) -> Ticket:
-    """O Attendant assume a Conversation. Sem Ticket aberto (assumir direto do Agent), abre um."""
-    ticket = db.get(Ticket, conversation.ticket_id) if conversation.human_in_loop and conversation.ticket_id else None
-    if ticket is None or ticket.status not in OPEN_STATUSES:
-        return open_handoff(
-            db, conversation, reason or f"Atendimento assumido por {attendant.full_name or attendant.email}", attendant=attendant
+    switched = (
+        db.query(Conversation)
+        .filter(
+            Conversation.id == conversation.id,
+            or_(Conversation.human_in_loop.is_(False), Conversation.ticket_id.is_(None)),
         )
-    now = utc_now()
-    ticket.assigned_to = attendant.id
-    ticket.status = "in_progress"
-    ticket.attendant_activity_at = now
-    ticket.updated_at = now
+        .update(
+            {"human_in_loop": True, "human_handoff_reason": reason, "ticket_id": ticket.id},
+            synchronize_session=False,
+        )
+    )
+    if switched != 1:
+        db.rollback()
+        return None
     db.commit()
     return ticket
 
 
-def release(db: Session, conversation: Conversation, *, status: str = "closed") -> Ticket | None:
-    """Devolve a Conversation ao Agent e fecha o Ticket aberto (`closed`, ou `expired` no timeout)."""
-    ticket = db.get(Ticket, conversation.ticket_id) if conversation.ticket_id else None
-    now = utc_now()
-    if ticket is not None and ticket.status in OPEN_STATUSES:
-        ticket.status = status
-        ticket.closed_at = now
-        ticket.updated_at = now
-    conversation.human_in_loop = False
-    conversation.human_handoff_reason = None
-    conversation.ticket_id = None
+def assume(
+    db: Session,
+    conversation: Conversation,
+    attendant: User,
+    reason: str | None = None,
+    *,
+    now: datetime | None = None,
+) -> Ticket:
+    """O Attendant assume a Conversation. Sem Ticket aberto (assumir direto do Agent), abre um.
+
+    Idempotente para o mesmo Attendant. Levanta `HeldByAnotherAttendant` se outro já assumiu.
+    """
+    now = now or clock.utc_now()
+    fallback_reason = reason or f"Atendimento assumido por {attendant.full_name or attendant.email}"
+    for _attempt in range(2):  # a 2ª volta cobre outra requisição abrindo o Handoff entre a leitura e a escrita
+        ticket_id = (
+            db.query(Conversation.ticket_id)
+            .filter(Conversation.id == conversation.id, Conversation.human_in_loop.is_(True))
+            .scalar()
+        )
+        ticket = db.get(Ticket, ticket_id) if ticket_id else None
+        if ticket is None or ticket.status not in OPEN_STATUSES:
+            opened = open_handoff(db, conversation, fallback_reason, attendant=attendant, now=now)
+            if opened is not None:
+                return opened
+            continue
+        claimed = (
+            db.query(Ticket)
+            .filter(
+                Ticket.id == ticket.id,
+                Ticket.status.in_(OPEN_STATUSES),
+                or_(Ticket.assigned_to.is_(None), Ticket.assigned_to == attendant.id),
+            )
+            .update(
+                {"assigned_to": attendant.id, "status": "in_progress", "attendant_activity_at": now, "updated_at": now},
+                synchronize_session=False,
+            )
+        )
+        db.commit()
+        if claimed != 1:
+            raise HeldByAnotherAttendant(ticket.id)
+        db.refresh(ticket)
+        return ticket
+    raise HeldByAnotherAttendant(conversation.id)
+
+
+def release(
+    db: Session,
+    conversation: Conversation,
+    *,
+    status: str = "closed",
+    now: datetime | None = None,
+    only_ticket_id: str | None = None,
+) -> Released | None:
+    """Devolve a Conversation ao Agent e fecha o Ticket aberto (`closed`, ou `expired` no timeout).
+
+    Devolve None, sem mudar nada, quando outra requisição já devolveu ou quando `only_ticket_id` não é mais o
+    Ticket da Conversation (o timeout julgou um Handoff que já acabou, e talvez outro tenha começado).
+    """
+    now = now or clock.utc_now()
+    ticket_id = db.query(Conversation.ticket_id).filter(Conversation.id == conversation.id).scalar()
+    if only_ticket_id is not None and ticket_id != only_ticket_id:
+        db.rollback()
+        return None
+    same_ticket = Conversation.ticket_id == ticket_id if ticket_id else Conversation.ticket_id.is_(None)
+    switched = (
+        db.query(Conversation)
+        .filter(Conversation.id == conversation.id, Conversation.human_in_loop.is_(True), same_ticket)
+        .update(
+            {"human_in_loop": False, "human_handoff_reason": None, "ticket_id": None},
+            synchronize_session=False,
+        )
+    )
+    if switched != 1:
+        db.rollback()
+        return None
+    if ticket_id:
+        db.query(Ticket).filter(Ticket.id == ticket_id, Ticket.status.in_(OPEN_STATUSES)).update(
+            {"status": status, "closed_at": now, "updated_at": now}, synchronize_session=False
+        )
     db.commit()
-    return ticket
+    return Released(ticket=db.get(Ticket, ticket_id) if ticket_id else None)
 
 
-def record_attendant_activity(db: Session, conversation: Conversation) -> None:
+def record_attendant_activity(db: Session, conversation: Conversation, *, now: datetime | None = None) -> None:
     """Um Attendant escreveu na Conversation em Handoff: reinicia a contagem do timeout."""
-    if not conversation.human_in_loop or not conversation.ticket_id:
+    ticket_id = db.query(Conversation.ticket_id).filter(
+        Conversation.id == conversation.id, Conversation.human_in_loop.is_(True)
+    ).scalar()
+    if not ticket_id:
         return
-    ticket = db.get(Ticket, conversation.ticket_id)
-    if ticket is None:
-        return
-    ticket.attendant_activity_at = utc_now()
+    db.query(Ticket).filter(Ticket.id == ticket_id, Ticket.status.in_(OPEN_STATUSES)).update(
+        {"attendant_activity_at": now or clock.utc_now()}, synchronize_session=False
+    )
     db.commit()
 
 
@@ -129,14 +221,14 @@ def _last_touch(db: Session, conversation: Conversation) -> datetime | None:
 
 
 def is_overdue(db: Session, conversation: Conversation, company: Company | None, now: datetime | None = None) -> bool:
-    """True se a Conversation está em Handoff e nenhum Attendant agiu dentro do timeout da Company."""
+    """True se a Conversation está em Handoff e nenhum Attendant agiu dentro do timeout da Company. Só lê."""
     if not conversation.human_in_loop or company is None:
         return False
     touched = _last_touch(db, conversation)
     if touched is None:
         return False
     timeout = timedelta(hours=company.handoff_timeout_hours or DEFAULT_TIMEOUT_HOURS)
-    return (now or utc_now()) - touched >= timeout
+    return (now or clock.utc_now()) - touched >= timeout
 
 
 async def announce(instance: Instance | None, conversation: Conversation, change: str, ticket: Ticket | None) -> None:
@@ -156,7 +248,7 @@ async def announce(instance: Instance | None, conversation: Conversation, change
                     "change": change,
                     "human_in_loop": bool(conversation.human_in_loop),
                     "assigned_to": ticket.assigned_to if ticket and conversation.human_in_loop else None,
-                    "timestamp": utc_now().isoformat(),
+                    "timestamp": clock.utc_now().isoformat(),
                 },
             }
         )
@@ -165,13 +257,19 @@ async def announce(instance: Instance | None, conversation: Conversation, change
 
 
 async def expire_if_due(db: Session, conversation: Conversation, instance: Instance, now: datetime | None = None) -> bool:
-    """Devolve ao Agent uma Conversation cujo Handoff passou do timeout. True se devolveu."""
+    """Devolve ao Agent uma Conversation cujo Handoff passou do timeout. True só se ESTA chamada devolveu.
+
+    Se a API devolveu no meio, `release` não muda nada e nada é anunciado.
+    """
     company = db.get(Company, instance.company_id) if instance.company_id else None
     if not is_overdue(db, conversation, company, now):
         return False
-    ticket = release(db, conversation, status="expired")
+    judged_ticket_id = conversation.ticket_id
+    released = release(db, conversation, status="expired", now=now, only_ticket_id=judged_ticket_id)
+    if released is None:
+        return False
     logger.info("Handoff expired, Conversation back to the Agent", conversation_id=conversation.id)
-    await announce(instance, conversation, "expired", ticket)
+    await announce(instance, conversation, "expired", released.ticket)
     return True
 
 

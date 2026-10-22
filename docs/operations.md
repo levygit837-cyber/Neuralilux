@@ -8,15 +8,15 @@ Handoff é a passagem da Conversation do Agent para um Attendant. Enquanto vale,
 
 ### Como o Handoff começa
 
-- **Pelo Agent.** O modelo chama `transferir_atendente(motivo, frase_empatica)`. A Tool abre um Ticket (`status=open`, `reason`, `content` com a última Message do Contact), liga `human_in_loop`, grava `human_handoff_reason` e `ticket_id`, publica `human_handoff_requested` e **encerra o Turn**. A resposta ao Contact é a `frase_empatica` escrita pelo Agent (coerente com o motivo) seguida de uma frase do sistema: "em instantes alguém continua" dentro do horário da Company, ou "fora do horário, um atendente continua hoje/amanhã/<dia> às HH:MM" fora dele (próxima janela de `Company.business_hours`, no fuso da Company). Sem horários cadastrados, vale sempre a frase de horário comercial. Se a Conversation já está em Handoff com Ticket, não abre outro.
-- **Por um Attendant.** O botão "Assumir" do chat chama `POST /api/v1/conversations/{id}/take-control` (corpo opcional `{"reason": "..."}`). Com Ticket aberto, atribui-o ao usuário (`in_progress`); sem Ticket, abre um já atribuído.
+- **Pelo Agent.** O modelo chama `transferir_atendente(motivo, frase_empatica)`; só `motivo` é obrigatório, e sem `frase_empatica` a resposta é só a frase do sistema. A Tool abre um Ticket (`status=open`, `reason`, `content` com a última Message do Contact), liga `human_in_loop`, grava `human_handoff_reason` e `ticket_id`, publica `human_handoff_requested` e **encerra o Turn**. A resposta ao Contact é a `frase_empatica` escrita pelo Agent (coerente com o motivo) seguida de uma frase do sistema: "em instantes alguém continua" dentro do horário da Company, ou "fora do horário, um atendente continua hoje/amanhã/<dia> às HH:MM" fora dele (próxima janela de `Company.business_hours`, no fuso da Company). Sem horários cadastrados, vale sempre a frase de horário comercial. Se a Conversation já está em Handoff com Ticket, não abre outro.
+- **Por um Attendant.** O botão "Assumir" do chat chama `POST /api/v1/conversations/{id}/take-control` (corpo opcional `{"reason": "..."}`). Com Ticket aberto, atribui-o ao usuário (`in_progress`); sem Ticket, abre um já atribuído. Se **outro** Attendant já está com a Conversation, responde **409**; o mesmo Attendant clicando de novo é idempotente (200).
 
 O gate é lido do banco a cada Turn e de novo antes de enviar a resposta: se um Attendant assume enquanto o modelo ainda está respondendo, a resposta do Agent é descartada.
 
 ### Como o Handoff termina
 
-- **Devolver.** O botão "Devolver ao Agent" chama `POST /api/v1/conversations/{id}/release-control`: desliga `human_in_loop`, limpa `ticket_id` e **fecha o Ticket** (`closed`, com `closed_at`). O Agent volta a responder na próxima Message. Sem Handoff em curso, a rota não muda nada.
-- **Timeout.** `Company.handoff_timeout_hours` (padrão 4, de 1 a 720; editável em `PATCH /companies/{id}`) é o tempo sem Attendant agir. A contagem parte da abertura do Ticket e reinicia a cada ação do Attendant (assumir, escrever pelo painel, pelo Socket.IO ou pelo celular da Company). Vencido, a Conversation volta ao Agent e o Ticket vira `expired` (com `closed_at`). Quem executa: o worker (`sweep_forever`, a cada `HANDOFF_SWEEP_INTERVAL_SECONDS`, padrão 60) e, como rede de segurança exata, o consumer na próxima Message do Contact e `GET .../human-control-status`.
+- **Devolver.** O botão "Devolver ao Agent" chama `POST /api/v1/conversations/{id}/release-control`: desliga `human_in_loop`, limpa `ticket_id` e **fecha o Ticket** (`closed`, com `closed_at`). O Agent volta a responder na próxima Message. Sem Handoff em curso, ou se o timeout devolveu antes, a rota não muda nada e não anuncia nada.
+- **Timeout.** `Company.handoff_timeout_hours` (padrão 4, de 1 a 720; editável em `PATCH /companies/{id}`) é o tempo sem Attendant agir. A contagem parte da abertura do Ticket e reinicia a cada ação do Attendant (assumir, escrever pelo painel, pelo Socket.IO ou pelo celular da Company; o eco `fromMe` de uma resposta do próprio Agent não conta). Vencido, a Conversation volta ao Agent e o Ticket vira `expired` (com `closed_at`). Quem executa: o worker (`sweep_forever`, a cada `HANDOFF_SWEEP_INTERVAL_SECONDS`, padrão 60) e, como rede de segurança exata, o consumer na próxima Message do Contact. Devolver e expirar são `UPDATE` condicionais (`WHERE human_in_loop`): se API e sweeper correm juntos, só um muda a linha e só ele publica `handoff_updated`; um Ticket `closed` nunca vira `expired`.
 - Tickets `closed` e `expired` não reabrem. Uma nova transferência abre outro Ticket.
 
 Toda mudança (assumir, devolver, expirar) publica `handoff_updated`; o chat atualiza os botões em tempo real e o estado vem de `human_in_loop` e `handoff_assigned_to` em `GET /conversations`, então sobrevive a reload.
@@ -40,13 +40,13 @@ Toda mudança (assumir, devolver, expirar) publica `handoff_updated`; o chat atu
 | `closed_at` | Quando foi devolvido ou expirou. |
 | `agent_type` | Sempre `whatsapp_agent` hoje; o filtro por `sales`/`sac` é resto do desenho antigo. |
 
-`GET /tickets` aceita `status`, `agent_type`, `assigned_to`, `skip` e `limit` (máx. 100) e lista só os Tickets das Instances do usuário (superusuário: todos). `GET`, `PATCH` e `assign` de um Ticket de outra Instance respondem 404. `assign` (e `PATCH ?assigned_to=`) só aceita um usuário da mesma Company da Instance do Ticket; numa Instance sem Company, só o superusuário atribui. `GET /conversations/{id}/human-control-status` mostra o estado atual da Conversation.
+`GET /tickets` aceita `status`, `agent_type`, `assigned_to`, `skip` e `limit` (máx. 100) e lista só os Tickets das Instances do usuário (superusuário: todos). `GET`, `PATCH` e `assign` de um Ticket de outra Instance respondem 404. `assign` (e `PATCH ?assigned_to=`) só aceita um usuário da mesma Company da Instance do Ticket; numa Instance sem Company, só o superusuário atribui. `GET /conversations/{id}/human-control-status` só lê: mostra o estado atual e `timeout_due` (o prazo venceu e o worker vai devolver); não muda nada.
 
 ### Limites conhecidos
 
 - Não há Handoff automático quando um Attendant escreve pelo celular; só "Assumir" (`take-control`) ou a Tool ligam o estado. Escrever pelo celular durante um Handoff apenas reinicia o timeout.
 - `PATCH /tickets/{id}` recebe `status` e `assigned_to` como query string, não JSON, e aceita `open`, `in_progress` e `closed`; `expired` só o sistema grava.
-- Sem o worker rodando, o timeout só é aplicado quando o Contact escreve de novo ou o status é consultado.
+- Sem o worker rodando, o timeout só é aplicado quando o Contact escreve de novo. `GET .../human-control-status` não aplica o timeout; só informa `timeout_due`.
 
 ## Troubleshooting
 

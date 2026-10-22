@@ -344,7 +344,7 @@ async def create_or_connect_instance(
       local falhou, ela tenta apagar a Instance órfã na Evolution (best-effort; falha só é logada).
     """
     try:
-        existing = check_create_access(db, instance_id, current_user)
+        check_create_access(db, instance_id, current_user)
 
         created_here = True  # só esta requisição criou a Instance na Evolution (não foi "já existe")
         try:

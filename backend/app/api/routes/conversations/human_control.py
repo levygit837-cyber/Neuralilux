@@ -1,7 +1,8 @@
 """Handoff - o Attendant assume, devolve e consulta o controle da Conversation.
 
-Assumir liga o Handoff (abrindo um Ticket se não havia) e atribui o Ticket ao Attendant. Devolver ao Agent
-fecha o Ticket. Os dois avisam a UI por `handoff_updated`.
+Assumir liga o Handoff (abrindo um Ticket se não havia) e atribui o Ticket ao Attendant; outro Attendant
+já com a Conversation recebe 409 e o mesmo Attendant, 200. Devolver ao Agent fecha o Ticket. Quem de fato
+muda o estado avisa a UI por `handoff_updated`. A consulta de status só lê.
 """
 
 from typing import Optional
@@ -13,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.api.access import get_instance_for_user
 from app.api.deps import get_current_user, get_db
-from app.models import Conversation, Instance, Ticket, User
+from app.models import Company, Conversation, Instance, Ticket, User
 from app.services import handoff_service
 
 logger = structlog.get_logger()
@@ -32,6 +33,8 @@ class HumanControlResponse(BaseModel):
     ticket_id: Optional[str]
     assigned_to: Optional[str] = None
     ticket_status: Optional[str] = None
+    # Só leitura: o Handoff já passou do timeout da Company e o worker vai devolvê-lo ao Agent.
+    timeout_due: bool = False
     message: str
 
 
@@ -43,7 +46,9 @@ def _load(db: Session, conversation_id: str, user: User) -> tuple[Conversation, 
     return conversation, instance
 
 
-def _response(conversation: Conversation, ticket: Optional[Ticket], message: str) -> HumanControlResponse:
+def _response(
+    conversation: Conversation, ticket: Optional[Ticket], message: str, *, timeout_due: bool = False
+) -> HumanControlResponse:
     return HumanControlResponse(
         conversation_id=conversation.id,
         human_in_loop=bool(conversation.human_in_loop),
@@ -51,6 +56,7 @@ def _response(conversation: Conversation, ticket: Optional[Ticket], message: str
         ticket_id=conversation.ticket_id,
         assigned_to=ticket.assigned_to if ticket and conversation.human_in_loop else None,
         ticket_status=ticket.status if ticket else None,
+        timeout_due=timeout_due,
         message=message,
     )
 
@@ -64,7 +70,11 @@ async def take_conversation_control(
 ):
     """O Attendant assume a Conversation: o Agent para de responder até o Attendant devolver ou o timeout vencer."""
     conversation, instance = _load(db, conversation_id, current_user)
-    ticket = handoff_service.assume(db, conversation, current_user, request.reason)
+    try:
+        ticket = handoff_service.assume(db, conversation, current_user, request.reason)
+    except handoff_service.HeldByAnotherAttendant:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Outro atendente já assumiu esta conversa")
+    db.refresh(conversation)
     await handoff_service.announce(instance, conversation, "assumed", ticket)
     logger.info("Attendant took control", conversation_id=conversation.id, user_id=current_user.id, ticket_id=ticket.id)
     return _response(conversation, ticket, "Atendimento assumido. O Agent está pausado nesta conversa.")
@@ -78,12 +88,15 @@ async def release_conversation_control(
 ):
     """Devolve a Conversation ao Agent e fecha o Ticket. Sem Handoff em curso, não muda nada."""
     conversation, instance = _load(db, conversation_id, current_user)
-    if not conversation.human_in_loop:
+    released = handoff_service.release(db, conversation)
+    db.refresh(conversation)
+    if released is None:  # já estava com o Agent, ou o timeout devolveu antes: nada mudou, nada a anunciar
         return _response(conversation, None, "A conversa já está com o Agent.")
-    ticket = handoff_service.release(db, conversation)
-    await handoff_service.announce(instance, conversation, "released", ticket)
+    await handoff_service.announce(instance, conversation, "released", released.ticket)
     logger.info("Attendant released control", conversation_id=conversation.id, user_id=current_user.id)
-    return _response(conversation, ticket, "Conversa devolvida ao Agent. Ele volta a responder na próxima mensagem.")
+    return _response(
+        conversation, released.ticket, "Conversa devolvida ao Agent. Ele volta a responder na próxima mensagem."
+    )
 
 
 @router.get("/conversations/{conversation_id}/human-control-status", response_model=HumanControlResponse)
@@ -92,14 +105,14 @@ async def get_human_control_status(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Estado atual do Handoff. Um Handoff vencido é devolvido ao Agent antes de responder."""
+    """Estado atual do Handoff, somente leitura. `timeout_due` avisa que o prazo venceu e o worker vai devolvê-lo."""
     conversation, instance = _load(db, conversation_id, current_user)
-    if await handoff_service.expire_if_due(db, conversation, instance):
-        return _response(conversation, None, "O tempo sem atendente venceu; a conversa voltou ao Agent.")
     ticket = db.get(Ticket, conversation.ticket_id) if conversation.ticket_id else None
+    company = db.get(Company, instance.company_id) if instance.company_id else None
+    due = handoff_service.is_overdue(db, conversation, company)
     message = (
         "A conversa está com um atendente. O Agent está pausado."
         if conversation.human_in_loop
         else "A conversa está com o Agent."
     )
-    return _response(conversation, ticket, message)
+    return _response(conversation, ticket, message, timeout_due=due)

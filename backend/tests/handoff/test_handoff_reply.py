@@ -4,8 +4,9 @@ from datetime import datetime, timezone
 import pytest
 from pack_helpers import call, make_world, tool_named
 
-from app.agent import core_tools
+from app.agent import clock, core_tools
 from app.agent.core_tools import TRANSFER_MESSAGE, core_tools as build_core_tools
+from app.agent.tools import ToolRegistry
 from app.models import Ticket
 
 pytestmark = pytest.mark.asyncio
@@ -24,7 +25,7 @@ def world(db, monkeypatch):
 
 def at(monkeypatch, *args):
     # make_world usa America/Fortaleza (UTC-3) com 18:00-23:00 de segunda a quinta.
-    monkeypatch.setattr(core_tools, "utc_now", lambda: datetime(*args, tzinfo=timezone.utc))
+    monkeypatch.setattr(clock, "utc_now", lambda: datetime(*args, tzinfo=timezone.utc))
 
 
 async def transfer(world, **extra):
@@ -101,3 +102,67 @@ async def test_repeated_transfer_still_ends_the_turn_without_a_second_ticket(wor
 
     assert second.ends_turn is True
     assert world.db.query(Ticket).count() == 1
+
+
+async def test_transfer_without_empathy_goes_through_the_registry_and_still_hands_off(world, monkeypatch):
+    """O modelo pode omitir `frase_empatica`: a validação do registry não pode barrar a transferência."""
+    at(monkeypatch, 2026, 10, 19, 22, 0)
+    registry = ToolRegistry(build_core_tools())
+    block = {"type": "tool_use", "id": "toolu_1", "name": "transferir_atendente", "input": {"motivo": "Quer falar com uma pessoa"}}
+
+    call_result = await registry.execute(world.ctx, block)
+
+    assert call_result.ends_turn is True and not call_result.is_error
+    assert call_result.result["content"] == TRANSFER_MESSAGE
+    world.db.expire_all()
+    assert world.db.query(Ticket).count() == 1
+    assert world.conversation.human_in_loop is True
+
+
+async def test_registry_still_rejects_a_transfer_without_reason(world, monkeypatch):
+    at(monkeypatch, 2026, 10, 19, 22, 0)
+    registry = ToolRegistry(build_core_tools())
+
+    result = await registry.execute(
+        world.ctx, {"type": "tool_use", "id": "toolu_2", "name": "transferir_atendente", "input": {"frase_empatica": "Oi"}}
+    )
+
+    assert result.is_error and not result.ends_turn
+    assert world.db.query(Ticket).count() == 0
+
+
+async def test_overnight_window_is_open_after_midnight_and_closed_before_it_opens(world, monkeypatch):
+    world.company.business_hours = {day: [["18:00", "02:00"]] for day in ("mon", "tue", "wed", "thu", "fri", "sat", "sun")}
+    world.db.commit()
+
+    at(monkeypatch, 2026, 10, 20, 4, 0)  # terça 01:00 em Fortaleza: ainda no turno de segunda
+    open_reply = await transfer(world, frase_empatica=EMPATHY)
+    assert open_reply.content == f"{EMPATHY} {TRANSFER_MESSAGE}"
+
+    world.conversation.human_in_loop = False
+    world.conversation.ticket_id = None
+    world.db.commit()
+    at(monkeypatch, 2026, 10, 20, 6, 0)  # terça 03:00: fechado até as 18:00 de hoje
+    closed_reply = await transfer(world, frase_empatica=EMPATHY)
+    assert "fora do horário" in closed_reply.content and "hoje às 18:00" in closed_reply.content
+    assert TRANSFER_MESSAGE not in closed_reply.content
+
+
+async def test_company_with_empty_hours_uses_the_fixed_phrase(world, monkeypatch):
+    world.company.business_hours = {}
+    world.db.commit()
+    at(monkeypatch, 2026, 10, 20, 6, 0)
+
+    result = await transfer(world, frase_empatica=EMPATHY)
+
+    assert result.content == f"{EMPATHY} {TRANSFER_MESSAGE}"
+
+
+async def test_company_with_hours_but_no_open_day_says_to_wait_without_a_time(world, monkeypatch):
+    world.company.business_hours = {"mon": []}
+    world.db.commit()
+    at(monkeypatch, 2026, 10, 20, 6, 0)
+
+    result = await transfer(world, frase_empatica=EMPATHY)
+
+    assert "fora do horário" in result.content and "às" not in result.content
