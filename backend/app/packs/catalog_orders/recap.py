@@ -38,12 +38,6 @@ def signature(order: CustomerOrder) -> str:
     return hashlib.sha256(json.dumps(state, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
-def invalidate(order: CustomerOrder) -> None:
-    order.recap_signature = None
-    order.recap_turn_id = None
-    order.recap_delivered_at = None
-
-
 def require_confirmed_recap(ctx: ToolContext, order: CustomerOrder) -> None:
     if order.recap_signature is None:
         raise OrderError(
