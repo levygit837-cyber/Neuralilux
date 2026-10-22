@@ -109,6 +109,15 @@ Causas comuns de `Turn failed`:
 - Erro de migração com mais de uma head: veja [agents/migrations.md](agents/migrations.md).
 - O worker sai com `Failed to connect to RabbitMQ`: confira `RABBITMQ_URL`, o vhost `neuralilux` e `docker compose --env-file backend/.env ps`.
 
+### Agrupamento e prefetch
+
+A Message que abre uma rajada (a líder) segura a entrega do RabbitMQ durante a janela (`DEBOUNCE_SECONDS`, padrão 3 s) e todos os Turns da rajada, que levam segundos com o modelo. As seguidoras voltam logo depois de gravadas. Cada líder ocupa, portanto, um slot do `RABBITMQ_PREFETCH` (padrão 8) por esse tempo.
+
+- **Teto.** No máximo `RABBITMQ_PREFETCH` Conversations em rajada ao mesmo tempo por worker. Com todos os slots ocupados por líderes, as Messages seguintes de qualquer Conversation esperam na fila até um Turn terminar: o Contact vê atraso, não perda.
+- **Dimensionar.** `RABBITMQ_PREFETCH` deve ser no mínimo o número de Conversations que você espera ver em atendimento ao mesmo tempo por worker, mais uma folga para as seguidoras (cada uma ocupa um slot só até ser gravada). O pool do banco (`pool_size=10`, `max_overflow=20` em `app/core/database.py`) precisa acompanhar: a líder devolve a conexão do consumer antes de esperar a janela, mas o Turn abre a própria Session e a segura até a resposta sair.
+- **Desligar.** `DEBOUNCE_SECONDS=0` volta a um Turn por Message e libera o slot assim que o Turn termina.
+- **Sintoma de prefetch curto.** Resposta atrasada com o worker ocioso e Messages prontas na fila `webhooks.evolution`: suba `RABBITMQ_PREFETCH` e reinicie o worker.
+
 ### Memória
 
 - **O Agent esqueceu algo antigo**: só a Recent Window (até 20 Messages da Session atual) entra literal; depois de uma pausa maior que `session_timeout_minutes` da Company (padrão 3 h) a Session é nova e o anterior só chega pelo Summary e pela History Search. O resto está no Summary ou na History Search ([agent.md](agent.md#memória)).
