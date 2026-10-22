@@ -305,3 +305,30 @@ class TestSendPresence:
     async def test_rejects_a_jid_without_digits(self, svc):
         with pytest.raises(EvolutionAPIError):
             await svc.send_presence("test-instance", "status@broadcast")
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_uses_a_short_timeout_independent_of_the_delay(self, svc):
+        route = respx.post(f"{BASE_URL}/chat/sendPresence/test-instance").mock(
+            return_value=httpx.Response(201, json={})
+        )
+
+        await svc.send_presence("test-instance", "5511999999999@s.whatsapp.net", "composing", 60000)
+
+        timeout = route.calls[0].request.extensions["timeout"]
+        assert timeout["read"] is not None and timeout["read"] <= 10
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_read_timeout_while_evolution_holds_the_delay_counts_as_accepted(self, svc):
+        respx.post(f"{BASE_URL}/chat/sendPresence/test-instance").mock(side_effect=httpx.ReadTimeout("delay"))
+
+        assert await svc.send_presence("test-instance", "5511999999999@s.whatsapp.net", "composing", 60000) == {}
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_connection_refused_still_raises(self, svc):
+        respx.post(f"{BASE_URL}/chat/sendPresence/test-instance").mock(side_effect=httpx.ConnectError("recusada"))
+
+        with pytest.raises(EvolutionAPIError):
+            await svc.send_presence("test-instance", "5511999999999@s.whatsapp.net")

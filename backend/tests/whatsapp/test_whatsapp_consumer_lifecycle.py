@@ -13,10 +13,10 @@ from consumer_helpers import messages, process, upsert
 
 
 @pytest.mark.asyncio
-async def test_messages_of_one_conversation_never_overlap_and_none_is_lost(db, world, monkeypatch):
+async def test_messages_of_one_conversation_run_in_order_and_never_overlap(db, world, monkeypatch):
     running, overlaps, order = 0, [], []
 
-    async def slow_turn(db, conversation, contact, instance, text, received_at=None):
+    async def slow_turn(db, conversation, contact, instance, text, received_at=None, message_ids=(), deferred_ids=()):
         nonlocal running
         running += 1
         overlaps.append(running)
@@ -34,8 +34,7 @@ async def test_messages_of_one_conversation_never_overlap_and_none_is_lost(db, w
     await consumer.drain()
 
     assert max(overlaps) == 1
-    # As que chegaram durante o Turn de m0 entram juntas no seguinte, na ordem de chegada.
-    assert [line for turn in order for line in turn.split("\n")] == ["m0", "m1", "m2", "m3"]
+    assert order == ["m0", "m1", "m2", "m3"]
 
 
 @pytest.mark.asyncio
@@ -43,7 +42,7 @@ async def test_different_conversations_are_processed_in_parallel(db, world, monk
     both_inside = asyncio.Event()
     inside = []
 
-    async def rendezvous_turn(db, conversation, contact, instance, text, received_at=None):
+    async def rendezvous_turn(db, conversation, contact, instance, text, received_at=None, message_ids=(), deferred_ids=()):
         inside.append(text)
         if len(inside) == 2:
             both_inside.set()

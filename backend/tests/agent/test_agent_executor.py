@@ -106,13 +106,15 @@ async def test_turn_com_tool_usa_a_memoria_e_devolve_resposta_formatada(turn_set
         )
     )
     _message(db, conversation, "Anotado!", "outgoing", minutes_ago=29)
-    _message(db, conversation, "Tem pizza toscana?", "incoming", minutes_ago=0)
+    incoming = _message(db, conversation, "Tem pizza toscana?", "incoming", minutes_ago=0)
     agent["client"].script = [
         reply(tool_use("buscar_cardapio", {"consulta": "pizza toscana"}, "toolu_1")),
         reply(text("Temos **Pizza Toscana** por R$ 1.250,00")),
     ]
 
-    result = await executor.handle_incoming(db, conversation, contact, instance, "Tem pizza toscana?")
+    result = await executor.handle_incoming(
+        db, conversation, contact, instance, "Tem pizza toscana?", message_ids=[incoming.id]
+    )
 
     assert result.reply_text == "Temos *Pizza Toscana* por R$ 1.250,00"
     assert [call.name for call in result.tool_calls] == ["buscar_cardapio"]
@@ -274,6 +276,7 @@ def _at(db, conversation, content, direction, moment):
     )
     db.add(message)
     db.commit()
+    return message
 
 
 async def _prompt(turn_setup, agent, monkeypatch, timezone_name="America/Fortaleza"):
@@ -282,7 +285,10 @@ async def _prompt(turn_setup, agent, monkeypatch, timezone_name="America/Fortale
     db.commit()
     monkeypatch.setattr(executor, "utc_now", lambda: NOW)
     agent["client"].script = [reply(text("ok"))]
-    await executor.handle_incoming(db, conversation, contact, instance, "oi")
+    newest = db.query(Message).filter_by(conversation_id=conversation.id, direction="incoming").order_by(
+        Message.timestamp.desc()
+    ).first()
+    await executor.handle_incoming(db, conversation, contact, instance, "oi", message_ids=[newest.id])
     return agent["client"].requests[0].system
 
 

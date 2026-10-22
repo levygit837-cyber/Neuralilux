@@ -20,11 +20,12 @@ from app.core.config import settings
 from app.core.database import SessionLocal
 from app.agent.sessions import roll_session
 from app.models import Company, Contact, Conversation, Instance, Message
+from app.models.base import generate_uuid
 from app.whatsapp.agent_turn import resolve_default_agent, run_agent_turn
 from app.whatsapp.message_queue import message_queue_service
 from app.whatsapp.handoff_tracking import track_handoff
 from app.whatsapp.sender import send_and_persist
-from app.whatsapp.turn_batcher import TurnBatcher
+from app.whatsapp.turn_batcher import Entry, Hold, TurnBatcher
 from app.whatsapp.status_events import (
     find_instance,
     publish_message,
@@ -162,7 +163,7 @@ class WhatsAppMessageConsumer:
         key: Dict[str, Any],
         remote_jid: str,
         from_me: bool,
-    ) -> Optional[tuple[Instance, Conversation, Contact, ParsedContent, datetime]]:
+    ) -> Optional[tuple[Instance, Conversation, Contact, ParsedContent, Entry, Hold]]:
         message_id = key.get("id") or None
         push_name = payload.get("pushName")
         timestamp = parse_message_timestamp(payload.get("messageTimestamp"))
@@ -217,8 +218,10 @@ class WhatsAppMessageConsumer:
         if not from_me:
             self._roll_session(db, instance, conversation, timestamp)
 
+        stored_id = generate_uuid()
         db.add(
             Message(
+                id=stored_id,
                 instance_id=instance.id,
                 conversation_id=conversation.id,
                 remote_jid=remote_jid,
@@ -233,6 +236,8 @@ class WhatsAppMessageConsumer:
         )
         touch_conversation(conversation, parsed.content, timestamp, unread=not from_me)
         db.commit()
+        # Sem `await` entre o commit e o `hold`: a líder do agrupamento não fecha o grupo com esta Message a caminho.
+        hold = None if from_me else self._batcher.hold(str(conversation.id))
         logger.info(
             "Message saved to database",
             message_id=message_id,
@@ -241,15 +246,22 @@ class WhatsAppMessageConsumer:
             from_me=from_me,
         )
 
-        await publish_message(instance_name, remote_jid, contact, conversation, message_id, parsed.content, timestamp, from_me)
+        try:
+            await publish_message(instance_name, remote_jid, contact, conversation, message_id, parsed.content, timestamp, from_me)
 
-        await track_handoff(db, instance, conversation, remote_jid, parsed.content, from_me)
+            await track_handoff(db, instance, conversation, remote_jid, parsed.content, from_me)
 
-        skip = self._skip_agent_reason(from_me, remote_jid, timestamp)
-        if skip:
-            logger.info("Message not processed by agent", message_id=message_id, reason=skip)
-            return None
-        return instance, conversation, contact, parsed, timestamp
+            skip = self._skip_agent_reason(from_me, remote_jid, timestamp)
+            if skip:
+                logger.info("Message not processed by agent", message_id=message_id, reason=skip)
+                if hold is not None:
+                    hold.release()
+                return None
+        except BaseException:
+            if hold is not None:
+                hold.release()
+            raise
+        return instance, conversation, contact, parsed, Entry(stored_id, parsed.text, timestamp), hold
 
     @staticmethod
     def _roll_session(db: Session, instance: Instance, conversation: Conversation, timestamp: datetime) -> None:
@@ -281,9 +293,10 @@ class WhatsAppMessageConsumer:
         conversation: Conversation,
         contact: Contact,
         parsed: ParsedContent,
-        received_at: datetime,
+        entry: Entry,
+        hold: Hold,
     ) -> None:
-        """Roda um Turn do Agent para a Message recebida e envia a resposta, se houver."""
+        """Entrega a Message ao agrupamento, que roda o Turn do Agent e envia a resposta, se houver."""
         log = logger.bind(instance_id=instance.id, conversation_id=str(conversation.id))
         try:
             if not instance.agent_enabled:
@@ -314,10 +327,12 @@ class WhatsAppMessageConsumer:
             conversation_id = conversation.id
             turn = partial(run_agent_turn, SessionLocal, instance.id, conversation_id, contact.id, self._spawn_summary)
             db.rollback()  # a líder espera a pausa do Contact: não segura a conexão do pool enquanto isso
-            await self._batcher.submit(conversation_id, parsed.text, received_at, turn, settings.DEBOUNCE_SECONDS)
+            await self._batcher.submit(conversation_id, entry, turn, settings.DEBOUNCE_SECONDS, hold)
         except Exception:
             # Nunca derruba o worker: o erro fica no log e a próxima Message tenta de novo.
             log.exception("Unexpected error processing message with agent")
+        finally:
+            hold.release()  # idempotente: o `submit` já a soltou; os `return` antes dele soltam aqui
 
     @staticmethod
     def _in_handoff(db: Session, conversation_id: str) -> bool:

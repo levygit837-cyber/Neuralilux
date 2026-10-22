@@ -15,7 +15,7 @@ def agent_turn(monkeypatch):
     """Troca o Turn real por um que só registra a chamada; o envio pela Evolution também é registrado."""
     calls = {"turns": [], "sent": [], "summaries": []}
 
-    async def fake_handle_incoming(db, conversation, contact, instance, text, received_at=None):
+    async def fake_handle_incoming(db, conversation, contact, instance, text, received_at=None, message_ids=(), deferred_ids=()):
         # Guarda ids, não os objetos ORM: o Turn roda numa Session própria, fechada depois dele.
         calls["turns"].append(
             {"instance_id": instance.id, "remote_jid": contact.remote_jid, "text": text, "received_at": received_at}

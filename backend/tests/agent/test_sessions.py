@@ -219,25 +219,34 @@ def test_previous_message_skips_every_message_grouped_into_the_turn(db, conversa
     add_message(conversation, T0, content="quero uma toscana")
     add_message(conversation, T0 + timedelta(minutes=1), role="assistant", content="anotado")
     later = T0 + timedelta(hours=7)
-    for n, content in enumerate(["oi", "quero", "uma calabresa"]):
-        add_message(conversation, later + timedelta(seconds=n), content=content)
+    grouped = [add_message(conversation, later + timedelta(seconds=n), content=c).id
+               for n, c in enumerate(["oi", "quero", "uma calabresa"])]
 
-    assert sessions.previous_message_at(db, conversation.id, "oi\nquero\numa calabresa") == (
-        T0 + timedelta(minutes=1)
-    ).replace(tzinfo=None)
+    assert sessions.previous_message_at(db, conversation.id, grouped) == (T0 + timedelta(minutes=1)).replace(tzinfo=None)
 
 
 def test_previous_message_keeps_an_earlier_unanswered_message_of_the_contact(db, conversation_factory, add_message):
     conversation = conversation_factory("conv-unanswered")
     add_message(conversation, T0, content="oi")
-    add_message(conversation, T0 + timedelta(minutes=5), content="tem pizza?")
+    current = add_message(conversation, T0 + timedelta(minutes=5), content="tem pizza?")
 
-    assert sessions.previous_message_at(db, conversation.id, "tem pizza?") == T0.replace(tzinfo=None)
+    assert sessions.previous_message_at(db, conversation.id, [current.id]) == T0.replace(tzinfo=None)
+
+
+def test_previous_message_skips_a_reply_that_sits_between_grouped_messages(db, conversation_factory, add_message):
+    """Texto, mídia respondida e texto: a resposta fixa da mídia está no meio do grupo e ainda é a "anterior"."""
+    conversation = conversation_factory("conv-media")
+    add_message(conversation, T0, content="oi")
+    add_message(conversation, T0 + timedelta(seconds=2), role="assistant", content="só leio texto")
+    third = add_message(conversation, T0 + timedelta(seconds=4), content="quero")
+
+    assert sessions.previous_message_at(db, conversation.id, [third.id]) == (T0 + timedelta(seconds=2)).replace(
+        tzinfo=None
+    )
 
 
 def test_previous_message_is_none_when_the_whole_conversation_is_the_turn(db, conversation_factory, add_message):
     conversation = conversation_factory("conv-first-turn")
-    add_message(conversation, T0, content="oi")
-    add_message(conversation, T0 + timedelta(seconds=1), content="tudo bem?")
+    ids = [add_message(conversation, T0 + timedelta(seconds=n), content=c).id for n, c in enumerate(["oi", "tudo bem?"])]
 
-    assert sessions.previous_message_at(db, conversation.id, "oi\ntudo bem?") is None
+    assert sessions.previous_message_at(db, conversation.id, ids) is None

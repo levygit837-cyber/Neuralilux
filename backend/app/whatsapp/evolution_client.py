@@ -14,6 +14,10 @@ from app.core.config import settings
 logger = structlog.get_logger()
 
 
+# Presença "digitando": a Evolution segura a resposta até o fim do `delay`, então só a leitura é curta.
+PRESENCE_TIMEOUT = httpx.Timeout(5.0)
+
+
 class EvolutionAPIError(Exception):
     """Custom exception for Evolution API errors."""
     def __init__(self, message: str, status_code: int = 500):
@@ -39,11 +43,12 @@ class EvolutionAPIService:
         endpoint: str,
         data: Optional[Dict[str, Any]] = None,
         params: Optional[Dict[str, Any]] = None,
+        timeout: float | httpx.Timeout = 30.0,
     ) -> Dict[str, Any]:
         """Make an HTTP request to the Evolution API."""
         url = f"{self.base_url}{endpoint}"
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 response = await client.request(
                     method=method,
                     url=url,
@@ -68,7 +73,7 @@ class EvolutionAPIService:
             logger.error("Evolution API request error", url=url, error=str(e))
             raise EvolutionAPIError(
                 f"Failed to connect to Evolution API: {str(e)}"
-            )
+            ) from e
 
     async def fetch_instances(self) -> list:
         """
@@ -269,16 +274,24 @@ class EvolutionAPIService:
     ) -> Dict[str, Any]:
         """Mostra `presence` (ex.: "composing" = digitando) ao Contact.
 
-        A Evolution só responde depois de `delay_ms`; o WhatsApp apaga a presença sozinho em alguns segundos.
+        A Evolution só responde depois de `delay_ms`, mas já mostrou a presença ao aceitar o pedido. Por isso o
+        timeout de leitura é curto e independente do `delay`, e estourá-lo vale como "aceito": o `delay` pode passar
+        do timeout padrão de 30 s sem derrubar a presença. Conexão recusada e erro HTTP continuam levantando.
         """
         number = re.sub(r"\D", "", remote_jid.split("@")[0])
         if not instance_name or not number:
             raise EvolutionAPIError("instance_name and a numeric remote_jid are required", status_code=400)
-        return await self._request(
-            "POST",
-            f"/chat/sendPresence/{instance_name}",
-            data={"number": number, "presence": presence, "delay": delay_ms},
-        )
+        try:
+            return await self._request(
+                "POST",
+                f"/chat/sendPresence/{instance_name}",
+                data={"number": number, "presence": presence, "delay": delay_ms},
+                timeout=PRESENCE_TIMEOUT,
+            )
+        except EvolutionAPIError as error:
+            if isinstance(error.__cause__, httpx.ReadTimeout):
+                return {}
+            raise
 
     async def send_text_message(
         self,

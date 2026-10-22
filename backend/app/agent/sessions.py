@@ -8,7 +8,7 @@ que ficou pendente (ex.: Order aberto).
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
@@ -47,21 +47,16 @@ def roll_session(
     return True
 
 
-def previous_message_at(db: Session, conversation_id: str, incoming_text: str) -> datetime | None:
+def previous_message_at(
+    db: Session, conversation_id: str, turn_message_ids: Collection[str], deferred_ids: Collection[str] = ()
+) -> datetime | None:
     """Quando foi a Message anterior às que dispararam o Turn, ou None se elas são toda a Conversation.
 
-    O consumer grava as Messages do Contact antes do Turn e junta as de uma rajada em `incoming_text`, uma por
-    linha. Pula, da mais recente para trás, as Messages do Contact que formam o fim desse texto; se nenhuma
-    foi gravada ainda, a mais recente já é a anterior.
+    `deferred_ids` são Messages já gravadas que ficam para o Turn seguinte e não contam como anteriores.
     """
-    remaining = incoming_text.strip()
-    newest_first = db.query(Message).filter(Message.conversation_id == conversation_id).order_by(
-        Message.timestamp.desc(), Message.id.desc()
-    )
-    for message in newest_first:
-        content = (message.content or "").strip()
-        if remaining and message.direction == "incoming" and content and remaining.endswith(content):
-            remaining = remaining[: -len(content)].rstrip()
-            continue
-        return message.timestamp
-    return None
+    skipped = [*turn_message_ids, *deferred_ids]
+    query = db.query(Message.timestamp).filter(Message.conversation_id == conversation_id)
+    if skipped:
+        query = query.filter(Message.id.notin_(skipped))
+    row = query.order_by(Message.timestamp.desc(), Message.id.desc()).first()
+    return row[0] if row else None

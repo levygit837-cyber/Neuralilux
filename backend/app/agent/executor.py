@@ -9,6 +9,7 @@ WhatsApp e nova leitura do Handoff antes de devolver a resposta. Quem chama envi
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 
 import structlog
@@ -67,7 +68,14 @@ async def handle_incoming(
     instance: Instance,
     text: str,
     received_at: datetime | None = None,
+    message_ids: Sequence[str] = (),
+    deferred_ids: Sequence[str] = (),
 ) -> TurnResult:
+    """Um Turn para `text`, as Messages do Contact já gravadas em `message_ids` (juntas, uma por linha).
+
+    Essas Messages saem da Recent Window e voltam como o fim do histórico, uma vez só e na ordem em que chegaram.
+    `deferred_ids` são Messages já gravadas que ficam para o Turn seguinte: este Turn não as vê.
+    """
     log = logger.bind(conversation_id=conversation.id, instance_id=instance.id)
     if _in_handoff(db, conversation.id):
         log.info("Conversation in Handoff, Agent stays silent")
@@ -95,13 +103,13 @@ async def handle_incoming(
 
     try:
         # Antes de qualquer `await`: Message que chega depois fica para o Turn seguinte, não entra neste histórico.
-        summary, history = build_context(db, conversation)
+        summary, history = build_context(db, conversation, exclude_ids=[*message_ids, *deferred_ids])
         await events.thinking_start()
         history = _with_incoming(history, text)
         packs = packs_for(company)
         client, model, effort = resolve_gateway(AGENT_TYPE)
         now = utc_now()
-        when = time_context(company, now, previous_message_at(db, conversation.id, text), conversation.session_started_at)
+        when = time_context(company, now, previous_message_at(db, conversation.id, message_ids, deferred_ids), conversation.session_started_at)
         system = build_system_prompt(
             company_name=company.name, packs=packs, ctx=ctx, summary=summary, time_context=when
         )
@@ -156,21 +164,16 @@ def reply_delivered(db: Session, instance: Instance, conversation: Conversation,
 
 
 def _with_incoming(history: list[ChatMessage], text: str) -> list[ChatMessage]:
-    """Garante que a Message que disparou o Turn é o fim do histórico.
+    """Põe `text` (as Messages que disparam o Turn) como a última entrada `user`.
 
-    A Recent Window junta Messages seguidas do Contact numa entrada `user`; a atual pode
-    ainda não estar gravada. Decide pelo conteúdo, não pelo papel: uma Message anterior
-    sem resposta não pode fazer a atual sumir.
+    A Recent Window vem sem elas. Se termina em `user` (Message anterior sem resposta), o texto se junta a essa
+    entrada; senão vira uma entrada nova. A primeira entrada continua `user`, como `build_context` garante.
     """
     incoming = text.strip()
     if not incoming:
         return history
-    if history and history[-1]["role"] == "user":
-        last = history[-1]["content"]
-        if isinstance(last, str):
-            if last.strip().endswith(incoming):
-                return history
-            return [*history[:-1], {"role": "user", "content": f"{last}\n{incoming}"}]
+    if history and history[-1]["role"] == "user" and isinstance(history[-1]["content"], str):
+        return [*history[:-1], {"role": "user", "content": f"{history[-1]['content']}\n{incoming}"}]
     return [*history, {"role": "user", "content": incoming}]
 
 
