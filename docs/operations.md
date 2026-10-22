@@ -4,41 +4,49 @@ Termos conforme o [glossário](../CONTEXT.md). Setup inicial em [setup.md](setup
 
 ## Handoff e Tickets
 
-Handoff é a passagem da Conversation do Agent para um Attendant. Enquanto vale, o Agent não responde. O estado mora em `Conversation`: `human_in_loop`, `human_handoff_reason`, `ticket_id` e `assigned_agent_id`.
+Handoff é a passagem da Conversation do Agent para um Attendant. Enquanto vale, o Agent não responde. O estado mora em `Conversation` (`human_in_loop`, `human_handoff_reason`, `ticket_id`); quem atende fica em `Ticket.assigned_to`.
 
 ### Como o Handoff começa
 
-- **Pelo Agent.** O modelo chama `transferir_atendente(motivo)`. A Tool abre um Ticket (`status=open`, `reason`, `content` com a última Message do Contact), liga `human_in_loop`, grava `human_handoff_reason` e `ticket_id`, encerra o Turn com uma mensagem fixa ao Contact e publica `human_handoff_requested`. Se a Conversation já está em Handoff com Ticket, não abre outro.
-- **Por um Attendant.** `POST /api/v1/conversations/{id}/take-control` (corpo opcional `{"reason": "..."}`) liga `human_in_loop` e grava `assigned_agent_id` com o usuário. **Não cria Ticket.**
+- **Pelo Agent.** O modelo chama `transferir_atendente(motivo, frase_empatica)`. A Tool abre um Ticket (`status=open`, `reason`, `content` com a última Message do Contact), liga `human_in_loop`, grava `human_handoff_reason` e `ticket_id`, publica `human_handoff_requested` e **encerra o Turn**. A resposta ao Contact é a `frase_empatica` escrita pelo Agent (coerente com o motivo) seguida de uma frase do sistema: "em instantes alguém continua" dentro do horário da Company, ou "fora do horário, um atendente continua hoje/amanhã/<dia> às HH:MM" fora dele (próxima janela de `Company.business_hours`, no fuso da Company). Sem horários cadastrados, vale sempre a frase de horário comercial. Se a Conversation já está em Handoff com Ticket, não abre outro.
+- **Por um Attendant.** O botão "Assumir" do chat chama `POST /api/v1/conversations/{id}/take-control` (corpo opcional `{"reason": "..."}`). Com Ticket aberto, atribui-o ao usuário (`in_progress`); sem Ticket, abre um já atribuído.
 
 O gate é lido do banco a cada Turn e de novo antes de enviar a resposta: se um Attendant assume enquanto o modelo ainda está respondendo, a resposta do Agent é descartada.
 
+### Como o Handoff termina
+
+- **Devolver.** O botão "Devolver ao Agent" chama `POST /api/v1/conversations/{id}/release-control`: desliga `human_in_loop`, limpa `ticket_id` e **fecha o Ticket** (`closed`, com `closed_at`). O Agent volta a responder na próxima Message. Sem Handoff em curso, a rota não muda nada.
+- **Timeout.** `Company.handoff_timeout_hours` (padrão 4, de 1 a 720; editável em `PATCH /companies/{id}`) é o tempo sem Attendant agir. A contagem parte da abertura do Ticket e reinicia a cada ação do Attendant (assumir, escrever pelo painel, pelo Socket.IO ou pelo celular da Company). Vencido, a Conversation volta ao Agent e o Ticket vira `expired` (com `closed_at`). Quem executa: o worker (`sweep_forever`, a cada `HANDOFF_SWEEP_INTERVAL_SECONDS`, padrão 60) e, como rede de segurança exata, o consumer na próxima Message do Contact e `GET .../human-control-status`.
+- Tickets `closed` e `expired` não reabrem. Uma nova transferência abre outro Ticket.
+
+Toda mudança (assumir, devolver, expirar) publica `handoff_updated`; o chat atualiza os botões em tempo real e o estado vem de `human_in_loop` e `handoff_assigned_to` em `GET /conversations`, então sobrevive a reload.
+
 ### Atender
 
-1. Veja os Handoffs abertos: `GET /api/v1/tickets?status=open`. O evento `human_handoff_requested` chega ao Socket.IO, mas o dashboard atual ainda não o consome; um painel externo pode assiná-lo.
-2. Atribua o Ticket: `POST /api/v1/tickets/{id}/assign?user_id=<usuário>` (vai para `in_progress`).
+1. Veja os Handoffs abertos: `GET /api/v1/tickets?status=open`, ou o selo "Atendimento humano" na lista de conversas.
+2. Assuma pelo botão "Assumir" (ou `take-control`). Atribuir só o Ticket (`POST /api/v1/tickets/{id}/assign?user_id=<usuário>`) não pausa nem devolve a Conversation.
 3. Responda pelo dashboard ou por `POST /api/v1/conversations/{id}/messages` (a Instance precisa estar `connected`).
-4. Feche o Ticket: `PATCH /api/v1/tickets/{id}?status=closed`.
-5. **Devolva a Conversation ao Agent:** `POST /api/v1/conversations/{id}/release-control`.
-
-Fechar o Ticket **não** devolve a Conversation ao Agent, e `release-control` **não** fecha o Ticket. São dois passos. Esquecer o 5 deixa o Contact sem resposta automática.
+4. Clique em "Devolver ao Agent" (ou `release-control`). Isso já fecha o Ticket; `PATCH /tickets/{id}?status=closed` sozinho **não** devolve a Conversation.
 
 ### Ticket
 
 | Campo | Significado |
 |---|---|
-| `status` | `open`, `in_progress` ou `closed`. Outro valor devolve 400. |
+| `status` | `open`, `in_progress`, `closed` (devolvido por um Attendant) ou `expired` (timeout). |
 | `reason` | Motivo informado pelo Agent. |
 | `content` | Última Message do Contact antes do Handoff. |
 | `assigned_to` | Usuário (Attendant) responsável. |
+| `attendant_activity_at` | Última ação do Attendant; base do timeout. |
+| `closed_at` | Quando foi devolvido ou expirou. |
 | `agent_type` | Sempre `whatsapp_agent` hoje; o filtro por `sales`/`sac` é resto do desenho antigo. |
 
 `GET /tickets` aceita `status`, `agent_type`, `assigned_to`, `skip` e `limit` (máx. 100) e lista só os Tickets das Instances do usuário (superusuário: todos). `GET`, `PATCH` e `assign` de um Ticket de outra Instance respondem 404. `assign` (e `PATCH ?assigned_to=`) só aceita um usuário da mesma Company da Instance do Ticket; numa Instance sem Company, só o superusuário atribui. `GET /conversations/{id}/human-control-status` mostra o estado atual da Conversation.
 
 ### Limites conhecidos
 
-- Não há Handoff automático quando um Attendant escreve pelo celular; só `take-control` ou a Tool ligam o estado.
-- `PATCH /tickets/{id}` recebe `status` e `assigned_to` como query string, não JSON.
+- Não há Handoff automático quando um Attendant escreve pelo celular; só "Assumir" (`take-control`) ou a Tool ligam o estado. Escrever pelo celular durante um Handoff apenas reinicia o timeout.
+- `PATCH /tickets/{id}` recebe `status` e `assigned_to` como query string, não JSON, e aceita `open`, `in_progress` e `closed`; `expired` só o sistema grava.
+- Sem o worker rodando, o timeout só é aplicado quando o Contact escreve de novo ou o status é consultado.
 
 ## Troubleshooting
 
@@ -59,7 +67,7 @@ Siga a ordem; o primeiro que bater é a causa. Mensagens em `código` aparecem n
 | `Agent disabled for this instance` | `agent_enabled=false` na Instance. | `PATCH /instances/{nome}/agent-status` com `{"agent_enabled": true}`. |
 | `No active Agent for this Instance or its Company` | A Company não tem Agent ativo. | `python scripts/seed_data.py` (cria um por Company e liga as Instances). Aparece uma vez por Instance até o worker reiniciar. |
 | `Instance has no Company, Agent cannot run` | `instances.company_id` nulo: Instance criada antes de a API gravar a Company. | Um superusuário com Company chama `POST /api/v1/instances/{nome}`: assume a Instance e grava a Company dele. Veja [setup.md](setup.md#ligar-a-instance-à-company-e-ao-agent). |
-| `Conversation in Handoff, Agent stays silent` | A Conversation está em Handoff. | Atenda e chame `release-control` (veja acima). |
+| `Conversation in Handoff, Agent stays silent` | A Conversation está em Handoff. | Atenda e clique em "Devolver ao Agent" (`release-control`), ou espere o timeout (veja acima). |
 | `Turn failed` e o Contact recebe "Desculpe, tive um problema…" | Exceção dentro do Turn; o stack trace vem logo antes. | Causas comuns abaixo. |
 | `Unexpected error processing message with agent` com `EvolutionAPIError` logo depois de `Turn finished` | O Turn rodou, mas o envio pela Evolution falhou: Instance não conectada ao WhatsApp, Evolution fora do ar ou `EVOLUTION_API_URL`/`EVOLUTION_API_KEY` errados. A Message do Contact fica gravada; a resposta não. | Conecte a Instance (QR code) e confira `GET {EVOLUTION_API_URL}/instance/fetchInstances` com o header `apikey`. |
 

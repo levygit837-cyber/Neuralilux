@@ -82,7 +82,7 @@ A pessoa da Company que atende a Conversation depois do Handoff.
 _Avoid_: Operador, humano, agente humano
 
 **Ticket**:
-O registro do motivo de um Handoff, aberto para o Attendant resolver.
+O registro do motivo de um Handoff, aberto para o Attendant resolver. Termina `closed` (o Attendant devolveu a Conversation ao Agent) ou `expired` (ninguém atendeu dentro do prazo da Company).
 _Avoid_: Chamado, protocolo, caso
 
 ### Catálogo & pedidos
