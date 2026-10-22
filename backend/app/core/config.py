@@ -47,9 +47,6 @@ class Settings(BaseSettings):
         "http://localhost:8000",
     ]
 
-    # Rate Limiting
-    RATE_LIMIT_PER_MINUTE: int = 60
-
     # Memória por Conversation (ADR 0003)
     MEMORY_WINDOW: int = 20  # Messages na Recent Window
     SUMMARY_EVERY: int = 20  # Messages fora da janela e não resumidas que disparam um novo Summary
