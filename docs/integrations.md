@@ -42,6 +42,7 @@ curl -s -X POST http://localhost:8000/api/v1/auth/login \
 | `POST /conversations/{id}/messages` | Envia texto pela Instance (a Instance precisa estar `connected`). |
 | `POST /conversations/{id}/take-control`, `POST .../release-control`, `GET .../human-control-status` | Assumir, devolver ao Agent (fecha o Ticket) e consultar o Handoff, veja [operations.md](operations.md#handoff-e-tickets). |
 | `GET /tickets`, `GET`/`PATCH /tickets/{id}`, `POST /tickets/{id}/assign` | Tickets de Handoff. |
+| `GET /orders`, `POST /orders/{id}/status` | Painel de Pedidos da Company: lista e muda o status (recebido, em preparo, saiu para entrega, entregue, cancelado); o Contact é avisado no WhatsApp. Veja [operations.md](operations.md#painel-de-pedidos-status-pela-company). |
 | `GET /orders/refunds`, `POST /orders/refunds/{id}/refunded`, `POST /orders/refunds/{id}/dismissed` | Estornos Pix abertos (Order cancelado ou alterado) e a baixa manual idempotente, veja [operations.md](operations.md#cancelamento-alteração-e-estorno-de-pix). |
 | `GET /instances/`, `POST /instances/{nome}`, `GET .../status`, `POST .../connect`, `DELETE .../logout`, `DELETE /instances/{nome}` | Instances do usuário e conexão com a Evolution (login obrigatório; a listagem não devolve o token da Evolution). Só o `POST` cria a Instance local, com a Company do usuário. |
 

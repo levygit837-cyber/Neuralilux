@@ -6,6 +6,7 @@ import {
   SquaresFour, 
   ChatCircleDots, 
   Package, 
+  Receipt,
   DeviceMobile,
   SlidersHorizontal,
   Brain,
@@ -32,6 +33,12 @@ const NAV_ITEMS = [
     href: ROUTES.INSTANCES,
     label: 'Instâncias',
     icon: DeviceMobile,
+    badge: null,
+  },
+  {
+    href: ROUTES.ORDERS,
+    label: 'Pedidos',
+    icon: Receipt,
     badge: null,
   },
   {

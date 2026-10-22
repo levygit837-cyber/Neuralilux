@@ -148,6 +148,19 @@ def _refund_note(records: list) -> str:
     )
 
 
+def cancel_order(db: Session, order: CustomerOrder, reason: str | None) -> list:
+    """Cancela o Order confirmado e invalida o Pix válido (que entra na lista de estornos). Não faz `commit`.
+
+    Caminho único do cancelamento: o do Contact (`cancelar_pedido`) e o da Company (painel de Orders, #34).
+    """
+    records = pix.invalidate_records(db, order, "cancelled")
+    order.status = "cancelled"
+    order.cancelled_at = utc_now()
+    order.cancel_reason = reason
+    order.confirmed_snapshot = None
+    return records
+
+
 def cancelar_pedido(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     number = str(args.get("numero") or "").strip() or None
     order = _require_changeable(ctx, "cancelar", number)
@@ -158,11 +171,7 @@ def cancelar_pedido(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
             f"ele quer cancelar. Para cancelar o confirmado, chame cancelar_pedido com numero={order.order_number}; "
             "o que está em montagem se esvazia com remover_item."
         )
-    records = pix.invalidate_records(ctx.db, order, "cancelled")
-    order.status = "cancelled"
-    order.cancelled_at = utc_now()
-    order.cancel_reason = " ".join(str(args.get("motivo") or "").split()) or None
-    order.confirmed_snapshot = None
+    records = cancel_order(ctx.db, order, " ".join(str(args.get("motivo") or "").split()) or None)
     ctx.db.commit()
     message = f"Pedido {order.order_number} cancelado. Confirme o cancelamento ao cliente; não é preciso transferir."
     return {"pedido": view(order), "mensagem": message + (_refund_note(records) if records else "")}

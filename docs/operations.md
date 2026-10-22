@@ -50,12 +50,23 @@ Toda mudança (assumir, devolver, expirar) publica `handoff_updated`; o chat atu
 
 ## Cancelamento, alteração e estorno de Pix
 
-O Contact cancela ou altera um Order sem Handoff enquanto ele está `closed` ("recebido, aguardando preparo") e foi confirmado na Session atual ou na anterior. Quando o Order passa para `in_production` (ou `sent`/`delivered`), ou é mais antigo, as Tools recusam e o Agent oferece Handoff com o motivo. Hoje nada no sistema move o Order para `in_production`: a Company muda o status à mão.
+O Contact cancela ou altera um Order sem Handoff enquanto ele está `closed` ("recebido, aguardando preparo") e foi confirmado na Session atual ou na anterior. Quando o Order passa para `in_production` (ou `sent`/`delivered`), ou é mais antigo, as Tools recusam e o Agent oferece Handoff com o motivo. Quem move o Order para `in_production` é a Company, pelo painel de Pedidos ([abaixo](#painel-de-pedidos-status-pela-company)).
 
 - **Cancelar** (`cancelar_pedido`): o Order vira `cancelled`, com `cancelled_at` e `cancel_reason`. O Pix válido vira `cancelled`. Com um pedido em montagem e outro já confirmado, a Tool pede que o Agent pergunte qual; o confirmado se cancela com `numero`.
 - **Alterar** (`alterar_pedido`): o Order volta a `ready_for_confirmation` com a Recap zerada e o estado confirmado guardado em `confirmed_snapshot`; o fechamento passa de novo por `recapitular` e pela confirmação do Contact. O Pix válido vira `superseded` e o `finalizar` seguinte gera outro com o total novo e um `txid` diferente (sufixo `R<revisão>`, até 25 alfanuméricos). Nunca há dois Pix válidos para o mesmo Order (índice único parcial `uq_payment_records_order_pix`, só `pending`/`paid`). Se a Session acaba sem a reconfirmação, o Order volta ao estado confirmado e o Pix original volta a valer ([ADR 0007](adr/0007-session-de-atendimento.md)).
 - **Estorno manual**: o sistema não detecta pagamento (nada marca um Pix como `paid`), então todo Pix invalidado entra na lista da Company. `refund_status="pending"`: o Pix estava `paid`, devolver. `"verify"`: estava `pending`, mas o Contact pode ter pago; conferir no banco. `"refunded"` e `"dismissed"` são as baixas (devolvido; conferido, nada a devolver).
 - **API**: `GET /api/v1/orders/refunds` lista os abertos (`pending` e `verify`) das Instances do usuário. `POST /orders/refunds/{id}/refunded` e `POST /orders/refunds/{id}/dismissed` dão a baixa e são idempotentes: repetir devolve 200 com o mesmo corpo, sem regravar. A baixa contrária à já dada é 409. Fora do escopo do usuário é 404; sem token, 401.
+
+## Painel de Pedidos: status pela Company
+
+A Company acompanha os Orders confirmados em **Pedidos** (`/pedidos`) e move o status; o Contact recebe uma Message curta no WhatsApp a cada mudança.
+
+- **Transições** (`services/order_status.py`): `closed` (recebido) → `in_production` (em preparo) → `sent` (saiu para entrega) → `delivered` (entregue). A Company também cancela (`cancelled`) um Order `closed` ou `in_production`. Qualquer outra mudança, inclusive repetir o status atual, é 409 e não envia nada. `sent` e `delivered` não cancelam: só por Handoff.
+- **Order em alteração**: o Order que o Contact reabriu com `alterar_pedido` aparece como "em alteração, aguardando nova confirmação" e não se move (409) até ser reconfirmado.
+- **Cancelamento pela Company** reaproveita `changes.cancel_order`, o mesmo caminho do Contact: o Pix válido é invalidado e entra na lista de estornos (`pending`/`verify`). O aviso ao Contact menciona o estorno só se havia Pix.
+- **Aviso ao Contact**: enviado por `whatsapp/sender.send_and_persist`, então fica gravado como Message `from_me` na Conversation. Falha no envio não desfaz a mudança: é logada (`Failed to notify the Contact about the Order status`) e a resposta traz `notification: {sent: false, error}`; o painel mostra um aviso amarelo. A Company não é avisada de novo: ela precisa falar com o Contact.
+- **API**: `GET /api/v1/orders?limit=` (padrão 50, até 200) lista os Orders confirmados e os reabertos, do mais recente ao mais antigo, com `allowed_transitions`, itens, total, pagamento e `refund_status`. `POST /api/v1/orders/{id}/status` com `{"status": "in_production" | "sent" | "delivered" | "cancelled"}` devolve `{order, notification}`. Escopo pelas Instances do usuário: Order de outra Company é 404; sem token, 401; status fora dessa lista, 422.
+- **"Cadê meu pedido"**: `status_pedido` lê o mesmo `Order.status`, então já reflete a mudança no próximo Turn.
 
 ## Troubleshooting
 
