@@ -1,5 +1,5 @@
 import { Avatar } from '@/components/ui/Avatar'
-import { Phone, VideoCamera, MagnifyingGlass, DotsThreeVertical, Robot, Check } from '@phosphor-icons/react'
+import { Phone, VideoCamera, MagnifyingGlass, DotsThreeVertical, Robot, Check, HandPalm, ArrowUUpLeft } from '@phosphor-icons/react'
 import type { AgentListItem } from '@/types/chat'
 
 interface ChatHeaderProps {
@@ -8,6 +8,11 @@ interface ChatHeaderProps {
   status?: string
   isOnline?: boolean
   humanHandoff?: boolean
+  /** Alguém já assumiu o Handoff; sem isso o botão "Assumir" continua disponível. */
+  handoffAssigned?: boolean
+  onTakeControl?: () => void
+  onReleaseControl?: () => void
+  isHandoffPending?: boolean
   agentEnabled?: boolean | null
   agentName?: string | null
   availableAgents?: AgentListItem[]
@@ -24,6 +29,10 @@ export function ChatHeader({
   status,
   isOnline,
   humanHandoff = false,
+  handoffAssigned = false,
+  onTakeControl,
+  onReleaseControl,
+  isHandoffPending = false,
   agentEnabled,
   agentName,
   availableAgents = [],
@@ -75,6 +84,28 @@ export function ChatHeader({
           <span className="rounded-full border border-warning/30 bg-warning/10 px-3 py-1 text-xs font-semibold text-warning">
             Atendimento humano
           </span>
+        )}
+        {(!humanHandoff || !handoffAssigned) && (
+          <button
+            type="button"
+            onClick={onTakeControl}
+            disabled={isHandoffPending}
+            className="flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <HandPalm weight="regular" className="text-lg" aria-hidden="true" />
+            Assumir
+          </button>
+        )}
+        {humanHandoff && (
+          <button
+            type="button"
+            onClick={onReleaseControl}
+            disabled={isHandoffPending}
+            className="flex items-center gap-2 rounded-lg border border-brand-border/50 bg-brand-card/50 px-3 py-2 text-sm font-medium text-content-light transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <ArrowUUpLeft weight="regular" className="text-lg" aria-hidden="true" />
+            Devolver ao Agent
+          </button>
         )}
         {/* Agent Toggle */}
         <div className="flex items-center gap-3 bg-brand-card/50 rounded-lg px-3 py-2 border border-brand-border/50">

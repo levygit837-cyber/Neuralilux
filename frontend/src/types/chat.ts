@@ -69,8 +69,10 @@ export interface Conversation {
   isBot?: boolean
   groupAvatars?: string[]
   conversationType?: ConversationType
-  /** A Conversation passou para um Attendant (evento `human_handoff_requested`). */
+  /** A Conversation está com um Attendant (eventos `human_handoff_requested` e `handoff_updated`). */
   humanHandoff?: boolean
+  /** Id do usuário que assumiu o Handoff; null enquanto o Ticket espera alguém. */
+  handoffAssignedTo?: string | null
 }
 
 export interface TypingIndicator {

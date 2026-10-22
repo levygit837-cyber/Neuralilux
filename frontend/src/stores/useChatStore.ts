@@ -28,7 +28,7 @@ interface ChatStore {
   setSending: (sending: boolean) => void
   setError: (error: string | null) => void
   updateConversationLastMessage: (conversationId: string, message: string, at: Date) => void
-  setConversationHandoff: (conversationId: string, humanHandoff: boolean) => void
+  setConversationHandoff: (conversationId: string, humanHandoff: boolean, assignedTo?: string | null) => void
   resetUnreadCount: (conversationId: string) => void
   setContactFilter: (filter: ContactFilter) => void
   // Thinking actions
@@ -142,10 +142,12 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       ),
     })),
 
-  setConversationHandoff: (conversationId, humanHandoff) =>
+  setConversationHandoff: (conversationId, humanHandoff, assignedTo = null) =>
     set((state) => ({
       conversations: state.conversations.map((conv) =>
-        conv.id === conversationId ? { ...conv, humanHandoff } : conv
+        conv.id === conversationId
+          ? { ...conv, humanHandoff, handoffAssignedTo: humanHandoff ? assignedTo : null }
+          : conv
       ),
     })),
 

@@ -6,6 +6,7 @@ import { useResolvedInstance } from '@/hooks/useResolvedInstance'
 import { useAgentControl } from '@/hooks/useAgentControl'
 import { useChatRealtime } from '@/hooks/useChatRealtime'
 import { useChatData } from '@/hooks/useChatData'
+import { useHandoffControl } from '@/hooks/useHandoffControl'
 import { ChatSidebar } from './ChatSidebar'
 import { ChatHeader } from './ChatHeader'
 import { MessagePane } from './MessagePane'
@@ -32,6 +33,7 @@ export function WhatsAppChat() {
   const { resolvedInstance, isResolvingInstance, resolveError } = useResolvedInstance()
   const instanceName = resolvedInstance?.name
   const agent = useAgentControl(instanceName, token)
+  const handoff = useHandoffControl()
 
   const { isConnected } = useChatRealtime({
     token,
@@ -69,6 +71,10 @@ export function WhatsAppChat() {
                 status={isTyping ? 'digitando...' : activeConversation.isOnline ? 'Online' : 'Offline'}
                 isOnline={activeConversation.isOnline}
                 humanHandoff={activeConversation.humanHandoff}
+                handoffAssigned={Boolean(activeConversation.handoffAssignedTo)}
+                onTakeControl={() => void handoff.take(activeConversation.id)}
+                onReleaseControl={() => void handoff.release(activeConversation.id)}
+                isHandoffPending={handoff.pending}
                 agentEnabled={agent.agentEnabled}
                 agentName={agent.selectedAgentName}
                 availableAgents={agent.availableAgents}
@@ -79,6 +85,7 @@ export function WhatsAppChat() {
                 isAgentBindingLoading={agent.isBindingLoading}
               />
               {agent.error && <Banner tone="warning" text={agent.error} />}
+              {handoff.error && <Banner tone="error" text={handoff.error} />}
               <MessagePane
                 conversationId={activeConversation.id}
                 onSendMessage={sendMessage}
