@@ -13,9 +13,9 @@
 
 ## O que é
 
-Uma Company conecta o número de WhatsApp dela (uma Instance, via Evolution API). O Agent atende os Contacts com as Tools do Pack do seu ramo, consulta a memória da Conversation e passa para um Attendant quando precisa (Handoff). Um dashboard Next.js acompanha Instances, Conversations e o que o Agent está fazendo em tempo real.
+Uma Company conecta o número de WhatsApp dela (uma Instance, via Evolution API). O Agent atende os Contacts com as Tools do Pack do seu ramo, consulta a memória da Conversation e passa para um Attendant quando precisa (Handoff). Um dashboard Next.js acompanha Instances, Conversations, o que o Agent está fazendo em tempo real e os Pedidos que a Company move de status.
 
-Hoje existe um Pack, "catálogo & pedidos" (restaurantes): cardápio, pedido e Pix. Novos ramos entram como outro Pack, sem mexer no núcleo ([como criar um Pack](docs/packs.md)). O vocabulário do projeto está no [glossário](CONTEXT.md).
+Hoje existe um Pack, "catálogo & pedidos" (restaurantes): cardápio, pedido com Recap e confirmação, cancelar e alterar antes do preparo, status com aviso ao Contact e Pix. O atendimento é dividido em Sessions por inatividade, mensagens picadas viram uma resposta só e o Handoff termina por devolução do Attendant ou por timeout. Novos ramos entram como outro Pack, sem mexer no núcleo ([como criar um Pack](docs/packs.md)). O vocabulário do projeto está no [glossário](CONTEXT.md).
 
 ## Para quem
 
@@ -59,10 +59,10 @@ Conectar o WhatsApp por QR code, ligar a Instance à Company e conferir a primei
 |---|---|
 | [docs/setup.md](docs/setup.md) | Infra local, `.env`, migrações, seed, Gateway, QR code e primeira resposta. |
 | [docs/architecture.md](docs/architecture.md) | Fluxo webhook → consumer → executor → loop → Tools → Evolution. |
-| [docs/agent.md](docs/agent.md) | Loop, Tools, memória (Recent Window, Summary, History Search) e eventos. |
+| [docs/agent.md](docs/agent.md) | Loop, Tools, fluxo do pedido, memória e Sessions, configuração da Company, agrupamento de Messages e eventos. |
 | [docs/packs.md](docs/packs.md) | Criar um Pack para farmácia, loja ou academia: contrato e exemplo. |
 | [docs/integrations.md](docs/integrations.md) | Integrar um sistema de gestão por API REST e por Tools de Pack. |
-| [docs/operations.md](docs/operations.md) | Handoff, Tickets e troubleshooting. |
+| [docs/operations.md](docs/operations.md) | Handoff (início, devolução, timeout), cancelamento, alteração e estorno de Pix, painel de Pedidos e troubleshooting. |
 | [CONTEXT.md](CONTEXT.md) | Glossário do domínio. |
 | [docs/adr/](docs/adr/) | Decisões de arquitetura. |
 | [backend/README.md](backend/README.md) · [frontend/README.md](frontend/README.md) | Notas de cada parte. |

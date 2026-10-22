@@ -56,6 +56,27 @@ O Agent tem 6 Tools: 3 do núcleo (valem para qualquer Business Type) e 3 do Pac
 
 Todo acesso das Tools é escopado pelo `ToolContext`: Catalog Items e Delivery Zones pelo `company_id`, o Order pela `conversation_id`, o histórico pelo `contact_id`. Para criar Tools de outro ramo, veja [packs.md](packs.md).
 
+## Fluxo do pedido
+
+Resumo do que o Pack "catálogo & pedidos" garante. As regras estão no código das Tools; o prompt só orienta o modelo, então um erro de redação do modelo não fecha um pedido por engano.
+
+| `Order.status` | O Contact ouve | O Contact pode |
+|---|---|---|
+| `open`, `collecting_data`, `ready_for_confirmation` | em montagem | adicionar, remover, informar dados, confirmar |
+| `ready_for_confirmation` com `closed_at` | em alteração, aguardando nova confirmação | reconfirmar (ou o Order volta ao confirmado quando a Session acaba) |
+| `closed` | recebido, aguardando preparo | cancelar e alterar, sem Handoff |
+| `in_production`, `sent`, `delivered` | em preparo, saiu para entrega, entregue | só por Handoff |
+| `cancelled` | cancelado | pedido novo |
+| `abandoned` | abandonado, não foi finalizado | `retomar_pedido`, se pedir |
+
+- **Fechar exige confirmação.** `finalizar` só fecha se o pedido está completo e acima do mínimo, a Company está aberta, o Contact viu a Recap (a resposta que a trouxe foi enviada), nada mudou desde ela e a Message que dispara o Turn é posterior à entrega. "Pode fechar" na mesma Message dos dados não conta: o Agent recapitula e espera.
+- **Fora do horário não fecha.** Com `business_hours` cadastrado e a Company fechada, `finalizar` recusa com a próxima abertura ("Abre hoje às 18:00"); o Order continua salvo. Sem horários cadastrados, nada bloqueia. O mesmo vale ao pedir Handoff: a resposta traz a próxima janela de atendimento.
+- **Session nova abandona.** Order em montagem que atravessa o limite de inatividade vira `abandoned`; o Agent é avisado no prompt e só recria o pedido (`retomar_pedido`, com os preços de hoje) se o Contact aceitar.
+- **Cancelar e alterar.** `cancelar_pedido` e `alterar_pedido` valem só para o Order `closed` confirmado na Session atual ou na anterior; depois, ou com o Order em preparo, o erro manda oferecer Handoff. Alterar reabre a montagem, invalida o Pix e exige nova Recap. Se a Company move o Order para preparo no meio do caminho, a troca de status é condicional e perde a corrida: nada é gravado e o Agent oferece Handoff.
+- **"Cadê meu pedido".** `status_pedido` lê o mesmo `Order.status` que a Company move no painel `/pedidos` ([operations.md](operations.md#painel-de-pedidos-status-pela-company)); a cada mudança o Contact também recebe um aviso no WhatsApp.
+- **Pix.** O fechamento com Pix devolve o código "copia e cola" e o `txid`; alterar ou cancelar invalida o código antigo e o `finalizar` seguinte gera outro. Nada detecta pagamento: o estorno é manual ([operations.md](operations.md#cancelamento-alteração-e-estorno-de-pix)).
+- **Handoff.** O Agent transfere quando o Contact pede uma pessoa, reclama de verdade ou relata problema num pedido já feito, com uma `frase_empatica`. Em Handoff ele fica em silêncio até o Attendant devolver ou o timeout da Company vencer ([operations.md](operations.md#como-o-handoff-termina)).
+
 ## Memória
 
 Três camadas ([ADR 0003](adr/0003-memory-window-summary-fts.md)); a Recent Window é por Session, as outras duas por Conversation. Os limites vêm de `app/core/config.py` e podem ser trocados por variável de ambiente.

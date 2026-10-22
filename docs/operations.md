@@ -66,7 +66,7 @@ A Company acompanha os Orders confirmados em **Pedidos** (`/pedidos`) e move o s
 - **Cancelamento pela Company** reaproveita `changes.cancel_order`, o mesmo caminho do Contact: o Pix válido é invalidado e entra na lista de estornos (`pending`/`verify`). O aviso ao Contact menciona o estorno só se havia Pix.
 - **Aviso ao Contact**: enviado por `whatsapp/sender.send_and_persist(sent_by="system")`, então fica gravado como Message `from_me` na Conversation, marcada em `messages.sent_by`. Falha no envio não desfaz a mudança: é logada (`Failed to notify the Contact about the Order status`) e a resposta traz `notification: {sent: false, error}`; o painel mostra um aviso amarelo. A Company não é avisada de novo: ela precisa falar com o Contact.
 - **Eco do aviso**: o eco `fromMe` do aviso nunca é atividade de Attendant (não reinicia o timeout do Handoff, #35) nem uma segunda Message. Com id da Evolution, o dedup por `message_id` basta. Sem id, o aviso fica gravado com `message_id` NULL e o consumer reconhece o eco no banco (`whatsapp/system_notice.adopt_echo`: Conversation + texto + janela de 2 min) e grava o id nele. Vale entre processos (API grava, worker consome).
-- **Concorrência**: a troca de status é um `UPDATE ... WHERE id = :id AND status = :lido` (`changes.claim_status`), no painel e no `cancelar_pedido` do Contact. Quem perde a corrida não grava nada, não invalida Pix e não avisa ninguém: no painel é 409, na Tool é erro para o Agent.
+- **Concorrência**: a troca de status é um `UPDATE ... WHERE id = :id AND status = :lido` (`changes.claim_status`), no painel, no `cancelar_pedido` e no `alterar_pedido` do Contact. Quem perde a corrida não grava nada, não invalida Pix e não avisa ninguém: no painel é 409, na Tool é erro para o Agent (se a Company já passou o Order para preparo, o erro manda oferecer Handoff).
 - **API**: `GET /api/v1/orders?status=active|done|all&offset=&limit=` (padrão `active`, `limit` 50, até 200) lista os Orders confirmados do mais recente ao mais antigo e devolve `{orders, total}`. `active` são recebido, em preparo, saiu para entrega e os reabertos em alteração; `done` são entregue e cancelado. Cada linha traz `allowed_transitions`, itens, total, pagamento e `refund_status` (uma consulta agrupada por página). `POST /api/v1/orders/{id}/status` com `{"status": "in_production" | "sent" | "delivered" | "cancelled"}` devolve `{order, notification}`. Escopo pelas Instances do usuário: Order de outra Company é 404; sem token, 401; status fora dessa lista, 422; transição inválida ou perdida numa corrida, 409.
 - **"Cadê meu pedido"**: `status_pedido` lê o mesmo `Order.status`, então já reflete a mudança no próximo Turn.
 
@@ -99,6 +99,18 @@ Causas comuns de `Turn failed`:
 - `LLMNotConfiguredError` com a chave do Gateway: a chave não abre. `SECRET_KEY` mudou, ou o banco tem chaves de antes do HKDF; rode `python scripts/reencrypt_gateway_secrets.py` (a primeira vem de [setup.md](setup.md)) ou regrave a chave do Gateway.
 - `LLMProviderError`: o Gateway respondeu fora do formato, deu 5xx ou estourou o timeout (60 s por padrão, 3 tentativas). Teste com `POST /gateways/models/{id}/test`.
 - Gateway em `localhost` com a API em container: dentro do container use `http://host.docker.internal:<porta>`.
+
+### O pedido não fecha
+
+O `finalizar` recusa em código, e o Agent repassa o motivo ao Contact. Os erros que aparecem no `tool_result` (visível em `tool_event`):
+
+| Erro | Causa | O que fazer |
+|---|---|---|
+| "A empresa está fechada agora… Abre hoje às 18:00" | `Company.business_hours` diz fechado no fuso da Company. | Confira horários e `timezone` em Configurações > Geral. O Order fica salvo. |
+| "O cliente ainda não viu a recapitulação" / "A recapitulação ainda não chegou ao cliente" | Faltou `recapitular`, ou a resposta com a Recap não foi enviada (Turn falhou, Handoff, Evolution fora). | Nada: o Agent recapitula de novo e espera o "confirmo". |
+| "O pedido mudou depois da recapitulação" | Item, endereço, pagamento ou troco mudou depois da Recap. | Nada: nova Recap e nova confirmação. |
+| "Pedido mínimo de R$ …" | Itens abaixo de `minimum_order` (sem a taxa). | Ajuste o mínimo no painel, se for o caso. |
+| "Esta empresa não tem chave Pix cadastrada" | `pix_key` vazio e o Contact escolheu Pix. | Cadastre a chave em Configurações > Geral. |
 
 ### A Evolution reinicia em loop
 

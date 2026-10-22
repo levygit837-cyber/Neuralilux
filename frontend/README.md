@@ -8,14 +8,12 @@ Dashboard e interface de chat em Next.js + TypeScript.
 frontend/
 ├── src/
 │   ├── app/              # App Router (Next.js 16)
-│   │   ├── dashboard/
-│   │   ├── chat/
+│   │   ├── dashboard/ chat/ instances/ pedidos/ estoque/ qr/ settings/ login/
 │   │   └── layout.tsx
 │   ├── components/       # Componentes React
 │   ├── services/         # API clients
 │   ├── hooks/            # Custom hooks
-│   ├── store/            # Zustand stores
-│   └── styles/           # Estilos globais
+│   └── stores/           # Zustand stores
 ├── public/               # Assets estáticos
 ├── package.json
 └── Dockerfile
@@ -59,5 +57,6 @@ npm run type-check   # Verificar tipos
 - `/dashboard` - Dashboard principal
 - `/chat` - Interface de chat
 - `/instances` - Gerenciar instâncias
-- `/agents` - Gerenciar agentes
-- `/settings` - Configurações
+- `/pedidos` - Painel de Pedidos: a Company move o status e o Contact recebe o aviso no WhatsApp
+- `/estoque` - Estoque do cardápio
+- `/settings` - Configurações (Company, Agent e Gateways)
