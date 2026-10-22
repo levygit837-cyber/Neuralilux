@@ -209,7 +209,8 @@ def alterar_pedido(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
             "O cliente tem outro pedido em montagem. Termine ou esvazie esse antes de alterar o pedido já confirmado."
         )
     try:
-        claim_status(ctx.db, order, status="ready_for_confirmation")  # antes de qualquer outra escrita: a Company pode ter movido o Order
+        # Antes de qualquer outra escrita: a Company pode ter movido o Order.
+        claim_status(ctx.db, order, status="ready_for_confirmation")
     except OrderChanged:
         ctx.db.refresh(order)
         if order.status in _PAST_PREPARATION:
