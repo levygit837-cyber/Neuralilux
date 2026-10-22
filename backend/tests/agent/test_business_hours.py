@@ -2,7 +2,7 @@ from datetime import date, datetime, time
 
 from pack_helpers import BUSINESS_HOURS
 
-from app.agent.core_tools import is_open_at
+from app.agent.business_hours import describe_opening, is_open_at, next_opening
 
 
 def at(hours, weekday_hhmm):
@@ -50,3 +50,49 @@ def test_multiple_intervals_per_day():
     hours = {"mon": [["11:00", "14:00"], ["18:00", "23:00"]]}
     assert at(hours, (0, "12:00")) and at(hours, (0, "19:00"))
     assert not at(hours, (0, "15:00"))
+
+
+# ---------- próxima janela de atendimento ----------
+
+
+def next_at(hours, weekday, hhmm):
+    day = date(2026, 10, 19 + weekday)
+    hh, mm = map(int, hhmm.split(":"))
+    return next_opening(hours, datetime.combine(day, time(hh, mm)))
+
+
+def test_next_opening_later_today():
+    assert next_at(BUSINESS_HOURS, 0, "10:00") == datetime(2026, 10, 19, 18, 0)
+
+
+def test_next_opening_tomorrow_after_closing():
+    assert next_at(BUSINESS_HOURS, 0, "23:30") == datetime(2026, 10, 20, 18, 0)
+
+
+def test_next_opening_skips_closed_days():
+    hours = {"mon": [["09:00", "12:00"]], "thu": [["14:00", "18:00"]]}
+    assert next_at(hours, 0, "13:00") == datetime(2026, 10, 22, 14, 0)  # quinta
+
+
+def test_next_opening_wraps_to_next_week_same_weekday():
+    hours = {"mon": [["09:00", "12:00"]]}
+    assert next_at(hours, 0, "12:00") == datetime(2026, 10, 26, 9, 0)
+
+
+def test_next_opening_picks_earliest_interval_of_the_day():
+    hours = {"mon": [["18:00", "22:00"], ["11:00", "14:00"]]}
+    assert next_at(hours, 0, "08:00") == datetime(2026, 10, 19, 11, 0)
+    assert next_at(hours, 0, "15:00") == datetime(2026, 10, 19, 18, 0)
+
+
+def test_next_opening_is_none_without_hours_or_intervals():
+    assert next_opening(None, datetime(2026, 10, 19, 10, 0)) is None
+    assert next_opening({"mon": []}, datetime(2026, 10, 19, 10, 0)) is None
+
+
+def test_describe_opening_uses_today_tomorrow_and_weekday_names():
+    now = datetime(2026, 10, 19, 10, 0)  # segunda
+    assert describe_opening(datetime(2026, 10, 19, 18, 0), now) == "hoje às 18:00"
+    assert describe_opening(datetime(2026, 10, 20, 9, 30), now) == "amanhã às 09:30"
+    assert describe_opening(datetime(2026, 10, 22, 14, 0), now) == "quinta-feira às 14:00"
+    assert describe_opening(datetime(2026, 10, 26, 9, 0), now) == "segunda-feira (26/10) às 09:00"

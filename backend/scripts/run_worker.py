@@ -13,6 +13,8 @@ from pathlib import Path
 # Add backend project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from app.core.config import settings
+from app.services.handoff_service import sweep_forever
 from app.whatsapp.consumer import whatsapp_consumer
 from app.whatsapp.message_queue import message_queue_service
 
@@ -36,6 +38,7 @@ async def run() -> int:
         return 1
 
     consuming = asyncio.create_task(whatsapp_consumer.start())
+    sweeping = asyncio.create_task(sweep_forever(settings.HANDOFF_SWEEP_INTERVAL_SECONDS))
     waiting = asyncio.create_task(stopping.wait())
     try:
         await asyncio.wait({consuming, waiting}, return_when=asyncio.FIRST_COMPLETED)
@@ -45,7 +48,8 @@ async def run() -> int:
         return 0
     finally:
         await whatsapp_consumer.stop()  # espera as entregas e os Summaries em andamento
-        await asyncio.gather(consuming, return_exceptions=True)
+        sweeping.cancel()
+        await asyncio.gather(consuming, sweeping, return_exceptions=True)
         waiting.cancel()
         await message_queue_service.disconnect()
         logger.info("Worker stopped")

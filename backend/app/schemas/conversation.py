@@ -39,6 +39,7 @@ class ConversationResponse(BaseModel):
     is_archived: bool
     unread_count: int
     human_in_loop: bool = False
+    handoff_assigned_to: Optional[str] = None
     last_message_at: Optional[datetime] = None
     last_message_preview: Optional[str] = None
     assigned_agent_id: Optional[str] = None

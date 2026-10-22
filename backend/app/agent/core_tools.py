@@ -8,26 +8,26 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from typing import Any
 
 import structlog
 
+from app.agent.business_hours import DAY_KEYS, DAY_LABELS, describe_opening, is_open_at, next_opening
 from app.agent.clock import DEFAULT_TIMEZONE, company_zone, utc_now
 from app.agent.contracts import Tool, ToolContext, ToolResult
 from app.agent.memory import search_history
-from app.models import Company, Conversation, DeliveryZone, Instance, Message, Ticket
+from app.models import Company, Conversation, DeliveryZone, Instance
+from app.services.handoff_service import open_handoff
 
 logger = structlog.get_logger()
 
 TRANSFER_MESSAGE = "Vou te passar para um de nossos atendentes. Em instantes alguém continua essa conversa por aqui."
-
-# Ordem de `datetime.weekday()`: segunda = 0.
-DAY_KEYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
-DAY_LABELS = ("segunda", "terca", "quarta", "quinta", "sexta", "sabado", "domingo")
-
-# Ticket.agent_type é obrigatório; o Agent é um só por Company, então o valor é neutro.
-HANDOFF_AGENT_TYPE = "whatsapp_agent"
+AFTER_HOURS_MESSAGE = (
+    "Nosso atendimento humano está fora do horário agora. Um atendente continua essa conversa {when}."
+)
+AFTER_HOURS_NO_WINDOW_MESSAGE = (
+    "Nosso atendimento humano está fora do horário agora. Um atendente continua essa conversa assim que possível."
+)
 
 
 async def publish_event(event: dict[str, Any]) -> None:
@@ -42,39 +42,6 @@ def _ok(data: dict[str, Any]) -> ToolResult:
 
 def _error(message: str) -> ToolResult:
     return ToolResult(content=json.dumps({"erro": message}, ensure_ascii=False), is_error=True)
-
-
-# ---------- horário de funcionamento ----------
-
-
-def _minutes(clock: str) -> int:
-    hours, minutes = clock.split(":")
-    return int(hours) * 60 + int(minutes)
-
-
-def _intervals(raw: Any) -> list[tuple[int, int]]:
-    return [(_minutes(start), _minutes(end)) for start, end in (raw or [])]
-
-
-def is_open_at(hours: dict[str, list[list[str]]] | None, local_now: datetime) -> bool | None:
-    """True/False se a Company está aberta em `local_now` (já no fuso dela); None se não há horários.
-
-    Intervalo cujo fim é menor ou igual ao início cruza a meia-noite (`["18:00", "02:00"]`);
-    fim `"00:00"` significa "até o fim do dia". Dia ausente no dicionário = fechado.
-    """
-    if not hours:
-        return None
-    now = local_now.hour * 60 + local_now.minute
-    weekday = local_now.weekday()
-
-    for start, end in _intervals(hours.get(DAY_KEYS[weekday])):
-        if (start <= now < end) if end > start else (now >= start):
-            return True
-    # Sobra de ontem: intervalo que cruzou a meia-noite e ainda não terminou.
-    for start, end in _intervals(hours.get(DAY_KEYS[(weekday - 1) % 7])):
-        if end <= start and now < end:
-            return True
-    return False
 
 
 def _format_address(company: Company) -> str | None:
@@ -140,31 +107,12 @@ async def _transferir_atendente(ctx: ToolContext, args: dict[str, Any]) -> ToolR
     conversation = ctx.db.get(Conversation, ctx.conversation_id)
     if conversation is None:
         return _error("Conversa não encontrada.")
+    company = ctx.db.get(Company, ctx.company_id)
+    farewell = _handoff_reply(company, str(args.get("frase_empatica") or ""))
     if conversation.human_in_loop and conversation.ticket_id:
-        return ToolResult(content=TRANSFER_MESSAGE, ends_turn=True)
+        return ToolResult(content=farewell, ends_turn=True)
 
-    last_incoming = (
-        ctx.db.query(Message)
-        .filter(Message.conversation_id == conversation.id, Message.direction == "incoming", Message.content.isnot(None))
-        .order_by(Message.timestamp.desc())
-        .first()
-    )
-    ticket = Ticket(
-        conversation_id=conversation.id,
-        instance_id=conversation.instance_id,
-        contact_id=conversation.contact_id,  # FK de contacts.id, nunca o remote_jid
-        agent_type=HANDOFF_AGENT_TYPE,
-        reason=reason,
-        content=last_incoming.content if last_incoming else reason,
-        status="open",
-    )
-    ctx.db.add(ticket)
-    ctx.db.flush()
-    conversation.human_in_loop = True
-    conversation.human_handoff_reason = reason
-    conversation.ticket_id = ticket.id
-    ctx.db.commit()
-
+    ticket = open_handoff(ctx.db, conversation, reason)
     instance = ctx.db.get(Instance, conversation.instance_id)
     try:
         await publish_event(
@@ -184,7 +132,29 @@ async def _transferir_atendente(ctx: ToolContext, args: dict[str, Any]) -> ToolR
     except Exception as exc:  # o Handoff já está gravado; falha de notificação não pode desfazê-lo
         logger.warning("Failed to publish handoff event", ticket_id=ticket.id, error=str(exc))
 
-    return ToolResult(content=TRANSFER_MESSAGE, ends_turn=True)
+    return ToolResult(content=farewell, ends_turn=True)
+
+
+def _handoff_reply(company: Company | None, empathy: str) -> str:
+    """Resposta final do Turn de Handoff: frase empática do Agent + quando haverá atendimento humano."""
+    return " ".join(part for part in (_single_line(empathy), _handoff_availability(company)) if part)
+
+
+def _single_line(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _handoff_availability(company: Company | None) -> str:
+    """Fixa em horário comercial; fora dele, informa a próxima janela de atendimento."""
+    if company is None or not company.business_hours:
+        return TRANSFER_MESSAGE
+    local_now = utc_now().astimezone(company_zone(company))
+    if is_open_at(company.business_hours, local_now):
+        return TRANSFER_MESSAGE
+    opening = next_opening(company.business_hours, local_now)
+    if opening is None:
+        return AFTER_HOURS_NO_WINDOW_MESSAGE
+    return AFTER_HOURS_MESSAGE.format(when=describe_opening(opening, local_now))
 
 
 # ---------- buscar_historico ----------
@@ -218,12 +188,21 @@ def core_tools() -> list[Tool]:
             description=(
                 "Passa a conversa para um atendente humano e encerra o seu turno. Use quando o cliente pedir para "
                 "falar com um humano, fizer uma reclamação grave, ou relatar um problema com um pedido já feito. "
-                "Não use para dúvidas que você mesmo consegue responder."
+                "Não use para dúvidas que você mesmo consegue responder. Antes de transferir, escreva em "
+                "frase_empatica uma frase curta e acolhedora ao cliente, coerente com o motivo (peça de desculpas "
+                "numa reclamação; confirme o pedido de falar com uma pessoa). Não prometa prazo nem horário: o "
+                "sistema acrescenta quando haverá atendimento humano."
             ),
             input_schema={
                 "type": "object",
-                "properties": {"motivo": {"type": "string", "description": "Por que a conversa precisa de um humano."}},
-                "required": ["motivo"],
+                "properties": {
+                    "motivo": {"type": "string", "description": "Por que a conversa precisa de um humano."},
+                    "frase_empatica": {
+                        "type": "string",
+                        "description": "Uma ou duas frases empáticas ao cliente, em português, sem prazo nem horário.",
+                    },
+                },
+                "required": ["motivo", "frase_empatica"],
                 "additionalProperties": False,
             },
             handler=_transferir_atendente,

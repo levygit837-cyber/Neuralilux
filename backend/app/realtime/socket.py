@@ -16,6 +16,7 @@ from app.core.config import settings
 from app.core.database import SessionLocal
 from app.core.security import decode_access_token
 from app.models import Conversation, Instance, User
+from app.services import handoff_service
 from app.whatsapp.evolution_client import evolution_api
 
 logger = structlog.get_logger()
@@ -148,10 +149,31 @@ class ChatSocketService:
 
             try:
                 result = await evolution_api.send_text_message(evolution_name, remote_jid, content)
+                self._record_attendant_activity(instance_name, remote_jid)
                 return {"ok": True, "messageId": result.get("key", {}).get("id") or result.get("id")}
             except Exception as exc:  # pragma: no cover - defensive path
                 logger.error("Socket send_message failed", error=str(exc), instance_name=instance_name)
                 return {"ok": False}
+
+    def _record_attendant_activity(self, instance_name: str, remote_jid: str) -> None:
+        """O Attendant escreveu pelo chat: reinicia o timeout do Handoff. Falha só loga; a Message já saiu."""
+        db = SessionLocal()
+        try:
+            instance = resolve_instance(db, instance_name)
+            if instance is None:
+                return
+            conversation = (
+                db.query(Conversation)
+                .filter(Conversation.instance_id == instance.id, Conversation.remote_jid == remote_jid)
+                .first()
+            )
+            if conversation is not None:
+                handoff_service.record_attendant_activity(db, conversation)
+        except Exception as exc:
+            db.rollback()
+            logger.warning("Failed to record attendant activity", error=str(exc))
+        finally:
+            db.close()
 
     def _get_user_from_token(self, token: Optional[str]) -> Optional[User]:
         if not token:
@@ -311,6 +333,13 @@ class ChatSocketService:
                 conv_room = self._conversation_room(instance_name, conversation_id)
                 await self.server.emit("tool_event", normalized_payload, room=conv_room)
                 await self.server.emit("tool_event", normalized_payload, room=room)
+        elif event_type == "handoff_updated":
+            conversation_id = payload.get("conversationId") or payload.get("conversation_id")
+            if conversation_id:
+                normalized_payload = {**payload, "conversationId": conversation_id, "conversation_id": conversation_id}
+                conv_room = self._conversation_room(instance_name, conversation_id)
+                await self.server.emit("handoff_updated", normalized_payload, room=conv_room)
+                await self.server.emit("handoff_updated", normalized_payload, room=room)
         elif event_type == "human_handoff_requested":
             conversation_id = payload.get("conversationId") or payload.get("conversation_id")
             if conversation_id:

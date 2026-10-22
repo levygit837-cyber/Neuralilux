@@ -18,6 +18,7 @@ from app.agent import executor
 from app.core.database import SessionLocal
 from app.agent.sessions import roll_session
 from app.models import Agent, Company, Contact, Conversation, Instance, Message
+from app.services import handoff_service
 from app.whatsapp.message_queue import message_queue_service
 from app.whatsapp.sender import send_and_persist
 from app.whatsapp.status_events import (
@@ -253,6 +254,13 @@ class WhatsAppMessageConsumer:
         )
 
         await publish_message(instance_name, remote_jid, contact, conversation, message_id, parsed.content, timestamp, from_me)
+
+        if from_me:
+            # Mensagem enviada pelo celular da Company: conta como Attendant ativo e reinicia o timeout.
+            handoff_service.record_attendant_activity(db, conversation)
+        else:
+            # Rede de segurança do timeout: o sweeper do worker roda a cada minuto, esta checagem é exata.
+            await handoff_service.expire_if_due(db, conversation, instance)
 
         skip = self._skip_agent_reason(from_me, remote_jid, timestamp)
         if skip:

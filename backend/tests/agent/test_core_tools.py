@@ -23,6 +23,8 @@ def events(monkeypatch):
         sent.append(event)
 
     monkeypatch.setattr(core_tools, "publish_event", publish)
+    # Segunda 19:00 em Fortaleza: a Company está aberta, então o Handoff usa a mensagem de horário comercial.
+    monkeypatch.setattr(core_tools, "utc_now", lambda: datetime(2026, 10, 19, 22, 0, tzinfo=timezone.utc))
     return sent
 
 
@@ -171,7 +173,7 @@ async def test_core_exposes_exactly_three_tools():
     tools = build_core_tools()
     assert [t.name for t in tools] == ["info_empresa", "transferir_atendente", "buscar_historico"]
     assert tools[0].input_schema["properties"] == {}
-    assert tools[1].input_schema["required"] == ["motivo"]
+    assert tools[1].input_schema["required"] == ["motivo", "frase_empatica"]
     assert tools[2].input_schema["required"] == ["consulta"]
 
 

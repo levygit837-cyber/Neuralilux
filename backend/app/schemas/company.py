@@ -47,6 +47,7 @@ class CompanyCreate(BaseModel):
     # Business hours
     business_hours: Optional[Dict[str, Any]] = None
     timezone: str = DEFAULT_TIMEZONE
+    handoff_timeout_hours: int = Field(4, ge=1, le=720)
 
     # AI Configuration
     ai_system_prompt: Optional[str] = None
@@ -81,6 +82,7 @@ class CompanyUpdate(BaseModel):
     # Business hours
     business_hours: Optional[Dict[str, Any]] = None
     timezone: Optional[str] = None  # se informado, tem de ser um fuso válido (a coluna não aceita NULL)
+    handoff_timeout_hours: Optional[int] = Field(None, ge=1, le=720)
 
     # AI Configuration
     ai_system_prompt: Optional[str] = None
@@ -120,6 +122,7 @@ class CompanyResponse(BaseModel):
 
     # Business hours
     business_hours: Optional[Dict[str, Any]] = None
+    handoff_timeout_hours: int = 4
 
     # AI Configuration
     ai_system_prompt: Optional[str] = None
