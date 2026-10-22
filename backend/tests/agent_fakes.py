@@ -56,3 +56,6 @@ class FakePack:
 
     def system_prompt_section(self, ctx: ToolContext) -> str:
         return self.section
+
+    def on_session_start(self, db, conversation) -> None:
+        return None

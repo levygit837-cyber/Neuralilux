@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Boolean, Text, ForeignKey, Numeric
+from sqlalchemy import Column, String, DateTime, Boolean, Integer, Text, ForeignKey, Numeric
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -46,6 +46,8 @@ class Company(Base):
     business_hours = Column(JSONB)  # {"mon": [["11:00", "23:00"]], ...}; intervalo que cruza a meia-noite é aceito
     timezone = Column(String(64), nullable=False, default="America/Sao_Paulo", server_default="America/Sao_Paulo")
     minimum_order = Column(Numeric(10, 2))  # Pedido mínimo (soma dos itens) da Company
+    # Minutos sem Messages que encerram a Session de atendimento (ADR 0007).
+    session_timeout_minutes = Column(Integer, nullable=False, default=180, server_default="180")
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

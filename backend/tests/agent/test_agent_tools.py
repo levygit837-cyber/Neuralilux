@@ -36,6 +36,9 @@ class FakePack:
     def system_prompt_section(self, ctx: ToolContext) -> str:
         return ""
 
+    def on_session_start(self, db, conversation) -> None:
+        return None
+
 
 def _tool(name, handler, schema=ITEM_SCHEMA, description="desc"):
     return Tool(name=name, description=description, input_schema=schema, handler=handler)

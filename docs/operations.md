@@ -103,6 +103,6 @@ Causas comuns de `Turn failed`:
 
 ### Memória
 
-- **O Agent esqueceu algo antigo**: só a Recent Window (20 Messages) entra literal. O resto está no Summary ou na History Search ([agent.md](agent.md#memória)).
+- **O Agent esqueceu algo antigo**: só a Recent Window (até 20 Messages da Session atual) entra literal; depois de uma pausa maior que `session_timeout_minutes` da Company (padrão 3 h) a Session é nova e o anterior só chega pelo Summary e pela History Search. O resto está no Summary ou na History Search ([agent.md](agent.md#memória)).
 - **O Summary não atualiza**: procure `Summary refresh failed` ou `Falha ao atualizar o Summary` no worker. Falha aqui nunca bloqueia a resposta; o próximo Turn tenta de novo. Só roda após 20 Messages fora da janela ainda não resumidas.
 - **`buscar_historico` volta vazio em dev**: em SQLite (testes) a busca é por `ILIKE` de todas as palavras; em Postgres é full-text em português.

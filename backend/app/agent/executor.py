@@ -1,6 +1,6 @@
 """Executa um Turn para uma Message recebida do Contact.
 
-Ordem: gate de Handoff lido do banco, contexto (Summary + Recent Window), Gateway
+Ordem: gate de Handoff lido do banco, contexto (Summary + Recent Window da Session atual, hora local), Gateway
 do `whatsapp_agent`, loop com as Tools dos Packs da Company, formatação para o
 WhatsApp e nova leitura do Handoff antes de devolver a resposta. Quem chama envia
 `reply_text` (se houver) e depois agenda `refresh_summary` fora do caminho da resposta.
@@ -13,6 +13,7 @@ import uuid
 import structlog
 from sqlalchemy.orm import Session
 
+from app.agent.clock import time_context, utc_now
 from app.agent.contracts import ChatMessage, Pack, Tool, ToolContext
 from app.agent.core_tools import core_tools
 from app.agent.events import TurnEvents
@@ -20,6 +21,7 @@ from app.agent.formatting import to_whatsapp
 from app.agent.loop import TurnResult, run_turn
 from app.agent.memory import build_context, maybe_refresh_summary
 from app.agent.prompts import build_system_prompt
+from app.agent.sessions import previous_message_at
 from app.agent.tools import ToolRegistry
 from app.core import database
 from app.llm.registry import resolve as resolve_gateway
@@ -42,6 +44,9 @@ class CorePack:
 
     def system_prompt_section(self, ctx: ToolContext) -> str:
         return ""
+
+    def on_session_start(self, db: Session, conversation: Conversation) -> None:
+        return None
 
 
 def packs_for(company: Company) -> list[Pack]:
@@ -92,7 +97,11 @@ async def handle_incoming(
         history = _with_incoming(history, text)
         packs = packs_for(company)
         client, model, effort = resolve_gateway(AGENT_TYPE)
-        system = build_system_prompt(company_name=company.name, packs=packs, ctx=ctx, summary=summary)
+        now = utc_now()
+        when = time_context(company, now, previous_message_at(db, conversation.id, text), conversation.session_started_at)
+        system = build_system_prompt(
+            company_name=company.name, packs=packs, ctx=ctx, summary=summary, time_context=when
+        )
         result = await run_turn(
             client,
             model,

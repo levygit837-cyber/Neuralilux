@@ -23,6 +23,7 @@ STATUS_LABELS = {
     "sent": "saiu para entrega",
     "delivered": "entregue",
     "cancelled": "cancelado",
+    "abandoned": "abandonado, não foi finalizado",
 }
 
 
@@ -52,8 +53,11 @@ def active_order(ctx: ToolContext) -> CustomerOrder | None:
 
 def new_order(ctx: ToolContext) -> CustomerOrder:
     contact = ctx.db.get(Contact, ctx.contact_id)
+    now = datetime.now(timezone.utc)  # explícito: a ordem entre Orders da mesma Conversation decide o que é "mais recente"
     order = CustomerOrder(
-        order_number=f"{datetime.now(timezone.utc):%Y%m%d}-{uuid.uuid4().hex[:6].upper()}",
+        opened_at=now,
+        created_at=now,
+        order_number=f"{now:%Y%m%d}-{uuid.uuid4().hex[:6].upper()}",
         conversation_id=ctx.conversation_id,
         instance_id=ctx.instance_id,
         contact_id=ctx.contact_id,

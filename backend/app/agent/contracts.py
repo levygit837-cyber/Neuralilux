@@ -104,3 +104,10 @@ class Pack(Protocol):
     def tools(self) -> list[Tool]: ...
 
     def system_prompt_section(self, ctx: ToolContext) -> str: ...
+
+    def on_session_start(self, db: Session, conversation: Any) -> None:
+        """Uma Session nova substituiu a anterior (ADR 0007); o Pack trata o que ficou pendente.
+
+        Roda na transação que grava a Message que abriu a Session; não faz commit.
+        """
+        ...

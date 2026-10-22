@@ -70,6 +70,9 @@ class CompanyUpdate(BaseModel):
     ai_temperature: Optional[int] = Field(None, ge=0, le=100)
     ai_max_tokens: Optional[int] = Field(None, ge=100, le=4000)
 
+    # Atendimento: minutos sem Messages que encerram a Session (ADR 0007)
+    session_timeout_minutes: Optional[int] = Field(None, ge=1, le=10080)
+
     is_active: Optional[bool] = None
 
 
@@ -103,6 +106,8 @@ class CompanyResponse(BaseModel):
     ai_model: str
     ai_temperature: int
     ai_max_tokens: int
+
+    session_timeout_minutes: int = 180
 
     is_active: bool
     created_at: datetime

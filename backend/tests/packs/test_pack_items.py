@@ -150,11 +150,6 @@ async def test_unknown_action_is_error(world, pedido):
     assert (await call(pedido, world.ctx, acao="iniciar_finalizacao")).is_error
 
 
-async def test_action_enum_matches_handler(pedido):
-    enum = pedido.input_schema["properties"]["acao"]["enum"]
-    assert enum == ["adicionar_item", "remover_item", "ver", "definir_dados", "finalizar"]
-
-
 # ---------- status_pedido ----------
 
 

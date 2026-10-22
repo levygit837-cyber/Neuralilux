@@ -108,7 +108,7 @@ def db_session():
 def conversation_factory(db):
     """Cria Instance + Contact + Conversation reais com o id pedido.
 
-    order_service valida a existência da Conversation antes de abrir a comanda.
+    Os testes do Agent e dos Packs precisam de linhas reais por causa das chaves estrangeiras.
     """
     from app.models import Contact, Conversation, Instance
 
