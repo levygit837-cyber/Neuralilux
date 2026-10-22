@@ -13,7 +13,7 @@ from consumer_helpers import messages, process, upsert
 
 
 @pytest.mark.asyncio
-async def test_messages_of_one_conversation_run_in_order_and_never_overlap(db, world, monkeypatch):
+async def test_messages_of_one_conversation_never_overlap_and_none_is_lost(db, world, monkeypatch):
     running, overlaps, order = 0, [], []
 
     async def slow_turn(db, conversation, contact, instance, text, received_at=None):
@@ -34,7 +34,8 @@ async def test_messages_of_one_conversation_run_in_order_and_never_overlap(db, w
     await consumer.drain()
 
     assert max(overlaps) == 1
-    assert order == ["m0", "m1", "m2", "m3"]
+    # As que chegaram durante o Turn de m0 entram juntas no seguinte, na ordem de chegada.
+    assert [line for turn in order for line in turn.split("\n")] == ["m0", "m1", "m2", "m3"]
 
 
 @pytest.mark.asyncio

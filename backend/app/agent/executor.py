@@ -93,9 +93,10 @@ async def handle_incoming(
         request_id=uuid.uuid4().hex,
     )
 
-    await events.thinking_start()
     try:
+        # Antes de qualquer `await`: Message que chega depois fica para o Turn seguinte, não entra neste histórico.
         summary, history = build_context(db, conversation)
+        await events.thinking_start()
         history = _with_incoming(history, text)
         packs = packs_for(company)
         client, model, effort = resolve_gateway(AGENT_TYPE)

@@ -48,18 +48,20 @@ def roll_session(
 
 
 def previous_message_at(db: Session, conversation_id: str, incoming_text: str) -> datetime | None:
-    """Quando foi a Message anterior à que disparou o Turn, ou None se esta é a primeira da Conversation.
+    """Quando foi a Message anterior às que dispararam o Turn, ou None se elas são toda a Conversation.
 
-    O consumer grava a Message do Contact antes do Turn; ela é a mais recente e é ignorada quando o texto
-    bate. Se ainda não foi gravada, a mais recente já é a anterior.
+    O consumer grava as Messages do Contact antes do Turn e junta as de uma rajada em `incoming_text`, uma por
+    linha. Pula, da mais recente para trás, as Messages do Contact que formam o fim desse texto; se nenhuma
+    foi gravada ainda, a mais recente já é a anterior.
     """
-    newest = (
-        db.query(Message)
-        .filter(Message.conversation_id == conversation_id)
-        .order_by(Message.timestamp.desc(), Message.id.desc())
-        .limit(2)
-        .all()
+    remaining = incoming_text.strip()
+    newest_first = db.query(Message).filter(Message.conversation_id == conversation_id).order_by(
+        Message.timestamp.desc(), Message.id.desc()
     )
-    if newest and newest[0].direction == "incoming" and (newest[0].content or "").strip() == incoming_text.strip():
-        newest = newest[1:]
-    return newest[0].timestamp if newest else None
+    for message in newest_first:
+        content = (message.content or "").strip()
+        if remaining and message.direction == "incoming" and content and remaining.endswith(content):
+            remaining = remaining[: -len(content)].rstrip()
+            continue
+        return message.timestamp
+    return None

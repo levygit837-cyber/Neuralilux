@@ -1,7 +1,10 @@
+import asyncio
+
 import pytest
 
 from app.agent import executor
 from app.agent.loop import TurnResult
+from app.core.config import settings
 from app.models import Agent, BusinessType, Company, Instance
 from app.whatsapp import consumer as consumer_module
 from app.whatsapp.evolution_client import evolution_api
@@ -45,4 +48,23 @@ def world(db, monkeypatch):
     monkeypatch.setattr(evolution_api, "send_text_message", fake_send)
     monkeypatch.setattr(consumer_module, "SessionLocal", TestingSessionLocal)
     calls.update(company=company, agent=agent, instance=instance)
+    return calls
+
+
+@pytest.fixture(autouse=True)
+def no_debounce(monkeypatch):
+    """Sem janela de agrupamento por padrão: cada Message vira um Turn; os testes de agrupamento ligam a janela."""
+    monkeypatch.setattr(settings, "DEBOUNCE_SECONDS", 0.0)
+
+
+@pytest.fixture(autouse=True)
+def presence(monkeypatch):
+    """`send_presence` falso: como na Evolution, a chamada só volta depois do `delay` (aqui, quando cancelada)."""
+    calls = []
+
+    async def fake_send_presence(instance_name, remote_jid, presence="composing", delay_ms=0):
+        calls.append({"instance_name": instance_name, "remote_jid": remote_jid, "presence": presence})
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(evolution_api, "send_presence", fake_send_presence, raising=False)
     return calls

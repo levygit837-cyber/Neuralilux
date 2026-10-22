@@ -264,6 +264,22 @@ class EvolutionAPIService:
         )
         return result
 
+    async def send_presence(
+        self, instance_name: str, remote_jid: str, presence: str = "composing", delay_ms: int = 0
+    ) -> Dict[str, Any]:
+        """Mostra `presence` (ex.: "composing" = digitando) ao Contact.
+
+        A Evolution só responde depois de `delay_ms`; o WhatsApp apaga a presença sozinho em alguns segundos.
+        """
+        number = re.sub(r"\D", "", remote_jid.split("@")[0])
+        if not instance_name or not number:
+            raise EvolutionAPIError("instance_name and a numeric remote_jid are required", status_code=400)
+        return await self._request(
+            "POST",
+            f"/chat/sendPresence/{instance_name}",
+            data={"number": number, "presence": presence, "delay": delay_ms},
+        )
+
     async def send_text_message(
         self,
         instance_name: str,

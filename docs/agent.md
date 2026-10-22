@@ -4,7 +4,7 @@ Como o Agent de uma Company executa um Turn. Termos conforme o [glossário](../C
 
 ## Um Turn
 
-`executor.handle_incoming` (`backend/app/agent/executor.py`) é chamado pelo consumer para cada Message de texto do Contact:
+`executor.handle_incoming` (`backend/app/agent/executor.py`) é chamado uma vez por rajada de Messages de texto do Contact (ver [Agrupamento](#agrupamento-de-messages-picadas-e-digitando)):
 
 1. Lê `Conversation.human_in_loop` do **banco**, não do objeto carregado. Em Handoff devolve `reply_text=None` e o Agent fica em silêncio.
 2. Carrega a Company da Instance. Sem Company, loga erro e não responde.
@@ -89,6 +89,18 @@ O painel (Configurações > Geral) lê e grava a Company no backend; nada fica e
 - **Horários**: `{"mon": [["11:00", "14:00"], ["18:00", "02:00"]], ...}`, `HH:MM` (00:00 a 23:59, o mesmo parser que `is_open_at` usa na leitura) no fuso da Company. Fim menor ou igual ao início cruza a meia-noite (`"00:00"` é o fim do dia). Dia ausente ou lista vazia é fechado. Janelas que se sobrepõem são recusadas (422).
 - **Pix**: aceita e-mail, CPF, CNPJ, celular (`+55...`) ou chave aleatória (UUID), até 77 caracteres (limite do campo EMV). Sem chave, `info_empresa` não lista `pix` e o fechamento recusa Pix.
 - **Agent**: `PUT /companies/{id}/agent` com `temperature` (0 a 1; `null` usa a do Gateway) e `max_tokens` (100 a 4000). O executor passa os dois ao modelo em cada chamada do Turn.
+
+## Agrupamento de Messages picadas e "digitando"
+
+O Contact costuma mandar a frase em pedaços ("oi", "quero", "uma calabresa"). Responder a cada pedaço geraria três respostas. O consumer grava cada Message na hora e entrega ao `TurnBatcher` (`app/whatsapp/turn_batcher.py`) o texto dela, por Conversation:
+
+- **Janela.** `DEBOUNCE_SECONDS` (padrão 3). A primeira Message da rajada espera a Conversation ficar essa pausa sem Message nova; então roda **um** Turn com os textos juntos, um por linha. `0` desliga o agrupamento (um Turn por Message).
+- **Message durante um Turn.** Fica na fila e é tratada no Turn seguinte, depois de outra pausa. Nunca há dois Turns da mesma Conversation ao mesmo tempo, e nenhuma Message é descartada. O Turn seguinte vê a resposta anterior na Recent Window.
+- **Conversations diferentes** têm filas independentes e rodam em paralelo.
+- **Confirmação no broker.** Só a Message que abre a rajada segura a entrega do RabbitMQ até o fim dos Turns; as demais voltam logo depois de gravadas. A espera conta no `RABBITMQ_PREFETCH`: com 8, até 8 Conversations em rajada ao mesmo tempo. Se o worker cair no meio, a entrega pendente volta ao broker (a Message já gravada é descartada pelo dedup e o Turn não roda; o Contact manda de novo).
+- **Falha no Turn.** Fica no log; as Messages que chegaram durante ele ainda geram o Turn seguinte.
+
+Enquanto o Turn roda, o Contact vê "digitando…" no WhatsApp: `agent_turn.typing_indicator` chama `POST /chat/sendPresence/{instance}` (`presence=composing`) e renova a cada `TYPING_REFRESH_SECONDS` (padrão 20), porque a Evolution encerra a presença sozinha depois do `delay`. A presença é cosmética: se a chamada falhar, o erro vai para o log como aviso e a resposta sai normalmente. O `send_text_message` já envia `composing` por 1,2 s antes do texto.
 
 ## Eventos em tempo real
 

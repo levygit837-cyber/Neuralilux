@@ -3,24 +3,28 @@ WhatsApp Message Consumer Worker
 Processa os eventos do webhook da Evolution vindos do RabbitMQ.
 
 Concorrência: o worker roda um único event loop e entrega até `RABBITMQ_PREFETCH` mensagens em
-paralelo. Dentro de uma Conversation a ordem é mantida por um `asyncio.Lock`; entre Conversations
-o processamento é paralelo.
+paralelo. Dentro de uma Conversation a gravação é serializada por um `asyncio.Lock`; entre Conversations
+o processamento é paralelo. Messages picadas do Contact são agrupadas num só Turn (`TurnBatcher`).
 """
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
+from functools import partial
 from typing import Any, AsyncIterator, Dict, Optional
 
 import structlog
 from sqlalchemy.orm import Session
 
 from app.agent import executor
+from app.core.config import settings
 from app.core.database import SessionLocal
 from app.agent.sessions import roll_session
-from app.models import Agent, Company, Contact, Conversation, Instance, Message
+from app.models import Company, Contact, Conversation, Instance, Message
+from app.whatsapp.agent_turn import resolve_default_agent, run_agent_turn
 from app.whatsapp.message_queue import message_queue_service
 from app.whatsapp.handoff_tracking import track_handoff
 from app.whatsapp.sender import send_and_persist
+from app.whatsapp.turn_batcher import TurnBatcher
 from app.whatsapp.status_events import (
     find_instance,
     publish_message,
@@ -51,26 +55,6 @@ STALE_AFTER = timedelta(minutes=5)
 DRAIN_TIMEOUT = 10.0
 
 
-def _resolve_default_agent(db: Session, instance: Instance) -> Agent | None:
-    """O Agent da Instance: o ligado a ela e, na falta, o Agent ativo da Company."""
-    if instance.agent_id:
-        agent = db.query(Agent).filter(Agent.id == instance.agent_id, Agent.is_active == True).first()  # noqa: E712
-        if agent:
-            return agent
-    if instance.company_id:
-        agent = (
-            db.query(Agent)
-            .filter(Agent.company_id == instance.company_id, Agent.is_active == True)  # noqa: E712
-            .order_by(Agent.created_at, Agent.id)
-            .first()
-        )
-        if agent:
-            instance.agent_id = agent.id
-            db.commit()
-            return agent
-    return None
-
-
 class WhatsAppMessageConsumer:
     """Consumer for processing WhatsApp messages asynchronously"""
 
@@ -81,6 +65,7 @@ class WhatsAppMessageConsumer:
         self._background: set[asyncio.Task] = set()
         self._summarizing: set[str] = set()
         self._missing_agent_logged: set[str] = set()
+        self._batcher = TurnBatcher()
 
     @asynccontextmanager
     async def _serialized(self, key: str) -> AsyncIterator[None]:
@@ -158,7 +143,10 @@ class WhatsAppMessageConsumer:
                 return
 
             async with self._serialized(f"{instance.id}:{remote_jid}"):
-                await self._handle_message(db, instance, instance_name, payload, key, remote_jid, from_me)
+                pending = await self._handle_message(db, instance, instance_name, payload, key, remote_jid, from_me)
+            # Fora do Lock: a líder do agrupamento espera a pausa do Contact e não pode travar a gravação das Messages seguintes.
+            if pending is not None:
+                await self._try_process_with_agent(db, *pending)
 
         except Exception as e:
             logger.error("Error saving message to database", error=str(e))
@@ -174,7 +162,7 @@ class WhatsAppMessageConsumer:
         key: Dict[str, Any],
         remote_jid: str,
         from_me: bool,
-    ) -> None:
+    ) -> Optional[tuple[Instance, Conversation, Contact, ParsedContent, datetime]]:
         message_id = key.get("id") or None
         push_name = payload.get("pushName")
         timestamp = parse_message_timestamp(payload.get("messageTimestamp"))
@@ -260,8 +248,8 @@ class WhatsAppMessageConsumer:
         skip = self._skip_agent_reason(from_me, remote_jid, timestamp)
         if skip:
             logger.info("Message not processed by agent", message_id=message_id, reason=skip)
-            return
-        await self._try_process_with_agent(db, instance, conversation, contact, parsed, timestamp)
+            return None
+        return instance, conversation, contact, parsed, timestamp
 
     @staticmethod
     def _roll_session(db: Session, instance: Instance, conversation: Conversation, timestamp: datetime) -> None:
@@ -302,7 +290,7 @@ class WhatsAppMessageConsumer:
                 log.info("Agent disabled for this instance")
                 return
 
-            agent = _resolve_default_agent(db, instance)
+            agent = resolve_default_agent(db, instance)
             if agent is None:
                 # Um erro por Instance até o worker reiniciar: sem Agent, toda mensagem cairia aqui.
                 if instance.id not in self._missing_agent_logged:
@@ -323,20 +311,13 @@ class WhatsAppMessageConsumer:
                 log.info("Message without text, Agent not called", message_type=parsed.message_type)
                 return
 
-            result = await executor.handle_incoming(db, conversation, contact, instance, parsed.text, received_at)
-            if not result.reply_text:
-                log.info("Agent returned no response", steps=result.steps)
-                return
-
-            delivered_at = await send_and_persist(db, instance, conversation, contact, result.reply_text)
-            executor.reply_delivered(db, instance, conversation, result.turn_id, delivered_at)
-            log.info("Agent response sent", steps=result.steps, response_length=len(result.reply_text))
+            conversation_id = conversation.id
+            turn = partial(run_agent_turn, SessionLocal, instance.id, conversation_id, contact.id, self._spawn_summary)
+            db.rollback()  # a líder espera a pausa do Contact: não segura a conexão do pool enquanto isso
+            await self._batcher.submit(conversation_id, parsed.text, received_at, turn, settings.DEBOUNCE_SECONDS)
         except Exception:
             # Nunca derruba o worker: o erro fica no log e a próxima Message tenta de novo.
             log.exception("Unexpected error processing message with agent")
-            return
-
-        self._spawn_summary(conversation.id)
 
     @staticmethod
     def _in_handoff(db: Session, conversation_id: str) -> bool:

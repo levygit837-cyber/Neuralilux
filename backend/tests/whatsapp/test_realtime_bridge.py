@@ -16,7 +16,10 @@ def agent_turn(monkeypatch):
     calls = {"turns": [], "sent": [], "summaries": []}
 
     async def fake_handle_incoming(db, conversation, contact, instance, text, received_at=None):
-        calls["turns"].append({"instance": instance, "contact": contact, "text": text})
+        # Guarda ids, não os objetos ORM: o Turn roda numa Session própria, fechada depois dele.
+        calls["turns"].append(
+            {"instance_id": instance.id, "remote_jid": contact.remote_jid, "text": text, "received_at": received_at}
+        )
         return TurnResult(reply_text="Resposta")
 
     async def fake_send(*, instance_name, remote_jid, text):
@@ -367,8 +370,8 @@ async def test_save_message_to_database_triggers_agent_when_instance_is_enabled(
     await consumer.drain()
 
     [turn] = agent_turn["turns"]
-    assert turn["instance"].id == "instance-agent-on-1"
-    assert turn["contact"].remote_jid == "5511555555555@s.whatsapp.net"
+    assert turn["instance_id"] == "instance-agent-on-1"
+    assert turn["remote_jid"] == "5511555555555@s.whatsapp.net"
     assert turn["text"] == "Mensagem para responder"
     assert agent_turn["sent"] == [
         {"instance_name": "evo-agent-on-1", "remote_jid": "5511555555555@s.whatsapp.net", "text": "Resposta"}
