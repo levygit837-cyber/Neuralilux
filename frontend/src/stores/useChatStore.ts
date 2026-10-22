@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { Message, Conversation, TypingIndicator, ThinkingEvent, ThinkingState, ContactFilter } from '@/types/chat'
+import { formatTimestamp } from '@/lib/utils'
 
 interface ChatStore {
   conversations: Conversation[]
@@ -26,7 +27,8 @@ interface ChatStore {
   setLoadingMessages: (loading: boolean) => void
   setSending: (sending: boolean) => void
   setError: (error: string | null) => void
-  updateConversationLastMessage: (conversationId: string, message: string, timestamp: string) => void
+  updateConversationLastMessage: (conversationId: string, message: string, at: Date) => void
+  setConversationHandoff: (conversationId: string, humanHandoff: boolean) => void
   incrementUnreadCount: (conversationId: string) => void
   resetUnreadCount: (conversationId: string) => void
   setContactFilter: (filter: ContactFilter) => void
@@ -39,6 +41,13 @@ interface ChatStore {
   reset: () => void
   // Internal timer tracking
   thinkingClearTimers: Record<string, ReturnType<typeof setTimeout> | null>
+}
+
+/** Mais recente primeiro. `timestamp` é só o texto da lista; a ordem vem de `lastMessageAt`. */
+function sortConversations(conversations: Conversation[]): Conversation[] {
+  const time = (conversation: Conversation) =>
+    conversation.lastMessageAt ? new Date(conversation.lastMessageAt).getTime() : 0
+  return [...conversations].sort((a, b) => time(b) - time(a))
 }
 
 export const useChatStore = create<ChatStore>((set, get) => ({
@@ -54,40 +63,15 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   isSending: false,
   error: null,
 
-  setConversations: (conversations) =>
-    set({
-      conversations: conversations.sort((a, b) => {
-        const dateA = new Date(a.timestamp).getTime()
-        const dateB = new Date(b.timestamp).getTime()
-        return dateB - dateA // Sort by most recent first
-      }),
-    }),
+  setConversations: (conversations) => set({ conversations: sortConversations(conversations) }),
 
   upsertConversation: (conversation) =>
     set((state) => {
-      const existingIndex = state.conversations.findIndex((item) => item.id === conversation.id)
-
-      if (existingIndex === -1) {
-        const newConversations = [...state.conversations, conversation]
-        return {
-          conversations: newConversations.sort((a, b) => {
-            const dateA = new Date(a.timestamp).getTime()
-            const dateB = new Date(b.timestamp).getTime()
-            return dateB - dateA
-          }),
-        }
-      }
-
-      const nextConversations = state.conversations.map((conv) =>
-        conv.id === conversation.id ? conversation : conv
-      )
-      return {
-        conversations: nextConversations.sort((a, b) => {
-          const dateA = new Date(a.timestamp).getTime()
-          const dateB = new Date(b.timestamp).getTime()
-          return dateB - dateA
-        }),
-      }
+      const exists = state.conversations.some((item) => item.id === conversation.id)
+      const next = exists
+        ? state.conversations.map((item) => (item.id === conversation.id ? conversation : item))
+        : [...state.conversations, conversation]
+      return { conversations: sortConversations(next) }
     }),
   
   setMessages: (conversationId, messages) =>
@@ -112,15 +96,13 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
   updateMessage: (tempId, message) =>
     set((state) => {
-      const conversationMessages = state.messages[message.conversationId] || []
-      return {
-        messages: {
-          ...state.messages,
-          [message.conversationId]: conversationMessages.map((msg) =>
-            msg.id === tempId ? message : msg
-          ),
-        },
-      }
+      const current = state.messages[message.conversationId] || []
+      // O evento realtime da própria mensagem pode chegar antes da resposta do POST: sem isto ela duplicaria.
+      const arrivedFirst = current.some((msg) => msg.id === message.id && msg.id !== tempId)
+      const next = arrivedFirst
+        ? current.filter((msg) => msg.id !== tempId)
+        : current.map((msg) => (msg.id === tempId ? message : msg))
+      return { messages: { ...state.messages, [message.conversationId]: next } }
     }),
 
   updateMessageStatus: (messageId, status) =>
@@ -150,21 +132,23 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   setSending: (sending) => set({ isSending: sending }),
   setError: (error) => set({ error }),
 
-  updateConversationLastMessage: (conversationId, message, timestamp) =>
-    set((state) => {
-      const updatedConversations = state.conversations.map((conv) =>
-        conv.id === conversationId
-          ? { ...conv, lastMessage: message, timestamp }
-          : conv
-      )
-      return {
-        conversations: updatedConversations.sort((a, b) => {
-          const dateA = new Date(a.timestamp).getTime()
-          const dateB = new Date(b.timestamp).getTime()
-          return dateB - dateA
-        }),
-      }
-    }),
+  updateConversationLastMessage: (conversationId, message, at) =>
+    set((state) => ({
+      conversations: sortConversations(
+        state.conversations.map((conv) =>
+          conv.id === conversationId
+            ? { ...conv, lastMessage: message, timestamp: formatTimestamp(at), lastMessageAt: at.toISOString() }
+            : conv
+        )
+      ),
+    })),
+
+  setConversationHandoff: (conversationId, humanHandoff) =>
+    set((state) => ({
+      conversations: state.conversations.map((conv) =>
+        conv.id === conversationId ? { ...conv, humanHandoff } : conv
+      ),
+    })),
 
   incrementUnreadCount: (conversationId) =>
     set((state) => ({

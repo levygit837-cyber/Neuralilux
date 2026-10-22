@@ -1,320 +1,240 @@
-import { io, Socket } from 'socket.io-client'
-import { WS_URL, API_BASE_URL } from '@/lib/constants'
+import { io, type Socket } from 'socket.io-client'
+import { WS_URL } from '@/lib/constants'
 import { formatTimestamp } from '@/lib/utils'
 import { useChatStore } from '@/stores/useChatStore'
-import type { Message, Conversation } from '@/types/chat'
+import {
+  mapMessageStatus,
+  mapRealtimeMessage,
+  parseServerDate,
+  type RealtimeConversation,
+  type RealtimeMessage,
+} from '@/services/chatMapper'
+import { normalizeInstanceStatus, type InstanceStatus } from '@/services/instanceService'
 
-const SOCKET_IO_ENABLED = true
 const SOCKET_PATH = '/realtime/socket.io'
-const NORMALIZED_WS_URL = WS_URL.replace(/^ws/i, 'http')
+const SOCKET_URL = WS_URL.replace(/^ws/i, 'http')
+const MAX_RECONNECT_ATTEMPTS = 5
+const THINKING_CLEAR_DELAY_MS = 5000
 
-type ThinkingPayload = {
+/** O que os hooks de tela recebem do socket além do que já vai direto para o store. */
+export type SocketNotice =
+  | { type: 'connection'; connected: boolean }
+  | { type: 'qr_code'; qrCode: string }
+  | { type: 'instance_status'; status: InstanceStatus }
+  /** O backend respondeu `{ok:false}`: a Instance ou a Conversation não é do usuário. */
+  | { type: 'denied'; action: 'subscribe_instance' | 'join_conversation' }
+  /** Chegou evento de uma Conversation que ainda não está na lista: recarregue a lista. */
+  | { type: 'unknown_conversation' }
+
+type NoticeListener = (notice: SocketNotice) => void
+
+interface AckResponse {
+  ok?: boolean
+}
+
+interface ThinkingPayload {
   conversationId?: string
   conversation_id?: string
   event: string
   data?: Record<string, unknown>
 }
 
+interface HandoffPayload {
+  conversationId?: string
+  conversation_id?: string
+}
+
+/** A Conversation de um evento: o realtime a chama pelo `remote_jid`, o handoff pelo UUID. */
+function findConversation(ref: string) {
+  return useChatStore.getState().conversations.find((item) => item.id === ref || item.remoteJid === ref)
+}
+
+/** O Evolution manda o QR como texto ou como objeto `{ base64, code }`. */
+function extractQrCode(payload: { qrcode?: unknown } | undefined): string | null {
+  const raw = payload?.qrcode
+  if (typeof raw === 'string') return raw
+  if (raw && typeof raw === 'object') {
+    const { base64, code } = raw as { base64?: string; code?: string }
+    return base64 || code || null
+  }
+  return null
+}
+
 class SocketService {
   private socket: Socket | null = null
-  private reconnectAttempts = 0
-  private maxReconnectAttempts = 5
-  private reconnectDelay = 1000
-  private pollingInterval: NodeJS.Timeout | null = null
+  private listeners = new Set<NoticeListener>()
   private isConnected = false
-  private isServerReachable = false
-  private connectivityCheckInterval: NodeJS.Timeout | null = null
   private subscribedInstance: string | null = null
-  private clearTimers: Map<string, ReturnType<typeof setTimeout>> = new Map()
+  private joined: { instanceName: string; remoteJid: string } | null = null
 
-  private async checkServerConnectivity(): Promise<boolean> {
-    try {
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 3000)
-
-      const response = await fetch(`${API_BASE_URL}/health`, {
-        method: 'GET',
-        signal: controller.signal,
-      })
-
-      clearTimeout(timeoutId)
-      return response.ok
-    } catch {
-      return false
+  /** Registra um ouvinte dos avisos do socket; devolve a função que o remove. */
+  subscribe(listener: NoticeListener): () => void {
+    this.listeners.add(listener)
+    return () => {
+      this.listeners.delete(listener)
     }
   }
 
-  startConnectivityMonitor(intervalMs: number = 10000) {
-    if (this.connectivityCheckInterval) return
+  private notify(notice: SocketNotice) {
+    this.listeners.forEach((listener) => listener(notice))
+  }
 
-    void this.checkServerConnectivity().then((reachable) => {
-      this.isServerReachable = reachable
+  private emitWithAck(event: 'subscribe_instance' | 'join_conversation', data: Record<string, string>) {
+    this.socket?.emit(event, data, (response?: AckResponse) => {
+      if (!response?.ok) this.notify({ type: 'denied', action: event })
     })
-
-    this.connectivityCheckInterval = setInterval(async () => {
-      this.isServerReachable = await this.checkServerConnectivity()
-    }, intervalMs)
   }
 
-  stopConnectivityMonitor() {
-    if (this.connectivityCheckInterval) {
-      clearInterval(this.connectivityCheckInterval)
-      this.connectivityCheckInterval = null
-    }
-  }
+  connect(token: string) {
+    if (this.socket?.connected) return
 
-  async connect(token?: string) {
-    if (!SOCKET_IO_ENABLED) {
-      console.log('[Socket] Socket.io connection disabled')
-      this.isConnected = false
-      return
-    }
-
-    if (!token) {
-      console.log('[Socket] Missing auth token, skipping realtime connection')
-      this.isConnected = false
-      return
-    }
-
-    const isReachable = await this.checkServerConnectivity()
-    if (!isReachable) {
-      console.log('[Socket] Server not reachable - falling back to polling mode')
-      this.startPolling()
-      return
-    }
-
-    if (this.socket?.connected) {
-      return
-    }
-
-    if (this.socket) {
-      this.socket.disconnect()
-      this.socket = null
-    }
-
-    this.socket = io(NORMALIZED_WS_URL, {
+    this.socket?.disconnect()
+    this.socket = io(SOCKET_URL, {
       auth: { token },
       path: SOCKET_PATH,
       transports: ['websocket', 'polling'],
       reconnection: true,
-      reconnectionAttempts: this.maxReconnectAttempts,
-      reconnectionDelay: this.reconnectDelay,
+      reconnectionAttempts: MAX_RECONNECT_ATTEMPTS,
+      reconnectionDelay: 1000,
     })
-
-    this.setupEventListeners()
+    this.setupEventListeners(this.socket)
   }
 
-  private setupEventListeners() {
-    const socket = this.socket
-    if (!socket) return
-
+  private setupEventListeners(socket: Socket) {
     socket.on('connect', () => {
-      console.log('[Socket] Connected')
       this.isConnected = true
-      this.reconnectAttempts = 0
-      this.stopPolling()
-
-      if (this.subscribedInstance) {
-        socket.emit('subscribe_instance', { instanceName: this.subscribedInstance })
+      this.notify({ type: 'connection', connected: true })
+      // Depois de uma reconexão as salas se perderam: entra de novo.
+      if (this.subscribedInstance) this.emitWithAck('subscribe_instance', { instanceName: this.subscribedInstance })
+      if (this.joined) {
+        this.emitWithAck('join_conversation', {
+          instanceName: this.joined.instanceName,
+          conversationId: this.joined.remoteJid,
+        })
       }
     })
 
-    socket.on('disconnect', (reason) => {
-      console.log('[Socket] Disconnected:', reason)
+    socket.on('disconnect', () => {
       this.isConnected = false
-      this.startPolling()
+      this.notify({ type: 'connection', connected: false })
     })
 
-    socket.on('connect_error', (error) => {
-      console.error('[Socket] Connection error:', error.message)
-      this.reconnectAttempts++
-
-      if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-        console.log('[Socket] Max reconnection attempts reached, falling back to polling')
-        this.startPolling()
+    socket.on('new_message', (raw: RealtimeMessage) => {
+      const conversation = findConversation(raw.conversationId)
+      if (!conversation) {
+        this.notify({ type: 'unknown_conversation' })
+        return
       }
+      useChatStore.getState().addMessage(mapRealtimeMessage(raw, conversation.id))
     })
 
-    socket.on('new_message', (message: Message & { timestamp: string | Date }) => {
-      const { addMessage } = useChatStore.getState()
-      addMessage(this.normalizeMessage(message))
-    })
-
-    socket.on(
-      'message_status_update',
-      ({ messageId, status }: { messageId: string; status: Message['status'] }) => {
-        const { updateMessageStatus } = useChatStore.getState()
-        updateMessageStatus(messageId, status)
+    socket.on('conversation_updated', (raw: RealtimeConversation) => {
+      const conversation = findConversation(raw.id)
+      if (!conversation) {
+        this.notify({ type: 'unknown_conversation' })
+        return
       }
-    )
+      const at = parseServerDate(raw.timestamp)
+      useChatStore.getState().upsertConversation({
+        ...conversation,
+        name: raw.name || conversation.name,
+        avatar: raw.avatar || conversation.avatar,
+        lastMessage: raw.lastMessage ?? conversation.lastMessage,
+        timestamp: formatTimestamp(at),
+        lastMessageAt: at.toISOString(),
+        // A Conversation aberta já está lida: o backend só soma `unread_count`, a UI zera.
+        unreadCount: useChatStore.getState().activeConversationId === conversation.id ? 0 : (raw.unreadCount ?? conversation.unreadCount),
+      })
+    })
+
+    socket.on('message_status_update', ({ messageId, status }: { messageId: string; status: string }) => {
+      useChatStore.getState().updateMessageStatus(messageId, mapMessageStatus(status))
+    })
 
     socket.on('typing', ({ conversationId, isTyping }: { conversationId: string; isTyping: boolean }) => {
-      const { setTyping } = useChatStore.getState()
-      setTyping(conversationId, isTyping)
+      useChatStore.getState().setTyping(conversationId, isTyping)
     })
 
-    socket.on('conversation_updated', (conversation: Conversation) => {
-      const { upsertConversation } = useChatStore.getState()
-      upsertConversation(this.normalizeConversation(conversation))
+    socket.on('connection_status_update', (payload: { status?: string; evolutionState?: string }) => {
+      this.notify({
+        type: 'instance_status',
+        status: normalizeInstanceStatus(payload.evolutionState ?? payload.status),
+      })
     })
 
-    socket.on('connection_status_update', (payload: { status: string; evolutionState: string }) => {
-      console.log('[Socket] WhatsApp connection status updated:', payload)
+    socket.on('qr_code_update', (payload: { qrcode?: unknown }) => {
+      const qrCode = extractQrCode(payload)
+      if (qrCode) this.notify({ type: 'qr_code', qrCode })
+    })
+
+    socket.on('human_handoff_requested', (payload: HandoffPayload) => {
+      const ref = payload.conversationId ?? payload.conversation_id
+      const conversation = ref ? findConversation(ref) : undefined
+      if (conversation) useChatStore.getState().setConversationHandoff(conversation.id, true)
     })
 
     socket.on('thinking_event', (payload: ThinkingPayload) => {
-      const { setThinkingState, appendThinkingToken, collapseThinking, clearThinking } =
-        useChatStore.getState()
+      const ref = payload.conversationId ?? payload.conversation_id
+      if (!ref) return
+      const conversationId = findConversation(ref)?.id ?? ref
+      const store = useChatStore.getState()
 
-      const conversationId = payload.conversationId ?? payload.conversation_id
-      const event = payload.event
-      const data = payload.data
-
-      if (!conversationId) {
-        return
-      }
-
-      switch (event) {
+      switch (payload.event) {
         case 'thinking_start':
-          setThinkingState(conversationId, 'indicator')
+          store.setThinkingState(conversationId, 'indicator')
           break
         case 'thinking_token':
-          if (typeof data?.token === 'string') {
-            appendThinkingToken(conversationId, data.token)
-          }
+          if (typeof payload.data?.token === 'string') store.appendThinkingToken(conversationId, payload.data.token)
           break
         case 'thinking_end': {
-          collapseThinking(conversationId, data?.summary as string | undefined)
-          const timer = setTimeout(() => {
-            clearThinking(conversationId)
-          }, 5000)
-
+          store.collapseThinking(conversationId, payload.data?.summary as string | undefined)
+          const timer = setTimeout(() => useChatStore.getState().clearThinking(conversationId), THINKING_CLEAR_DELAY_MS)
           const { thinkingClearTimers } = useChatStore.getState()
-          useChatStore.setState({
-            thinkingClearTimers: {
-              ...thinkingClearTimers,
-              [conversationId]: timer,
-            },
-          })
+          useChatStore.setState({ thinkingClearTimers: { ...thinkingClearTimers, [conversationId]: timer } })
           break
         }
       }
     })
   }
 
-  private startPolling() {
-    if (this.pollingInterval) return
-
-    console.log('[Socket] Starting polling fallback')
-    this.pollingInterval = setInterval(() => {
-      void 0
-    }, 3000)
-  }
-
-  private stopPolling() {
-    if (this.pollingInterval) {
-      clearInterval(this.pollingInterval)
-      this.pollingInterval = null
-    }
-  }
-
-  sendMessage(conversationId: string, content: string, tempId: string) {
-    if (this.socket?.connected) {
-      this.socket.emit('send_message', {
-        instanceName: this.subscribedInstance,
-        conversationId,
-        content,
-        tempId,
-      })
-    } else {
-      console.log('[Socket] Not connected, message will be sent via HTTP')
-    }
-  }
-
   sendTypingIndicator(conversationId: string, isTyping: boolean) {
-    if (this.socket?.connected) {
-      this.socket.emit('typing', { conversationId, isTyping })
-    }
-  }
-
-  joinConversation(conversationId: string) {
-    if (this.socket?.connected && this.subscribedInstance) {
-      this.socket.emit('join_conversation', {
-        instanceName: this.subscribedInstance,
-        conversationId,
-      })
-    }
-  }
-
-  leaveConversation(conversationId: string) {
-    if (this.socket?.connected && this.subscribedInstance) {
-      this.socket.emit('leave_conversation', {
-        instanceName: this.subscribedInstance,
-        conversationId,
-      })
-    }
+    this.socket?.emit('typing', { conversationId, isTyping })
   }
 
   subscribeToInstance(instanceName: string) {
     this.subscribedInstance = instanceName
-
-    if (this.socket?.connected) {
-      this.socket.emit('subscribe_instance', { instanceName })
-    }
+    if (this.socket?.connected) this.emitWithAck('subscribe_instance', { instanceName })
   }
 
   leaveInstance(instanceName: string) {
-    if (this.socket?.connected) {
-      this.socket.emit('leave_instance', { instanceName })
-    }
+    this.socket?.emit('leave_instance', { instanceName })
+    if (this.subscribedInstance === instanceName) this.subscribedInstance = null
+  }
 
-    if (this.subscribedInstance === instanceName) {
-      this.subscribedInstance = null
+  /** Entra na sala da Conversation. O backend nomeia a sala pelo `remote_jid`, não pelo UUID. */
+  joinConversation(instanceName: string, remoteJid: string) {
+    this.joined = { instanceName, remoteJid }
+    if (this.socket?.connected) {
+      this.emitWithAck('join_conversation', { instanceName, conversationId: remoteJid })
     }
+  }
+
+  leaveConversation(instanceName: string, remoteJid: string) {
+    this.socket?.emit('leave_conversation', { instanceName, conversationId: remoteJid })
+    if (this.joined?.remoteJid === remoteJid && this.joined.instanceName === instanceName) this.joined = null
   }
 
   getConnectionStatus(): boolean {
     return this.isConnected
   }
 
-  getServerReachableStatus(): boolean {
-    return this.isServerReachable
-  }
-
   disconnect() {
-    this.stopPolling()
-    this.stopConnectivityMonitor()
-    this.clearTimers.forEach((timer) => clearTimeout(timer))
-    this.clearTimers.clear()
-
-    if (this.socket) {
-      this.socket.disconnect()
-      this.socket = null
-    }
-
+    this.socket?.disconnect()
+    this.socket = null
     this.isConnected = false
     this.subscribedInstance = null
-  }
-
-  private normalizeMessage(message: Message & { timestamp: string | Date }): Message {
-    return {
-      ...message,
-      timestamp: message.timestamp instanceof Date ? message.timestamp : new Date(message.timestamp),
-    }
-  }
-
-  private normalizeConversation(conversation: Conversation): Conversation {
-    const rawTimestamp =
-      (conversation as Conversation & { last_message_at?: string; updated_at?: string }).timestamp ||
-      (conversation as Conversation & { last_message_at?: string; updated_at?: string }).last_message_at ||
-      (conversation as Conversation & { last_message_at?: string; updated_at?: string }).updated_at ||
-      ''
-
-    return {
-      ...conversation,
-      timestamp: rawTimestamp ? formatTimestamp(rawTimestamp) : '',
-      unreadCount: conversation.unreadCount ?? 0,
-    }
+    this.joined = null
+    this.notify({ type: 'connection', connected: false })
   }
 }
 

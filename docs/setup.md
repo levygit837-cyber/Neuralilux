@@ -118,7 +118,7 @@ Documentação interativa da API: `http://localhost:8000/docs`. Ela só existe c
 
 ```bash
 cd frontend
-cp .env.example .env.local    # preencha NEXT_PUBLIC_EVOLUTION_API_KEY com o EVOLUTION_API_KEY do backend
+cp .env.example .env.local    # aponta para a API (NEXT_PUBLIC_API_URL); o frontend só fala com o backend
 npm install
 npm run dev                   # http://localhost:3000
 ```

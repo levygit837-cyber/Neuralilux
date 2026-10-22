@@ -1,6 +1,5 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import QRCode from 'react-qr-code'
@@ -10,11 +9,10 @@ import { Button } from '@/components/ui/Button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card'
 import { useInstanceStore } from '@/stores/useInstanceStore'
 import { useResolvedInstance } from '@/hooks/useResolvedInstance'
-import { instanceService } from '@/services/instanceService'
+import { useInstanceConnection } from '@/hooks/useInstanceConnection'
+import type { InstanceStatus } from '@/services/instanceService'
 import { ROUTES } from '@/lib/constants'
 import { ArrowLeft, Loader2 } from 'lucide-react'
-
-type InstanceStatus = 'disconnected' | 'connecting' | 'connected'
 
 const STATUS_CONFIG: Record<
   InstanceStatus,
@@ -41,167 +39,12 @@ export default function QrPage() {
   const router = useRouter()
   const { clearInstance } = useInstanceStore()
   const { resolvedInstance, isResolvingInstance } = useResolvedInstance()
-
-  const [status, setStatus] = useState<InstanceStatus>('disconnected')
-  const [qrCode, setQrCode] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
-  const qrRefreshIntervalRef = useRef<NodeJS.Timeout | null>(null)
-
-  const instanceName = resolvedInstance?.instanceName
-
-  const stopPolling = useCallback(() => {
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current)
-      pollingIntervalRef.current = null
-    }
-  }, [])
-
-  const stopQrRefresh = useCallback(() => {
-    if (qrRefreshIntervalRef.current) {
-      clearInterval(qrRefreshIntervalRef.current)
-      qrRefreshIntervalRef.current = null
-    }
-  }, [])
-
-  const checkStatus = useCallback(async () => {
-    if (!instanceName) return null
-    try {
-      const response = await instanceService.getConnectionState(instanceName)
-      const state = response.instance.state
-      if (state === 'open') {
-        setStatus('connected')
-        setQrCode(null)
-        stopPolling()
-        stopQrRefresh()
-      } else if (state === 'connecting') {
-        setStatus('connecting')
-      } else {
-        setStatus('disconnected')
-      }
-      return state
-    } catch {
-      return null
-    }
-  }, [instanceName, stopPolling, stopQrRefresh])
-
-  const startPolling = useCallback(() => {
-    stopPolling()
-    pollingIntervalRef.current = setInterval(() => {
-      void checkStatus()
-    }, 3000)
-  }, [checkStatus, stopPolling])
-
-  const requestQrCode = useCallback(async () => {
-    if (!instanceName) {
-      setError('Nenhuma instância selecionada')
-      return
-    }
-
-    const response = await instanceService.connectInstance(instanceName)
-    setStatus('connecting')
-
-    if (response.base64) {
-      setQrCode(response.base64)
-    }
-  }, [instanceName])
-
-  const startQrRefresh = useCallback(() => {
-    stopQrRefresh()
-    qrRefreshIntervalRef.current = setInterval(async () => {
-      try {
-        const state = await checkStatus()
-        if (state === 'open') {
-          return
-        }
-
-        await requestQrCode()
-      } catch {
-        // QR might not be ready yet
-      }
-    }, 3000)
-  }, [checkStatus, requestQrCode, stopQrRefresh])
-
-  useEffect(() => {
-    if (!instanceName) {
-      return undefined
-    }
-
-    let isMounted = true
-
-    const initializeQrFlow = async () => {
-      const currentState = await checkStatus()
-
-      if (!isMounted || currentState === 'open') {
-        return
-      }
-
-      try {
-        await requestQrCode()
-        if (!isMounted) {
-          return
-        }
-
-        startPolling()
-        startQrRefresh()
-      } catch {
-        if (isMounted) {
-          setError('Erro ao conectar. Verifique se a Evolution API está rodando.')
-        }
-      }
-    }
-
-    void initializeQrFlow()
-
-    return () => {
-      isMounted = false
-      stopPolling()
-      stopQrRefresh()
-    }
-  }, [instanceName, checkStatus, requestQrCode, startPolling, startQrRefresh, stopPolling, stopQrRefresh])
-
-  useEffect(() => {
-    if (status === 'connected') {
-      stopPolling()
-      stopQrRefresh()
-    }
-  }, [status, stopPolling, stopQrRefresh])
-
-  const handleConnect = async () => {
-    setIsLoading(true)
-    setError(null)
-    try {
-      await requestQrCode()
-      startPolling()
-      startQrRefresh()
-    } catch {
-      setError('Erro ao conectar. Verifique se a Evolution API está rodando.')
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const handleDisconnect = async () => {
-    if (!instanceName) return
-    setIsLoading(true)
-    setError(null)
-    try {
-      await instanceService.logoutInstance(instanceName)
-      setStatus('disconnected')
-      setQrCode(null)
-      stopPolling()
-      stopQrRefresh()
-    } catch {
-      setError('Erro ao desconectar.')
-    } finally {
-      setIsLoading(false)
-    }
-  }
+  const { status, qrCode, isLoading, error, connect: handleConnect, disconnect: handleDisconnect } =
+    useInstanceConnection(resolvedInstance?.name)
 
   const handleBack = () => {
     clearInstance()
-    router.push(ROUTES.HOME)
+    router.push(ROUTES.INSTANCES)
   }
 
   const statusConfig = STATUS_CONFIG[status]
@@ -241,13 +84,13 @@ export default function QrPage() {
     <div className="flex min-h-screen bg-dark">
       <Sidebar />
       <div className="flex flex-1 flex-col">
-        <Header title={`QR Code - ${resolvedInstance.instanceName}`} />
+        <Header title={`QR Code - ${resolvedInstance.name}`} />
         <main className="flex flex-1 items-center justify-center p-8">
           <Card className="w-full max-w-md">
             <CardHeader className="items-center text-center">
               <CardTitle>Conexão WhatsApp</CardTitle>
               <CardDescription>
-                Instância: <strong>{resolvedInstance.instanceName}</strong>
+                Instância: <strong>{resolvedInstance.name}</strong>
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">

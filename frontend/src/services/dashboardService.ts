@@ -1,5 +1,4 @@
-import axios from 'axios'
-import { API_BASE_URL } from '@/lib/constants'
+import { apiRequest } from '@/services/http'
 import type {
   ChannelMetricsResponse,
   ConversationTimeSeriesResponse,
@@ -21,49 +20,17 @@ export interface DashboardMetrics {
   avg_response_time: number | null
 }
 
-const api = axios.create({
-  baseURL: `${API_BASE_URL}/api/v1`,
-})
-
-// Add auth token to requests
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token')
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
-  }
-  return config
-})
-
 export const dashboardService = {
-  async getStats(): Promise<DashboardStats> {
-    const response = await api.get('/dashboard/stats')
-    return response.data
-  },
+  getStats: () => apiRequest<DashboardStats>('/dashboard/stats'),
 
-  async getMetrics(): Promise<DashboardMetrics> {
-    const response = await api.get('/dashboard/metrics')
-    return response.data
-  },
+  getMetrics: () => apiRequest<DashboardMetrics>('/dashboard/metrics'),
 
-  async getConversationsOverTime(
-    period: '7d' | '30d' | '90d' = '7d',
-  ): Promise<ConversationTimeSeriesResponse> {
-    const response = await api.get(`/dashboard/conversations-over-time?period=${period}`)
-    return response.data
-  },
+  getConversationsOverTime: (period: '7d' | '30d' | '90d' = '7d') =>
+    apiRequest<ConversationTimeSeriesResponse>(`/dashboard/conversations-over-time?period=${period}`),
 
-  async getChannelMetrics(): Promise<ChannelMetricsResponse> {
-    const response = await api.get('/dashboard/channel-metrics')
-    return response.data
-  },
+  getChannelMetrics: () => apiRequest<ChannelMetricsResponse>('/dashboard/channel-metrics'),
 
-  async getResolutionMetrics(): Promise<ResolutionMetrics> {
-    const response = await api.get('/dashboard/resolution-metrics')
-    return response.data
-  },
+  getResolutionMetrics: () => apiRequest<ResolutionMetrics>('/dashboard/resolution-metrics'),
 
-  async getSatisfactionMetrics(): Promise<SatisfactionMetrics> {
-    const response = await api.get('/dashboard/satisfaction-metrics')
-    return response.data
-  },
+  getSatisfactionMetrics: () => apiRequest<SatisfactionMetrics>('/dashboard/satisfaction-metrics'),
 }

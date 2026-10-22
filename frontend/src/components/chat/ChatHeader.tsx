@@ -7,6 +7,7 @@ interface ChatHeaderProps {
   avatar?: string
   status?: string
   isOnline?: boolean
+  humanHandoff?: boolean
   agentEnabled?: boolean | null
   agentName?: string | null
   availableAgents?: AgentListItem[]
@@ -22,6 +23,7 @@ export function ChatHeader({
   avatar,
   status,
   isOnline,
+  humanHandoff = false,
   agentEnabled,
   agentName,
   availableAgents = [],
@@ -69,6 +71,11 @@ export function ChatHeader({
 
       {/* Actions */}
       <div className="flex items-center gap-2">
+        {humanHandoff && (
+          <span className="rounded-full border border-warning/30 bg-warning/10 px-3 py-1 text-xs font-semibold text-warning">
+            Atendimento humano
+          </span>
+        )}
         {/* Agent Toggle */}
         <div className="flex items-center gap-3 bg-brand-card/50 rounded-lg px-3 py-2 border border-brand-border/50">
           <Robot weight="regular" className="text-lg text-content-muted" />

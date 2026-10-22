@@ -1,4 +1,5 @@
 import { API_BASE_URL } from '@/lib/constants'
+import { authHeaders } from '@/services/http'
 import type {
   AgentType,
   Gateway,
@@ -55,12 +56,11 @@ async function toApiError(response: Response): Promise<GatewayApiError> {
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const token = localStorage.getItem('token')
   const response = await fetch(`${BASE}${path}`, {
     ...init,
     headers: {
       ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...authHeaders(),
     },
   })
   if (!response.ok) throw await toApiError(response)

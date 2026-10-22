@@ -1,4 +1,4 @@
-import { API_BASE_URL } from '@/lib/constants'
+import { apiRequest } from '@/services/http'
 import type {
   MenuCategoryPayload,
   MenuCategory,
@@ -7,26 +7,8 @@ import type {
   MenuManagementPayload,
 } from '@/types/menu'
 
-async function request<T>(path: string, token: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}/api/v1${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      ...(init?.headers || {}),
-    },
-  })
-
-  if (!response.ok) {
-    const payload = await response.json().catch(() => null)
-    throw new Error(payload?.detail || 'Erro ao carregar estoque')
-  }
-
-  if (response.status === 204) {
-    return undefined as T
-  }
-
-  return response.json()
+function request<T>(path: string, token: string, init?: RequestInit): Promise<T> {
+  return apiRequest<T>(path, { ...init, headers: { Authorization: `Bearer ${token}` } }, 'Erro ao carregar estoque')
 }
 
 export const menuService = {
