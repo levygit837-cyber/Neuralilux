@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy.orm import Session
 
 from app.agent.contracts import Tool, ToolContext
 from app.packs.catalog_orders.catalog import buscar_cardapio_tool
 from app.models import Conversation
-from app.packs.catalog_orders import session_orders
+from app.packs.catalog_orders import recap, session_orders
 from app.packs.catalog_orders.orders import gerenciar_pedido_tool, status_pedido_tool
 
 PROMPT_SECTION = """\
@@ -17,14 +19,22 @@ Fluxo do pedido, nesta ordem:
 1. Busque com `buscar_cardapio` ANTES de citar qualquer item ou preço. Nunca invente preço nem item.
 2. Adicione com `gerenciar_pedido` (acao `adicionar_item`), usando o `id` devolvido pela busca.
    Item indisponível ou fora do cardápio é recusado; ofereça outro.
-3. Pergunte se o cliente quer mais algo. Use `remover_item` para tirar itens e `ver` para recapitular.
+3. Enquanto o pedido está em montagem, pergunte se o cliente quer mais algo. Use `remover_item` para tirar itens.
+   Chame `adicionar_item` uma vez por item: não repita a chamada.
 4. Colete os dados com `definir_dados`: nome, `tipo_entrega` (entrega ou retirada), endereço (só na entrega,
    com rua, número e bairro) e `forma_pagamento` (pix, dinheiro ou cartão). Para dinheiro, pergunte se precisa
    de troco (`troco_para`). Uma pergunta por vez; não aceite como nome palavras como "retirada" ou "pix".
-5. Recapitule itens, taxa de entrega e total, peça a confirmação e só então chame `finalizar`.
+5. Com itens e dados completos, chame `recapitular` e mostre ao cliente itens, taxa de entrega, total e dados
+   (nome, entrega ou retirada, endereço, pagamento). Peça a confirmação e PARE: a resposta daquele turno é a
+   recapitulação. Só chame `finalizar` quando o cliente confirmar numa mensagem seguinte. "Pode fechar" na mesma
+   mensagem em que ele deu os dados NÃO é confirmação: recapitule primeiro. Qualquer mudança depois da recapitulação
+   (item, endereço, pagamento, troco) exige `recapitular` e confirmação de novo.
    Se a forma de pagamento for Pix, envie o código "copia e cola" devolvido, exatamente como veio.
 
 Regras:
+- Se `finalizar` for recusado por a empresa estar fechada, diga ao cliente quando ela abre; o pedido continua salvo.
+- Depois do `finalizar` o pedido está fechado e não aceita mais itens: não pergunte "quer mais algo?" nem ofereça
+  acrescentar. Se ele quiser outra coisa, é um pedido novo; só ofereça isso se ele pedir.
 - O total sempre vem de `gerenciar_pedido`; a taxa de entrega depende do bairro e há um pedido mínimo
   (veja em `info_empresa`). Se o pedido não bater o mínimo, diga quanto falta.
 - "Cadê meu pedido" ou "já saiu?": use `status_pedido`.
@@ -47,3 +57,6 @@ class CatalogOrdersPack:
 
     def on_session_start(self, db: Session, conversation: Conversation) -> None:
         session_orders.abandon_active_orders(db, conversation.id)
+
+    def on_reply_delivered(self, db: Session, conversation: Conversation, turn_id: str, at: datetime) -> None:
+        recap.mark_delivered(db, conversation, turn_id, at)

@@ -92,8 +92,12 @@ Um produto ou serviço que a Company oferece, com preço e disponibilidade.
 _Avoid_: Produto, item de menu, SKU
 
 **Order**:
-O pedido que o Contact monta e confirma na Conversation. Fica `abandoned` se a Session acaba com ele aberto; nunca é retomado sozinho, o Agent só recria um Order novo a partir dele se o Contact pedir.
+O pedido que o Contact monta e confirma na Conversation. Só fecha depois que o Contact vê a Recap e confirma numa Message posterior, e a Company fechada recusa o fechamento. Fica `abandoned` se a Session acaba com ele aberto; nunca é retomado sozinho, o Agent só recria um Order novo a partir dele se o Contact pedir.
 _Avoid_: Compra, carrinho, venda
+
+**Recap** (Recapitulação):
+O resumo de itens, entrega, pagamento e total que o Contact precisa ver e confirmar, numa Message posterior, antes de o Order fechar. Só vale depois que a resposta que a traz foi enviada; qualquer alteração no Order depois dela, ou um Turn que falhe antes do envio, a invalida e exige uma nova.
+_Avoid_: Resumo do pedido, confirmação (é a resposta do Contact à Recap, não a Recap), checkout
 
 **Delivery Zone**:
 Uma área de entrega da Company com sua taxa.

@@ -23,6 +23,7 @@ Regras:
 - Use as Tools também quando o cliente se referir a algo de uma conversa anterior.
 - Se uma Tool falhar, não repita a mesma chamada: siga sem ela ou ofereça um atendente.
 - Transfira para um atendente humano quando o cliente pedir para falar com uma pessoa ou fizer uma reclamação grave.
+- Nunca conte ao cliente falhas, correções ou erros internos (uma Tool que falhou, um dado que você ajustou, uma tentativa repetida). Resolva em silêncio e responda só com o resultado; se não der, diga o que o cliente pode fazer.
 - Nunca mostre raciocínio, nomes de Tools, IDs internos ou mensagens de erro técnicas.\
 """
 

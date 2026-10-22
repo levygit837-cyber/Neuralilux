@@ -15,6 +15,9 @@ class ToolContext:            # tudo que um handler pode tocar durante um Turn
     conversation_id: str
     contact_id: str
     remote_jid: str
+    turn_id: str              # um por Turn, genérico: distingue este Turn do seguinte
+    trigger_at: datetime | None   # quando chegou a Message do Contact que disparou o Turn
+    turn_state: dict[str, Any]    # rascunho do Turn, livre para os Packs; some quando o Turn acaba
 
 @dataclass(frozen=True)
 class ToolResult:
@@ -38,6 +41,7 @@ class Pack(Protocol):
 
 # Opcional, fora do Protocol: define-se só se o ramo tem pendência ao trocar de Session.
 #     def on_session_start(self, db: Session, conversation: Conversation) -> None: ...
+#     def on_reply_delivered(self, db: Session, conversation: Conversation, turn_id: str, at: datetime) -> None: ...
 ```
 
 Regras que o `ToolRegistry` (`app/agent/tools.py`) impõe:
@@ -54,6 +58,8 @@ Regras que o `ToolRegistry` (`app/agent/tools.py`) impõe:
 - Devolva JSON (`json.dumps(..., ensure_ascii=False)`) com chaves legíveis; o modelo lê o texto.
 - Uma Tool que grava só grava depois de validar tudo; falhou, nada muda (veja `catalog_orders/orders.py`).
 - `on_session_start` é **opcional**: o núcleo só o chama se o Pack o definir (`getattr`). Roda quando uma Session nova substitui a anterior ([ADR 0007](adr/0007-session-de-atendimento.md)), na transação que grava a Message, sem `commit`. Use para tratar o que ficou pendente do ramo; o Pack de pedidos marca o Order aberto como `abandoned`. Sem pendência, não defina o método.
+- `on_reply_delivered` também é **opcional**. Roda depois de a resposta do Turn `turn_id` ter sido enviada ao Contact, nunca antes, e não roda se o Turn falhou, ficou sem resposta, teve a resposta descartada ou o envio falhou. Use quando o ramo precisa saber que o Contact viu algo; o Pack de pedidos só dá a Recap por apresentada aqui.
+- `turn_state` é rascunho por Turn: cada Pack guarda o que precisar sob a chave do próprio nome (`ctx.turn_state["catalog_orders"]`), sem colidir com outro Pack e sem o núcleo conhecer o conteúdo (ADR 0004). O `turn_id` e o `turn_state` são recriados a cada Turn; o que precisa sobreviver a ele vai para o banco.
 - A `system_prompt_section` descreve o fluxo e as regras do ramo, citando as Tools pelo nome. Ela é anexada ao prompt base; não repita o que o prompt base já diz.
 
 ## Exemplo: Pack de academia

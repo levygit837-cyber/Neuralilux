@@ -9,12 +9,14 @@ WhatsApp e nova leitura do Handoff antes de devolver a resposta. Quem chama envi
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 import structlog
 from sqlalchemy.orm import Session
 
 from app.agent.clock import time_context, utc_now
 from app.agent.contracts import ChatMessage, Pack, Tool, ToolContext
+from app.agent.delivery import notify_reply_delivered
 from app.agent.core_tools import core_tools
 from app.agent.events import TurnEvents
 from app.agent.formatting import to_whatsapp
@@ -63,6 +65,7 @@ async def handle_incoming(
     contact: Contact,
     instance: Instance,
     text: str,
+    received_at: datetime | None = None,
 ) -> TurnResult:
     log = logger.bind(conversation_id=conversation.id, instance_id=instance.id)
     if _in_handoff(db, conversation.id):
@@ -81,6 +84,7 @@ async def handle_incoming(
         conversation_id=conversation.id,
         contact_id=contact.id,
         remote_jid=conversation.remote_jid,
+        trigger_at=received_at or utc_now(),  # quando chegou a Message que dispara o Turn
     )
     events = TurnEvents(
         instance_name=instance.name or instance.evolution_instance_id or "",
@@ -126,7 +130,24 @@ async def handle_incoming(
 
     reply = to_whatsapp(result.reply_text) if result.reply_text else None
     log.info("Turn finished", steps=result.steps, tools=[call.name for call in result.tool_calls], replied=bool(reply))
-    return TurnResult(reply_text=reply or None, tool_calls=result.tool_calls, steps=result.steps)
+    # Handoff encerrou o Turn: a resposta é a frase de transferência, não pode ter mostrado nada do Pack.
+    turn_id = None if ended_by_tool else ctx.turn_id
+    return TurnResult(reply_text=reply or None, tool_calls=result.tool_calls, steps=result.steps, turn_id=turn_id)
+
+
+def reply_delivered(db: Session, instance: Instance, conversation: Conversation, turn_id: str | None, at: datetime) -> None:
+    """Avisa os Packs que a resposta do Turn `turn_id` foi enviada ao Contact. Chamar só depois do envio."""
+    if turn_id is None:
+        return
+    company = db.get(Company, instance.company_id) if instance.company_id else None
+    if company is None:
+        return
+    try:
+        notify_reply_delivered(db, conversation, packs_for(company), turn_id, at)
+    except Exception:
+        # A resposta já saiu; sem a marca de entrega o Pack só pede a confirmação de novo (falha segura).
+        db.rollback()
+        logger.exception("Reply delivery hook failed", conversation_id=conversation.id, turn_id=turn_id)
 
 
 def _with_incoming(history: list[ChatMessage], text: str) -> list[ChatMessage]:

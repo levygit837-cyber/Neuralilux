@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 import pytest
-from pack_helpers import add_item, call, fill_delivery, make_world, order_of, payload, tool_named
+from pack_helpers import add_item, call, confirm_and_finalize, fill_delivery, make_world, order_of, payload, tool_named
 
 from app.models import CustomerOrder, PaymentRecord
 from app.packs.catalog_orders.pack import CatalogOrdersPack
@@ -156,7 +156,7 @@ async def test_finalize_without_items_is_error(world, pedido):
 async def test_finalize_cash_closes_order_with_total(world, pedido):
     await add_item(world, pedido)
     await fill_delivery(world, pedido, troco_para=100)
-    result = await call(pedido, world.ctx, acao="finalizar")
+    result = await confirm_and_finalize(world, pedido)
     assert not result.is_error
     data = payload(result)
     assert data["pedido"]["status"] == "closed"
@@ -180,7 +180,7 @@ async def test_change_must_cover_total(world, pedido):
 async def test_after_finalize_a_new_order_starts_empty(world, pedido):
     await add_item(world, pedido)
     await fill_delivery(world, pedido)
-    await call(pedido, world.ctx, acao="finalizar")
+    await confirm_and_finalize(world, pedido)
     assert payload(await call(pedido, world.ctx, acao="ver"))["pedido"] is None
     await add_item(world, pedido, name="Suco de Laranja")
     assert world.db.query(CustomerOrder).count() == 2

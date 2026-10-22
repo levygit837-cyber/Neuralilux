@@ -45,6 +45,9 @@ class TurnResult:
     reply_text: str | None  # None: o Agent não responde neste Turn
     tool_calls: list[ToolCall] = field(default_factory=list)
     steps: int = 0
+    # Turn cuja resposta pode ter mostrado algo ao Contact; o consumer o devolve a `executor.reply_delivered`
+    # depois do envio. None: nada a confirmar (falha, resposta fixa de erro ou Handoff).
+    turn_id: str | None = None
 
 
 async def run_turn(

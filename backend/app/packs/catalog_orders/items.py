@@ -12,6 +12,11 @@ from app.packs.catalog_orders.totals import cents, recompute
 from app.packs.catalog_orders.validation import OrderError, positive_int
 
 
+def turn_adds(ctx: ToolContext) -> set[tuple[str, str | None, int]]:
+    """Adições (item, observação, quantidade) já feitas neste Turn; rascunho do Pack em `ctx.turn_state`."""
+    return ctx.turn_state.setdefault("catalog_orders", {}).setdefault("adds", set())
+
+
 def catalog_item(ctx: ToolContext, item_id: Any) -> MenuItem:
     """Item de um catálogo ativo da Company do contexto e disponível (mesma regra de `buscar_cardapio`)."""
     item = (
@@ -37,6 +42,13 @@ def adicionar_item(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     note = " ".join(str(args.get("observacao") or "").split()) or None
 
     order = active_order(ctx) or new_order(ctx)
+    adds = turn_adds(ctx)
+    turn_key = (item.id, note, quantity)
+    if turn_key in adds:
+        # Chamada idêntica já feita neste Turn (repetição do modelo): não duplica. Outra quantidade ou
+        # observação é um pedido diferente e passa.
+        return {"pedido": view(order), "mensagem": "Esse item já foi adicionado neste turno; nada mudou."}
+    adds.add(turn_key)
     line = next((l for l in order.items if l.menu_item_id == item.id and (l.notes or None) == note), None)
     if line:
         line.quantity += quantity
@@ -69,6 +81,8 @@ def remover_item(ctx: ToolContext, args: dict[str, Any]) -> dict[str, Any]:
     if not lines:
         raise OrderError("Esse item não está no pedido.")
     to_remove = positive_int(args.get("quantidade"), "quantidade", None)
+    adds = turn_adds(ctx)
+    adds.difference_update([key for key in adds if key[0] == item_id])  # tirou: adicionar de novo vale
 
     if to_remove is None:
         to_remove = sum(l.quantity for l in lines)

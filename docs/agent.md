@@ -50,7 +50,7 @@ O Agent tem 6 Tools: 3 do núcleo (valem para qualquer Business Type) e 3 do Pac
 | `transferir_atendente` | núcleo | Abre um Ticket, liga o Handoff e encerra o Turn (`ends_turn`) com a `frase_empatica` do Agent mais a janela de atendimento da Company. Detalhes em [operations.md](operations.md#handoff-e-tickets). |
 | `buscar_historico` | núcleo | History Search nas Messages antigas do Contact. |
 | `buscar_cardapio` | Pack `catalog_orders` | Busca Catalog Items disponíveis; até 15 resultados com id, nome, preço e descrição. |
-| `gerenciar_pedido` | Pack `catalog_orders` | Monta e fecha o Order. Ações: `adicionar_item`, `remover_item`, `ver`, `definir_dados`, `finalizar`. |
+| `gerenciar_pedido` | Pack `catalog_orders` | Monta e fecha o Order. Ações: `adicionar_item`, `remover_item`, `ver`, `definir_dados`, `recapitular`, `finalizar`, `retomar_pedido`. `finalizar` só fecha se o Contact recebeu a Recap (a resposta foi enviada), confirmou numa Message posterior, o Order não mudou depois dela e a Company está aberta. |
 | `status_pedido` | Pack `catalog_orders` | Estado do Order mais recente do Contact. |
 
 Todo acesso das Tools é escopado pelo `ToolContext`: Catalog Items e Delivery Zones pelo `company_id`, o Order pela `conversation_id`, o histórico pelo `contact_id`. Para criar Tools de outro ramo, veja [packs.md](packs.md).
@@ -76,6 +76,7 @@ Uma Conversation se divide em Sessions por inatividade ([ADR 0007](adr/0007-sess
 - **Quando abre**: o consumer chama `sessions.roll_session` antes de gravar a Message do Contact. Se passou mais que `Company.session_timeout_minutes` (padrão 180, exatamente o limite ainda é a mesma Session) desde a última Message da Conversation, `Conversation.session_started_at` recebe o horário da Message nova. Mensagens `fromMe` nunca abrem Session.
 - **O que muda**: a Recent Window só tem Messages com `timestamp >= session_started_at`. Messages anteriores contam como "fora da janela" para o Summary e continuam na History Search. `session_started_at` nulo (Conversation sem Session registrada) usa a Conversation inteira.
 - **Packs**: ao abrir a Session nova, cada Pack que definir o gancho opcional `on_session_start(db, conversation)` o recebe, na mesma transação da Message. No Pack de pedidos, o Order ativo vira `abandoned`.
+- **Entrega da resposta**: depois de enviar a resposta, o consumer chama `executor.reply_delivered`, que avisa os Packs com o gancho opcional `on_reply_delivered(db, conversation, turn_id, at)`. Turn que falha, fica sem resposta, tem a resposta descartada (Handoff) ou cujo envio falha não chama o gancho. No Pack de pedidos é isso que torna a Recap válida (`recap_delivered_at`); `finalizar` ainda exige que a Message do Contact seja posterior à entrega.
 - **Configurar**: `PUT /api/v1/companies/{id}` com `session_timeout_minutes` (1 a 10080 minutos).
 
 ## Eventos em tempo real
