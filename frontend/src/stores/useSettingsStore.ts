@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { Settings, SettingsTab, CompanyProfile, AIAgentConfig, WhatsAppConnection, ThemeConfig } from '@/types/settings'
+import type { Settings, SettingsTab, CompanyProfile, AIAgentConfig, ThemeConfig } from '@/types/settings'
 
 interface SettingsStore {
   settings: Settings
@@ -8,7 +8,6 @@ interface SettingsStore {
   setActiveTab: (tab: SettingsTab) => void
   updateCompany: (company: Partial<CompanyProfile>) => void
   updateAIAgent: (aiAgent: Partial<AIAgentConfig>) => void
-  updateWhatsApp: (whatsapp: Partial<WhatsAppConnection>) => void
   updateTheme: (theme: Partial<ThemeConfig>) => void
   resetSettings: () => void
 }
@@ -27,12 +26,6 @@ const defaultSettings: Settings = {
     memoryEnabled: true,
     autoReplyEnabled: true,
     debugMode: false,
-  },
-  whatsapp: {
-    apiUrl: 'https://api.evolution.com',
-    apiKey: '',
-    instanceName: 'neuralilux-prod',
-    status: 'disconnected',
   },
   theme: {
     theme: 'dark',
@@ -61,13 +54,6 @@ export const useSettingsStore = create<SettingsStore>()(
             aiAgent: { ...state.settings.aiAgent, ...aiAgent },
           },
         })),
-      updateWhatsApp: (whatsapp) =>
-        set((state) => ({
-          settings: {
-            ...state.settings,
-            whatsapp: { ...state.settings.whatsapp, ...whatsapp },
-          },
-        })),
       updateTheme: (theme) =>
         set((state) => ({
           settings: {
@@ -79,14 +65,16 @@ export const useSettingsStore = create<SettingsStore>()(
     }),
     {
       name: 'neuralilux-settings-storage',
-      version: 1,
+      version: 2,
       // v0 guardava model e inference (provider legado); o provider agora é o gateway atribuído.
+      // v1 guardava `whatsapp` com a URL e a chave da Evolution; o navegador não guarda credencial alguma.
       migrate: (persisted) => {
-        const state = persisted as { settings?: { aiAgent?: Record<string, unknown> } }
+        const state = persisted as { settings?: { aiAgent?: Record<string, unknown>; whatsapp?: unknown } }
         if (state?.settings?.aiAgent) {
           delete state.settings.aiAgent.model
           delete state.settings.aiAgent.inference
         }
+        if (state?.settings) delete state.settings.whatsapp
         return state as unknown as SettingsStore
       },
       partialize: (state) => ({ settings: state.settings, activeTab: state.activeTab }),

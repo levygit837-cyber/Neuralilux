@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { chatService } from '@/services/chatService'
 import { socketService } from '@/services/socketService'
 import { useChatStore } from '@/stores/useChatStore'
@@ -20,26 +20,33 @@ export function useChatData(instanceId: string | undefined, isConnected: boolean
   const isSending = useChatStore((state) => state.isSending)
   const store = useChatStore.getState
   const activeConversation = conversations.find((item) => item.id === activeConversationId)
+  // Instance atual: uma resposta que volta depois da troca não pode sobrescrever a lista nova.
+  const instanceRef = useRef(instanceId)
 
   const loadConversations = useCallback(
     async (silent = false) => {
       if (!instanceId) return
       const { setLoadingConversations, setConversations, setError } = store()
+      const isCurrent = () => instanceRef.current === instanceId
       if (!silent) setLoadingConversations(true)
       try {
-        setConversations(await chatService.getConversations(instanceId))
+        const items = await chatService.getConversations(instanceId)
+        if (isCurrent()) setConversations(items)
       } catch (error) {
-        if (!silent) setError(errorText(error, 'Nao foi possivel carregar as conversas'))
+        if (!silent && isCurrent()) setError(errorText(error, 'Nao foi possivel carregar as conversas'))
       } finally {
-        if (!silent) setLoadingConversations(false)
+        if (!silent && isCurrent()) setLoadingConversations(false)
       }
     },
     [instanceId, store]
   )
 
   useEffect(() => {
+    instanceRef.current = instanceId
     void loadConversations()
-  }, [loadConversations])
+    // Outra Instance (ou saída da tela): nada da anterior pode continuar no store.
+    return () => store().reset()
+  }, [instanceId, loadConversations, store])
 
   // Primeira mensagem de um Contact novo: o evento chega antes de a Conversation estar na lista.
   useEffect(
@@ -82,53 +89,71 @@ export function useChatData(instanceId: string | undefined, isConnected: boolean
         setMessages(conversation.id, messages)
         resetUnreadCount(conversation.id)
       } catch (error) {
-        if (!silent) setError(errorText(error, 'Nao foi possivel carregar as mensagens desse contato'))
+        if (!silent && !cancelled) setError(errorText(error, 'Nao foi possivel carregar as mensagens desse contato'))
       } finally {
         if (!silent && !cancelled) setLoadingMessages(false)
       }
     }
 
     void load(false)
-    const timer = isConnected ? null : setInterval(() => void load(true), POLLING_INTERVAL)
+    const timer = isConnected ? undefined : setInterval(() => void load(true), POLLING_INTERVAL)
     return () => {
       cancelled = true
-      if (timer) clearInterval(timer)
+      clearInterval(timer)
     }
   }, [activeConversationId, isConnected, store])
 
-  const sendMessage = useCallback(
-    async (content: string) => {
-      if (!activeConversation || isSending) return
-      const { addMessage, updateMessage, updateMessageStatus, updateConversationLastMessage, setSending, setError } = store()
-
-      const tempId = generateTempId()
-      const sentAt = new Date()
-      const temp: Message = {
-        id: tempId,
-        conversationId: activeConversation.id,
-        content,
-        timestamp: sentAt,
-        isOutgoing: true,
-        status: 'sending',
-        messageType: 'text',
-      }
-      addMessage(temp)
+  /** Envia a Message já exibida na lista; se o POST falhar, ela fica `failed` para tentar de novo. */
+  const deliver = useCallback(
+    async (message: Message) => {
+      const { updateMessage, updateMessageStatus, updateConversationLastMessage, setSending, setError } = store()
       setSending(true)
       setError(null)
-
       try {
-        const messageId = await chatService.sendMessage(activeConversation.id, content)
-        updateMessage(tempId, { ...temp, id: messageId || tempId, status: 'sent' })
-        updateConversationLastMessage(activeConversation.id, content, sentAt)
+        const messageId = await chatService.sendMessage(message.conversationId, message.content)
+        updateMessage(message.id, { ...message, id: messageId || message.id, status: 'sent' })
+        updateConversationLastMessage(message.conversationId, message.content, message.timestamp)
       } catch (error) {
-        updateMessageStatus(tempId, 'pending')
+        updateMessageStatus(message.id, 'failed')
         setError(errorText(error, 'Nao foi possivel enviar a mensagem'))
       } finally {
         setSending(false)
       }
     },
-    [activeConversation, isSending, store]
+    [store]
   )
 
-  return { activeConversation, sendMessage }
+  const sendMessage = useCallback(
+    async (content: string) => {
+      if (!activeConversation || isSending) return
+      const message: Message = {
+        id: generateTempId(),
+        conversationId: activeConversation.id,
+        content,
+        timestamp: new Date(),
+        isOutgoing: true,
+        status: 'sending',
+        messageType: 'text',
+      }
+      store().addMessage(message)
+      await deliver(message)
+    },
+    [activeConversation, isSending, store, deliver]
+  )
+
+  const retryMessage = useCallback(
+    async (messageId: string) => {
+      if (!activeConversation || isSending) return
+      const failed = store().messages[activeConversation.id]?.find(
+        (item) => item.id === messageId && item.status === 'failed'
+      )
+      if (!failed) return
+      const retrying: Message = { ...failed, timestamp: new Date(), status: 'sending' }
+      store().updateMessage(failed.id, retrying)
+      await deliver(retrying)
+    },
+    [activeConversation, isSending, store, deliver]
+  )
+
+  return { activeConversation, sendMessage, retryMessage }
 }

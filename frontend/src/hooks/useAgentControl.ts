@@ -34,24 +34,29 @@ export function useAgentControl(instanceName: string | undefined, token: string 
 
   useEffect(() => {
     if (!token) return
+    let cancelled = false
 
     const loadAgents = async () => {
       setIsAgentsLoading(true)
       try {
         const response = await agentService.getAgents()
-        setFetchedAgents(response.items)
+        if (!cancelled) setFetchedAgents(response.items)
       } catch {
-        setError('Nao foi possivel carregar a lista de agentes disponiveis.')
+        if (!cancelled) setError('Nao foi possivel carregar a lista de agentes disponiveis.')
       } finally {
-        setIsAgentsLoading(false)
+        if (!cancelled) setIsAgentsLoading(false)
       }
     }
 
     void loadAgents()
+    return () => {
+      cancelled = true
+    }
   }, [token])
 
   useEffect(() => {
     if (!instanceName) return
+    let cancelled = false
 
     const loadStatus = async () => {
       setIsStatusLoading(true)
@@ -59,16 +64,20 @@ export function useAgentControl(instanceName: string | undefined, token: string 
       setAgentEnabled(null)
       try {
         const status = await instanceService.getAgentStatus(instanceName)
+        if (cancelled) return
         setAgentEnabled(status.agent_enabled)
         setBinding({ token, id: status.agent_id, name: status.agent_name ?? null })
       } catch (e) {
-        setError(messageOf(e, 'Nao foi possivel carregar o status do agente para esta instancia.'))
+        if (!cancelled) setError(messageOf(e, 'Nao foi possivel carregar o status do agente para esta instancia.'))
       } finally {
-        setIsStatusLoading(false)
+        if (!cancelled) setIsStatusLoading(false)
       }
     }
 
     void loadStatus()
+    return () => {
+      cancelled = true
+    }
   }, [instanceName, token])
 
   const toggleAgent = useCallback(async () => {

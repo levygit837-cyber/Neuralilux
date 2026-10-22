@@ -108,7 +108,7 @@ export default function QrPage() {
 
               {/* Error Message */}
               {error && (
-                <div className="rounded-lg border border-error/30 bg-error/10 px-4 py-3 text-center text-sm text-error">
+                <div role="alert" className="rounded-lg border border-error/30 bg-error/10 px-4 py-3 text-center text-sm text-error">
                   {error}
                 </div>
               )}

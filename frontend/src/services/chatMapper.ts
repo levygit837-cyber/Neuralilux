@@ -13,6 +13,7 @@ export interface ConversationResponse {
   id: string
   remote_jid: string
   unread_count: number
+  human_in_loop?: boolean
   last_message_at?: string | null
   last_message_preview?: string | null
   contact?: ContactResponse | null
@@ -87,7 +88,7 @@ export function mapMessageStatus(status?: string): MessageStatus {
     case 'sent':
       return 'sent'
     default:
-      // `pending` e `failed` aparecem como relógio: a UI não tem estado de falha.
+      // `pending` e `failed` do servidor aparecem como relógio; `failed` na UI é só o envio que falhou aqui.
       return 'pending'
   }
 }
@@ -109,6 +110,7 @@ export function mapConversation(raw: ConversationResponse): Conversation {
     timestamp: lastMessageAt ? formatTimestamp(lastMessageAt) : '',
     lastMessageAt: lastMessageAt?.toISOString(),
     unreadCount: raw.unread_count ?? 0,
+    humanHandoff: raw.human_in_loop ?? false,
     isOnline: false,
   }
 }

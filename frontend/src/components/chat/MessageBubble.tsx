@@ -7,9 +7,10 @@ import { AvatarImage } from '@/components/ui/AvatarImage'
 
 interface MessageBubbleProps {
   message: Message
+  onRetry?: (messageId: string) => void
 }
 
-export function MessageBubble({ message }: MessageBubbleProps) {
+export function MessageBubble({ message, onRetry }: MessageBubbleProps) {
   const time = new Date(message.timestamp).toLocaleTimeString('pt-BR', {
     hour: '2-digit',
     minute: '2-digit',
@@ -70,7 +71,19 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         </div>
         <div className={cn('flex items-center gap-1', message.isOutgoing ? 'mr-1' : 'ml-1')}>
           <span className="text-[11px] text-content-muted opacity-0 group-hover:opacity-100 transition-opacity">{time}</span>
-          {message.isOutgoing && (
+          {message.isOutgoing && message.status === 'failed' && (
+            <div className="flex items-center gap-2 text-xs text-error">
+              <span role="alert">Não enviada</span>
+              <button
+                type="button"
+                onClick={() => onRetry?.(message.id)}
+                className="rounded px-1.5 py-0.5 font-semibold underline hover:bg-error/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              >
+                Tentar novamente
+              </button>
+            </div>
+          )}
+          {message.isOutgoing && message.status !== 'failed' && (
             <div className="flex items-center gap-0.5">
               {message.status === 'read' ? (
                 <Check weight="fill" className="text-blue-400 text-sm" />

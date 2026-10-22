@@ -158,6 +158,7 @@ export default function InstancesPage() {
                           <Button
                             size="sm"
                             variant="secondary"
+                            aria-label={`Apagar a instância ${instance.name}`}
                             disabled={busyName === instance.name}
                             onClick={() => void handleDelete(instance)}
                           >

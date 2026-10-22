@@ -1,9 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { useChatStore } from '@/stores/useChatStore'
-import { TYPING_TIMEOUT } from '@/lib/constants'
-import { socketService } from '@/services/socketService'
 import { MessageBubble } from './MessageBubble'
 import { ChatInput } from './ChatInput'
 import { TypingIndicator } from './TypingIndicator'
@@ -16,17 +14,17 @@ const NO_MESSAGES: Message[] = []
 interface MessagePaneProps {
   conversationId: string
   onSendMessage: (content: string) => void
+  onRetryMessage: (messageId: string) => void
 }
 
 /** Messages da Conversation aberta, o indicador de pensamento do Agent e o campo de envio. */
-export function MessagePane({ conversationId, onSendMessage }: MessagePaneProps) {
+export function MessagePane({ conversationId, onSendMessage, onRetryMessage }: MessagePaneProps) {
   const messages = useChatStore((state) => state.messages[conversationId]) ?? NO_MESSAGES
   const isTyping = useChatStore((state) => state.typingIndicators[conversationId] ?? false)
   const isLoading = useChatStore((state) => state.isLoadingMessages)
   const isSending = useChatStore((state) => state.isSending)
   const endRef = useRef<HTMLDivElement>(null)
   const scrolledRef = useRef<string | null>(null)
-  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Primeira carga de cada conversa rola de uma vez; as seguintes, suavemente.
   useEffect(() => {
@@ -34,22 +32,6 @@ export function MessagePane({ conversationId, onSendMessage }: MessagePaneProps)
     endRef.current?.scrollIntoView({ behavior: scrolledRef.current === conversationId ? 'smooth' : 'auto' })
     scrolledRef.current = conversationId
   }, [messages, conversationId])
-
-  useEffect(
-    () => () => {
-      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
-    },
-    []
-  )
-
-  const handleTyping = useCallback(() => {
-    socketService.sendTypingIndicator(conversationId, true)
-    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
-    typingTimeoutRef.current = setTimeout(
-      () => socketService.sendTypingIndicator(conversationId, false),
-      TYPING_TIMEOUT
-    )
-  }, [conversationId])
 
   return (
     <>
@@ -64,7 +46,7 @@ export function MessagePane({ conversationId, onSendMessage }: MessagePaneProps)
               message.messageType === 'system' && message.systemMetadata ? (
                 <SystemMessage key={message.id} metadata={message.systemMetadata} />
               ) : (
-                <MessageBubble key={message.id} message={message} />
+                <MessageBubble key={message.id} message={message} onRetry={onRetryMessage} />
               )
             )}
             <ThinkingManager conversationId={conversationId} />
@@ -73,7 +55,7 @@ export function MessagePane({ conversationId, onSendMessage }: MessagePaneProps)
           </div>
         )}
       </div>
-      <ChatInput onSendMessage={onSendMessage} onTyping={handleTyping} disabled={isSending} />
+      <ChatInput onSendMessage={onSendMessage} disabled={isSending} />
     </>
   )
 }

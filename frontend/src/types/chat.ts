@@ -1,4 +1,4 @@
-export type MessageStatus = 'pending' | 'sending' | 'sent' | 'delivered' | 'read'
+export type MessageStatus = 'pending' | 'sending' | 'sent' | 'delivered' | 'read' | 'failed'
 
 export type MessageType = 'text' | 'audio' | 'image' | 'video' | 'system'
 

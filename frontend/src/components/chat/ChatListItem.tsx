@@ -19,9 +19,18 @@ export function ChatListItem({ conversation, isActive, onClick }: ChatListItemPr
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      aria-current={isActive ? 'true' : undefined}
       onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick?.()
+        }
+      }}
       className={cn(
-        'p-3 rounded-xl cursor-pointer relative overflow-hidden flex items-center gap-3 group transition-colors',
+        'p-3 rounded-xl cursor-pointer relative overflow-hidden flex items-center gap-3 group transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
         isActive
           ? 'bg-brand-hover/80 border border-primary/20'
           : 'hover:bg-brand-hover border border-transparent'

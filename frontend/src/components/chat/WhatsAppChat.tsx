@@ -38,7 +38,7 @@ export function WhatsAppChat() {
     instanceName,
     openConversationJid: conversations.find((item) => item.id === activeConversationId)?.remoteJid,
   })
-  const { activeConversation, sendMessage } = useChatData(resolvedInstance?.id, isConnected)
+  const { activeConversation, sendMessage, retryMessage } = useChatData(resolvedInstance?.id, isConnected)
 
   if (isResolvingInstance && !resolvedInstance) {
     return (
@@ -79,7 +79,11 @@ export function WhatsAppChat() {
                 isAgentBindingLoading={agent.isBindingLoading}
               />
               {agent.error && <Banner tone="warning" text={agent.error} />}
-              <MessagePane conversationId={activeConversation.id} onSendMessage={sendMessage} />
+              <MessagePane
+                conversationId={activeConversation.id}
+                onSendMessage={sendMessage}
+                onRetryMessage={retryMessage}
+              />
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center">
@@ -89,8 +93,11 @@ export function WhatsAppChat() {
         </div>
       </div>
       {!isConnected && (
-        <div className="fixed bottom-4 right-4 rounded-lg bg-brand-card/90 border border-brand-border px-4 py-2 text-sm text-content-muted backdrop-blur-sm">
-          <span className="inline-block w-2 h-2 rounded-full bg-yellow-500 mr-2 animate-pulse" />
+        <div
+          role="status"
+          className="fixed bottom-4 right-4 rounded-lg bg-brand-card/90 border border-brand-border px-4 py-2 text-sm text-content-muted backdrop-blur-sm"
+        >
+          <span aria-hidden="true" className="inline-block w-2 h-2 rounded-full bg-yellow-500 mr-2 animate-pulse" />
           Conectando ao servidor...
         </div>
       )}

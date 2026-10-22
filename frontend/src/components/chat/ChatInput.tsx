@@ -3,11 +3,10 @@ import { Paperclip, Smiley, Microphone, ArrowUp, Keyboard } from '@phosphor-icon
 
 interface ChatInputProps {
   onSendMessage: (content: string) => void
-  onTyping: (isTyping: boolean) => void
   disabled?: boolean
 }
 
-export function ChatInput({ onSendMessage, onTyping, disabled }: ChatInputProps) {
+export function ChatInput({ onSendMessage, disabled }: ChatInputProps) {
   const [message, setMessage] = useState('')
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -19,14 +18,6 @@ export function ChatInput({ onSendMessage, onTyping, disabled }: ChatInputProps)
         setMessage('')
       }
     }
-  }
-
-  const handleBlur = () => {
-    onTyping(false)
-  }
-
-  const handleFocus = () => {
-    onTyping(true)
   }
 
   const handleSend = () => {
@@ -51,8 +42,6 @@ export function ChatInput({ onSendMessage, onTyping, disabled }: ChatInputProps)
             placeholder="Digite sua mensagem..."
             disabled={disabled}
             onKeyDown={handleKeyDown}
-            onBlur={handleBlur}
-            onFocus={handleFocus}
             rows={1}
             className="w-full rounded-2xl border border-brand-border/80 bg-brand-base px-4 py-3 text-sm text-content-light placeholder-content-muted outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all resize-none shadow-[inset_0_2px_4px_rgba(0,0,0,0.3)] disabled:cursor-not-allowed disabled:opacity-50 min-h-[44px] max-h-[120px]"
             style={{ fieldSizing: 'content' }}

@@ -14,6 +14,5 @@ export const ROUTES = {
 } as const
 
 export const POLLING_INTERVAL = 3000 // 3 seconds for polling fallback
-export const TYPING_TIMEOUT = 3000
 export const MESSAGE_PAGE_SIZE = 50
 export const CONVERSATION_PAGE_SIZE = 100

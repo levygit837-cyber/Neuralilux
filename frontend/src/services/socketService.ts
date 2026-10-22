@@ -197,10 +197,6 @@ class SocketService {
     })
   }
 
-  sendTypingIndicator(conversationId: string, isTyping: boolean) {
-    this.socket?.emit('typing', { conversationId, isTyping })
-  }
-
   subscribeToInstance(instanceName: string) {
     this.subscribedInstance = instanceName
     if (this.socket?.connected) this.emitWithAck('subscribe_instance', { instanceName })
@@ -222,10 +218,6 @@ class SocketService {
   leaveConversation(instanceName: string, remoteJid: string) {
     this.socket?.emit('leave_conversation', { instanceName, conversationId: remoteJid })
     if (this.joined?.remoteJid === remoteJid && this.joined.instanceName === instanceName) this.joined = null
-  }
-
-  getConnectionStatus(): boolean {
-    return this.isConnected
   }
 
   disconnect() {
