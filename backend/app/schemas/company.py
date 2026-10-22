@@ -3,9 +3,8 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from app.agent.clock import DEFAULT_TIMEZONE
 from app.models.company import DEFAULT_SESSION_TIMEOUT_MINUTES
-
-DEFAULT_TIMEZONE = "America/Sao_Paulo"
 
 
 def _loadable_timezone(value: object) -> str:
