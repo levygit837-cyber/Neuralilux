@@ -42,7 +42,7 @@ O atendente de IA de uma Company. Existe um por Company.
 _Avoid_: Bot, assistente, super agent, sales agent, SAC agent
 
 **Turn**:
-O ciclo em que o Agent recebe uma Message do Contact, pensa, chama Tools e produz no máximo uma resposta.
+O ciclo em que o Agent recebe as Messages que o Contact mandou numa rajada (agrupadas por uma pausa curta), pensa, chama Tools e produz no máximo uma resposta.
 _Avoid_: Execução, run, invocação
 
 **Tool**:

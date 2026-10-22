@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     SUMMARY_EVERY: int = 20  # Messages fora da janela e não resumidas que disparam um novo Summary
     HISTORY_SEARCH_LIMIT: int = 8  # resultados da History Search
 
+    # Agrupamento de Messages picadas (ticket #36)
+    DEBOUNCE_SECONDS: float = 3.0  # pausa do Contact antes do Turn; 0 desliga o agrupamento
+    TYPING_REFRESH_SECONDS: float = 20.0  # a presença "digitando" expira sozinha; renovada enquanto o Turn roda
+
     # Realtime
     REALTIME_REDIS_CHANNEL: str = "neuralilux:realtime:events"
     TOOL_EVENT_PREVIEW_LIMIT: int = 240

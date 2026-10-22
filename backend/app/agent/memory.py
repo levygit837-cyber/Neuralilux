@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Collection
 
 from sqlalchemy import func, literal_column, tuple_
 from sqlalchemy.orm import Query, Session
@@ -56,14 +57,22 @@ def _oldest_first(query: Query) -> Query:
 
 
 def build_context(
-    db: Session, conversation: Conversation, window: int = settings.MEMORY_WINDOW
+    db: Session,
+    conversation: Conversation,
+    window: int = settings.MEMORY_WINDOW,
+    exclude_ids: Collection[str] = (),
 ) -> tuple[str | None, list[ChatMessage]]:
     """Summary (se houver) e Recent Window da Conversation, prontos para o prompt.
 
     A janela são as últimas `window` Messages de texto da Session atual (ADR 0007), em ordem cronológica;
     o que veio antes da Session fica para o Summary e a History Search. Messages consecutivas do mesmo papel viram uma só e a primeira é sempre `user`.
+
+    `exclude_ids` tira da janela as Messages que disparam o Turn (já gravadas); quem chama as põe de volta, juntas, no fim.
     """
-    recent = _newest_first(_session_messages(db, conversation)).limit(window).all()
+    query = _session_messages(db, conversation)
+    if exclude_ids:
+        query = query.filter(Message.id.notin_(exclude_ids))
+    recent = _newest_first(query).limit(window).all()
     recent.reverse()
 
     history: list[ChatMessage] = []
