@@ -2,10 +2,11 @@
 
 O system prompt e as Tools têm de ser idênticos byte a byte entre Turns da mesma Company, senão o prefix cache
 do servidor de inferência não vale (issue #42). Tudo que é por Turn vai aqui, num bloco delimitado no início da
-última mensagem `user` do Turn: hora local, contexto de cada Pack (`Pack.turn_context`) e Summary.
+última mensagem `user` do Turn: hora local, estado aberto/fechado da Company, contexto de cada Pack
+(`Pack.turn_context`) e Summary.
 
-Para acrescentar um item do núcleo ao bloco (ex.: estado aberto/fechado da Company), some uma seção em
-`build_turn_context`; para um item do ramo, o Pack o devolve em `turn_context`. O system não muda.
+Para acrescentar um item do núcleo ao bloco, some uma seção em `build_turn_context`; para um item do ramo, o Pack
+o devolve em `turn_context`. O system não muda.
 """
 
 from __future__ import annotations
@@ -28,9 +29,19 @@ def neutralize(text: str) -> str:
     return _TAG_START.sub(r"‹\1", text)
 
 
-def build_turn_context(*, time_context: str | None, packs: Iterable[Pack], ctx: ToolContext, summary: str | None) -> str:
-    """O bloco do Turn: hora, contexto dos Packs e Summary, nessa ordem. Vazio se não há nada a dizer."""
-    sections = [time_context or ""]
+def build_turn_context(
+    *,
+    time_context: str | None,
+    opening: str | None,
+    packs: Iterable[Pack],
+    ctx: ToolContext,
+    summary: str | None,
+) -> str:
+    """O bloco do Turn: hora, estado aberto/fechado, contexto dos Packs e Summary, nessa ordem.
+
+    Vazio se não há nada a dizer. `opening` é vazio quando a Company não tem horários cadastrados.
+    """
+    sections = [time_context or "", opening or ""]
     sections.extend(pack.turn_context(ctx) for pack in packs)
     if summary and summary.strip():
         sections.append(f"Resumo da conversa até aqui (mensagens antigas):\n{summary.strip()}")

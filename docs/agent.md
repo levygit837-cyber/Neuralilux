@@ -38,6 +38,8 @@ O servidor de inferência só reaproveita o prefixo do prompt (prefix cache) se 
 <contexto_do_atendimento>
 Agora é quinta-feira, 22/10/2026, 20:30 ... (clock.py)
 
+A empresa está fechada agora e abre amanhã às 11:00 ... (clock.opening_notice; só com horários cadastrados)
+
 <Pack.turn_context de cada Pack, ex.: nota do pedido abandonado>
 
 Resumo da conversa até aqui (mensagens antigas):
@@ -47,7 +49,7 @@ Resumo da conversa até aqui (mensagens antigas):
 <texto do Contact>
 ```
 
-- Ponto de extensão do núcleo: `turn_context.build_turn_context` (uma seção nova, ex.: estado aberto/fechado da Company). Ponto de extensão do ramo: `Pack.turn_context(ctx)`. O texto estável de instruções continua em `system_prompt_section`.
+- Ponto de extensão do núcleo: `turn_context.build_turn_context` (uma seção nova; o estado aberto/fechado da Company já é uma). Ponto de extensão do ramo: `Pack.turn_context(ctx)`. O texto estável de instruções continua em `system_prompt_section`.
 - O bloco fica na mensagem do Turn, então é o mesmo em todos os passos do loop.
 - O texto do Contact (e os `tool_result`) passa por `neutralize`: `<contexto_do_atendimento` e `</contexto_do_atendimento`, em qualquer caixa e espaçamento, viram `‹...`. O Contact não consegue abrir nem fechar o bloco.
 - `ToolRegistry.schemas()` devolve as Tools na ordem dos Packs, com as chaves de cada schema em ordem alfabética.
@@ -106,6 +108,7 @@ Resumo do que o Pack "catálogo & pedidos" garante. As regras estão no código 
 
 - **Fechar exige confirmação.** `finalizar` só fecha se o pedido está completo e acima do mínimo, a Company está aberta, o Contact viu a Recap (a resposta que a trouxe foi enviada), nada mudou desde ela e a Message que dispara o Turn é posterior à entrega. "Pode fechar" na mesma Message dos dados não conta: o Agent recapitula e espera.
 - **Fora do horário não fecha.** Com `business_hours` cadastrado e a Company fechada, `finalizar` recusa com a próxima abertura ("Abre hoje às 18:00"); o Order continua salvo. Sem horários cadastrados, nada bloqueia. O mesmo vale ao pedir Handoff: a resposta traz a próxima janela de atendimento.
+- **O Agent sabe se a Company está aberta desde a primeira resposta.** O bloco do Turn traz "aberta agora" ou "fechada, abre <quando>" (`clock.opening_notice`, com `is_open_at` e `next_opening`, os mesmos de `finalizar`), mais se a abertura cai antes ou depois do fim da Session (`session_timeout_minutes`). Sem `business_hours`, o bloco não diz nada sobre horário. O estado fica no bloco, nunca no `system`, que continua idêntico entre Turns. Como o Agent usa a informação (avisar, oferecer deixar o pedido montado, só prometer "fica salvo" se abre antes de a Session acabar) está no prompt do Pack.
 - **Session nova abandona.** Order em montagem que atravessa o limite de inatividade vira `abandoned`; o Agent é avisado no prompt e só recria o pedido (`retomar_pedido`, com os preços de hoje) se o Contact aceitar.
 - **Cancelar e alterar.** `cancelar_pedido` e `alterar_pedido` valem só para o Order `closed` confirmado na Session atual ou na anterior; depois, ou com o Order em preparo, o erro manda oferecer Handoff. Alterar reabre a montagem, invalida o Pix e exige nova Recap. A troca de status é condicional: se a Company mexe no Order no meio do caminho, nada é gravado; se ele foi para preparo, o Agent oferece Handoff, senão relê o Order e tenta de novo.
 - **"Cadê meu pedido".** `status_pedido` lê o mesmo `Order.status` que a Company move no painel `/pedidos` ([operations.md](operations.md#painel-de-pedidos-status-pela-company)); a cada mudança o Contact também recebe um aviso no WhatsApp.
