@@ -8,6 +8,7 @@ Agente de atendimento por WhatsApp com IA (FastAPI + Next.js + Evolution API). V
 - `frontend/`: Next.js 16 / React 19 (tem seu próprio `frontend/AGENTS.md`).
 - `docs/`: `setup.md`, `architecture.md`, `agent.md`, `packs.md`, `integrations.md`, `operations.md`; `adr/` (decisões) e `agents/` (guias para agentes). Índice no `README.md` da raiz.
 - `docker-compose.example.yml`: modelo versionado da infra local, sem segredos. O `docker-compose.yml` real é local e ignorado.
+- `docs/agents/evolution-data-formats.md`: formatos reais da Evolution (findChats/findMessages/findContacts/fetchAllGroups, tipos de mensagem, `@lid`, eventos do webhook e `WEBHOOK_EVENTS_*`). Leia antes de mexer no parser ou no consumer.
 
 ## Comandos
 
