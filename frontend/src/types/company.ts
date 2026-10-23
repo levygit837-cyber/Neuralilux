@@ -46,4 +46,9 @@ export type CompanyUpdate = Partial<Omit<Company, 'id' | 'minimum_order'>> & {
 export interface AgentSettings {
   temperature: number | null
   max_tokens: number
+  /** Instruções da Company para o Agent (nome, tom, avisos fixos); `null` quando não há. */
+  system_prompt: string | null
 }
+
+/** Mesmo limite do backend (`AGENT_INSTRUCTIONS_MAX_LENGTH`); acima disso o `PUT` responde 422. */
+export const AGENT_INSTRUCTIONS_MAX_LENGTH = 2000

@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/Input'
 import { FieldError } from '@/components/settings/gateways/FieldError'
 import type { CompanySettingsState } from '@/hooks/useCompanySettings'
 import { useSettingsStore } from '@/stores/useSettingsStore'
-import type { AgentSettings } from '@/types/company'
+import { AGENT_INSTRUCTIONS_MAX_LENGTH, type AgentSettings } from '@/types/company'
 
 /** Ajustes de resposta do Agent da Company; o modelo vem do Gateway atribuído. */
 export function AIAgentCard({ settings }: { settings: CompanySettingsState }) {
@@ -29,6 +29,7 @@ function AgentForm({ agent, saveAgent }: { agent: AgentSettings; saveAgent: Comp
   const [useGatewayTemperature, setUseGatewayTemperature] = useState(agent.temperature === null)
   const [temperature, setTemperature] = useState(agent.temperature ?? DEFAULT_TEMPERATURE)
   const [maxTokens, setMaxTokens] = useState(String(agent.max_tokens))
+  const [instructions, setInstructions] = useState(agent.system_prompt ?? '')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [isSaving, setIsSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -39,12 +40,14 @@ function AgentForm({ agent, saveAgent }: { agent: AgentSettings; saveAgent: Comp
     const result = await saveAgent({
       temperature: useGatewayTemperature ? null : temperature,
       max_tokens: /^\d+$/.test(maxTokens.trim()) ? Number(maxTokens) : NaN,
+      system_prompt: instructions,
     })
     setErrors(result.ok ? {} : result.fieldErrors)
     if (result.ok) {
       setUseGatewayTemperature(result.value.temperature === null)
       setTemperature(result.value.temperature ?? DEFAULT_TEMPERATURE)
       setMaxTokens(String(result.value.max_tokens))
+      setInstructions(result.value.system_prompt ?? '')
     }
     setSaved(result.ok)
     setIsSaving(false)
@@ -126,6 +129,35 @@ function AgentForm({ agent, saveAgent }: { agent: AgentSettings; saveAgent: Comp
             placeholder="1000"
           />
           <FieldError id="agent-max-tokens-error" message={errors.max_tokens} />
+        </div>
+
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <label htmlFor="agent-instructions" className="text-sm font-medium text-text-light">Instruções do atendente</label>
+            <span
+              id="agent-instructions-count"
+              className={instructions.length > AGENT_INSTRUCTIONS_MAX_LENGTH ? 'text-sm font-semibold text-red-300' : 'text-sm text-text-gray'}
+            >
+              {instructions.length}/{AGENT_INSTRUCTIONS_MAX_LENGTH}
+            </span>
+          </div>
+          <textarea
+            id="agent-instructions"
+            rows={5}
+            value={instructions}
+            aria-invalid={Boolean(errors.system_prompt) || instructions.length > AGENT_INSTRUCTIONS_MAX_LENGTH}
+            aria-describedby={`agent-instructions-hint agent-instructions-count${errors.system_prompt ? ' agent-instructions-error' : ''}`}
+            onChange={(e) => {
+              setInstructions(e.target.value)
+              setSaved(false)
+            }}
+            placeholder="Ex.: Seu nome é Ana. Não fazemos entrega aos domingos. Promoção de terça: pizza grande com 20% off."
+            className="flex min-h-28 w-full rounded-md border border-border-color bg-dark px-4 py-3 text-sm text-text-light placeholder:text-text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          />
+          <p id="agent-instructions-hint" className="text-xs text-text-gray">
+            Nome, tom e avisos fixos. Não substituem as regras do sistema: dados só das ferramentas, resumo antes de fechar o pedido e transferência para uma pessoa. Vazio remove as instruções.
+          </p>
+          <FieldError id="agent-instructions-error" message={errors.system_prompt} />
         </div>
       </div>
 

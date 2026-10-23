@@ -11,7 +11,7 @@ class Agent(Base):
     id = Column(String, primary_key=True, default=generate_uuid)
     name = Column(String, nullable=False)
     description = Column(Text)
-    system_prompt = Column(Text, nullable=False)
+    system_prompt = Column(Text, nullable=True)  # instruções da Company (painel); vazio = sem trecho no system
     company_id = Column(String, ForeignKey("companies.id"), nullable=True, index=True)  # um Agent por Company
     model = Column(String, nullable=True)  # o modelo vem do Gateway; só sobrescreve se preenchido
     temperature = Column(Float, nullable=True)  # None: usa a do Gateway
