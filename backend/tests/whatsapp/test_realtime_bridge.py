@@ -185,15 +185,17 @@ async def test_update_message_status_normalizes_and_publishes_realtime_event(
     db.add(message)
     db.commit()
 
-    consumer = WhatsAppMessageConsumer()
+    # Formato real do `messages.update` da Evolution v2.3.7: plano, o id da Message vem em `keyId`.
     payload = {
         "instance": "evo-realtime-1",
         "data": {
-            "key": {
-                "id": "msg-status-1",
-                "remoteJid": "5511999999999@s.whatsapp.net",
-            },
+            "messageId": "cm0evolution-row-id",
+            "keyId": "msg-status-1",
+            "remoteJid": "5511999999999@s.whatsapp.net",
+            "fromMe": True,
+            "participant": None,
             "status": "READ",
+            "instanceId": "evo-instance-uuid",
         },
     }
 
