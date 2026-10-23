@@ -29,14 +29,14 @@ Contagem por linha de tabela (uma linha por função; parametrizado conta uma ve
 
 | Área | Arquivos | Funções | `keep` | `redundant` | `stub` | `wiring` | `wording` | `extreme` | `dead-e2e` |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| api / core / models | 19 | 195 | 193 | 1 | 0 | 0 | 1 | 0 | 0 |
+| api / core / models (após #53) | 19 | 195 | 193 | 1 | 0 | 0 | 1 | 0 | 0 |
 | whatsapp / realtime (após #54) | 21 | 152 | 152 | 0 | 0 | 0 | 0 | 0 | 0 |
 | agent / packs / handoff / llm / scripts (após #55) | 28 | 327 | 327 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | 70 | 745 | **665** | **37** | **13** | **17** | **13** | **0** | **0** |
+| **Total** | 68 | 674 | **672** | **1** | **0** | **0** | **1** | **0** | **0** |
 
-- Candidatos a remoção: 80 de 745 funções.
-- `dead-e2e` é zero de propósito: `tests/whatsapp/test_whatsapp_actions.py` é o único arquivo marcado `e2e` (pulado sem `RUN_E2E=1`). Todos os métodos do client que ele chama existem com a assinatura usada e uma Evolution API respondeu em `localhost:8081` durante a auditoria; falta só uma `EVOLUTION_API_KEY` válida, então o arquivo é executável (o `.py` não foi rodado com `RUN_E2E=1`). As funções fracas dele estão como `stub`/`wiring`.
-- `test_instance` em `test_whatsapp_actions.py` é fixture (nome casa com `test_*`), não teste, e não entra na contagem.
+- Auditoria original: 745 funções em 70 arquivos, 80 candidatos a remoção. Depois de #53, #54 e #55 restam 674 funções inventariadas; os 2 candidatos ainda listados na área 1 foram relidos e mantidos (motivo na própria linha). Testes criados depois da auditoria (como `tests/core/test_password_hash_cost.py`, de #50, e `tests/api/test_handoff_event_bus.py`, de #53) não estão nas tabelas.
+- `dead-e2e` é zero de propósito: `tests/whatsapp/test_whatsapp_actions.py` é o único arquivo marcado `e2e` (pulado sem `RUN_E2E=1`). Depois de #54 ele só faz leituras contra a Evolution local e passa com `RUN_E2E=1` (como rodar: `docs/setup.md`).
+- `test_instance_name` em `test_whatsapp_actions.py` é fixture (nome casa com `test_*`), não teste, e não entra na contagem.
 
 ## Cobertura base
 
