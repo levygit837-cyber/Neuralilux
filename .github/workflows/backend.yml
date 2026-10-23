@@ -1,0 +1,50 @@
+name: Backend
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - name: Instalar dependências
+        run: pip install -r requirements-dev.txt
+
+      # Sem segredos nem serviços: os testes rodam em SQLite.
+      - name: Testes (paralelo, sem e2e)
+        run: python -m pytest tests --ignore=tests/e2e -q -p no:cacheprovider -n auto
+
+      - name: Ruff (pyflakes)
+        run: ruff check --select F app
+
+      # `alembic heads` só lê os scripts; a URL é exigida pelo env.py, mas nada conecta.
+      - name: Alembic com uma única head
+        env:
+          DATABASE_URL: sqlite:///./ci.db
+        run: |
+          heads=$(alembic heads)
+          echo "$heads"
+          test "$(echo "$heads" | grep -c '(head)')" -eq 1
+
+      - name: Nenhum .py de app/ acima de 400 linhas
+        run: python scripts/check_max_lines.py
