@@ -121,7 +121,8 @@ def _require_open(company: Company) -> None:
         return
     opening = next_opening(company.business_hours, now)
     when = f" Abre {describe_opening(opening, now)}." if opening else ""
-    raise OrderError(f"A empresa está fechada agora, não dá para fechar o pedido.{when} Ele fica salvo até lá.")
+    # Sem "fica salvo até lá": o Order só sobrevive até o fim da Session, e o bloco do Turn diz se a abertura cai antes.
+    raise OrderError(f"A empresa está fechada agora, não dá para fechar o pedido.{when} O pedido continua montado.")
 
 
 def finalizar(ctx: ToolContext, _args: dict[str, Any]) -> dict[str, Any]:
