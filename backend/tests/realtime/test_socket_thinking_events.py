@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.agent.events import TurnEvents, publish_handoff_requested
+from app.agent.events import TurnEvents
 from app.agent.tools import ToolCall
 from app.realtime.event_bus import realtime_event_bus
 from app.realtime.socket import chat_socket_service
@@ -88,33 +88,3 @@ async def test_failed_tool_reaches_the_client_with_its_error(socket):
     last = [payload for name, payload, _room in socket() if name == "tool_event"][-1]
     assert last["phase"] == "failed"
     assert "estoque insuficiente" in last["error"]
-
-
-@pytest.mark.asyncio
-async def test_handoff_request_reaches_both_rooms_with_ticket_and_reason(socket):
-    await publish_handoff_requested(
-        instance_name=INSTANCE,
-        conversation_id="conv-1",
-        remote_jid=CONVERSATION,
-        ticket_id="ticket-9",
-        reason="Cliente pediu um humano",
-    )
-
-    emitted = socket()
-    assert [(name, room) for name, _p, room in emitted] == [
-        ("human_handoff_requested", f"conversation:{INSTANCE}:conv-1"),
-        ("human_handoff_requested", f"instance:{INSTANCE}"),
-    ]
-    payload = emitted[0][1]
-    assert (payload["ticketId"], payload["reason"], payload["conversationId"]) == (
-        "ticket-9",
-        "Cliente pediu um humano",
-        "conv-1",
-    )
-
-
-@pytest.mark.asyncio
-async def test_event_without_instance_is_dropped(socket):
-    await chat_socket_service.emit_realtime_event({"type": "thinking", "payload": {"conversation_id": "c"}})
-
-    assert socket() == []

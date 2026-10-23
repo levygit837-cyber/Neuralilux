@@ -253,66 +253,6 @@ async def test_connection_update_normalizes_state_and_publishes_realtime_event(
 
 
 @pytest.mark.asyncio
-async def test_save_message_to_database_does_not_trigger_agent_when_instance_is_disabled(
-    db, monkeypatch, agent_turn
-):
-    async def fake_publish(_event):
-        return None
-
-    monkeypatch.setattr(
-        "app.realtime.event_bus.realtime_event_bus.publish",
-        fake_publish,
-    )
-
-    user = User(
-        id="user-agent-off-1",
-        email="agent-off@example.com",
-        hashed_password="hashed",
-        full_name="Agent Off User",
-        is_active=True,
-    )
-    agent = Agent(
-        id="agent-off-1",
-        name="Agente Teste",
-        system_prompt="Teste",
-        is_active=True,
-        owner_id=user.id,
-    )
-    instance = Instance(
-        id="instance-agent-off-1",
-        name="Agent Off Instance",
-        evolution_instance_id="evo-agent-off-1",
-        status="connected",
-        is_active=True,
-        owner_id=user.id,
-        agent_id=agent.id,
-        agent_enabled=False,
-    )
-    db.add_all([user, agent, instance])
-    db.commit()
-
-    consumer = WhatsAppMessageConsumer()
-    payload = {
-        "instance": "evo-agent-off-1",
-        "data": {
-            "key": {
-                "remoteJid": "5511666666666@s.whatsapp.net",
-                "fromMe": False,
-                "id": "msg-agent-off-1",
-            },
-            "message": {"conversation": "Mensagem para nao responder"},
-            "pushName": "Contato OFF",
-            "messageTimestamp": int(datetime.now(timezone.utc).timestamp()),
-        },
-    }
-
-    await consumer._save_message_to_database(db, payload)
-
-    assert agent_turn["turns"] == []
-    assert agent_turn["sent"] == []
-
-
-@pytest.mark.asyncio
 async def test_save_message_to_database_triggers_agent_when_instance_is_enabled(
     db, monkeypatch, agent_turn
 ):

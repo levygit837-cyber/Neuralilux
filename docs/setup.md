@@ -201,3 +201,12 @@ cd ../frontend && npx eslint . && npx tsc --noEmit && npx next build
 ```
 
 Os testes do backend rodam em SQLite; `env -u DATABASE_URL` impede que a suíte use o banco de desenvolvimento. Os e2e só rodam com `RUN_E2E=1`. A suíte roda em paralelo (`-n auto`, pytest-xdist): cada processo usa o próprio arquivo SQLite, e o bcrypt tem custo 4 só nos testes (produção usa 12). Para depurar um teste isolado, tire o `-n auto`.
+
+O e2e `tests/whatsapp/test_whatsapp_actions.py` fala com a Evolution real, só em leitura (chats, contatos, mensagens e estado da instância `Macedos`; não cria instância nem envia mensagem). Rode de `backend/` com um SQLite descartável, porque `RUN_E2E=1` deixa de forçar o banco de teste:
+
+```bash
+RUN_E2E=1 DATABASE_URL=sqlite:////tmp/e2e-actions.db EVOLUTION_API_KEY=<chave> \
+  ./venv/bin/python -m pytest tests/whatsapp/test_whatsapp_actions.py -v -p no:cacheprovider
+```
+
+`E2E_EVOLUTION_INSTANCE` troca a instância lida (padrão `Macedos`).
