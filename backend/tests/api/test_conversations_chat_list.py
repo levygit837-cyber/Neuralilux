@@ -81,13 +81,14 @@ def test_search_matches_name_and_last_message_without_duplicates(client, chats):
     assert _ids(client, headers, instance, search="pizza") == {c["bot"].id}
 
 
-def test_counts_ignore_archived_and_sum_unread_messages(client, chats):
+def test_counts_ignore_archived_and_badge_skips_group_unread(client, chats):
     headers, instance, _ = chats
 
     response = client.get("/api/v1/conversations/counts", params={"instance_id": instance.id}, headers=headers)
 
     assert response.status_code == 200
-    assert response.json() == {"all": 4, "unread": 3, "groups": 1, "ai": 2, "human": 1, "unread_messages": 7}
+    # `unread_messages`: Bruno 4 + Carla 1; o grupo (2) e a arquivada (9) ficam fora do selo.
+    assert response.json() == {"all": 4, "unread": 3, "groups": 1, "ai": 2, "human": 1, "unread_messages": 5}
 
 
 def test_counts_require_instance_and_ownership(client, db, chats):

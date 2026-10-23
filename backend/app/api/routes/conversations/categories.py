@@ -51,12 +51,16 @@ def apply_search(query: Query, term: str) -> Query:
 
 
 def category_counts(db: Session, instance_id: str) -> dict[str, int]:
-    """Contadores da Instance, sem as arquivadas. `unread_messages` soma o `unread_count` de todas."""
+    """Contadores da Instance, sem as arquivadas.
+
+    `unread_messages` (o selo do menu) soma só as conversas individuais: grupos acumulam milhares de não lidas
+    que não são atendimento e esconderiam as que importam.
+    """
 
     def count_if(condition):
         return func.coalesce(func.sum(case((condition, 1), else_=0)), 0)
 
-    unread = func.coalesce(Conversation.unread_count, 0)
+    unread = case((Conversation.is_group.is_(True), 0), else_=func.coalesce(Conversation.unread_count, 0))
     row = (
         db.query(
             func.count(Conversation.id),
