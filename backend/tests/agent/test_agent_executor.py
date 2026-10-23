@@ -417,7 +417,8 @@ async def test_estado_aberto_fechado_fica_fora_do_system(turn_setup, agent, monk
 
     assert "fechada" in closed.messages[-1]["content"] and "aberta agora" in open_.messages[-1]["content"]
     assert closed.system == open_.system
-    assert "aberta" not in open_.system and "fechada" not in closed.system
+    # As frases do estado (`clock.opening_notice`), não as palavras soltas: o prompt cita "aberta" nas regras.
+    assert "está aberta agora" not in open_.system and "está fechada agora" not in closed.system
 
 
 async def _turn(turn_setup, agent, text_in, minutes_ago=0):
