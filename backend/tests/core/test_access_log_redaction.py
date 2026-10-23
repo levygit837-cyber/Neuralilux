@@ -25,9 +25,3 @@ def test_other_paths_are_left_untouched():
 
     assert path in _render(path)
 
-
-def test_records_with_unexpected_args_pass_through():
-    record = logging.LogRecord("uvicorn.access", logging.INFO, __file__, 0, "mensagem %s", ("x",), None)
-
-    assert RedactWebhookToken().filter(record) is True
-    assert record.getMessage() == "mensagem x"

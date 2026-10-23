@@ -1,12 +1,8 @@
 """Configuração da Company no painel: edição restrita ao dono, campos validados e Agent da Company."""
 
-from decimal import Decimal
-
 import pytest
-from pydantic import ValidationError
 
 from app.models import Agent, BusinessType, Company
-from app.schemas.company import CompanyUpdate
 from tests.access_helpers import make_company, make_user
 
 HOURS = {
@@ -276,12 +272,6 @@ def test_common_phone_formats_are_accepted(client, db, world, phone):
 def test_minimum_order_accepts_zero_up_to_the_ceiling(client, db, world, value):
     assert put(client, world["mine"], world["owner"], minimum_order=value).status_code == 200
     assert float(stored(db, world["mine"]).minimum_order) == float(value)
-
-
-@pytest.mark.parametrize("value", [Decimal("NaN"), Decimal("Infinity"), Decimal("-Infinity")])
-def test_minimum_order_rejects_non_finite_values(value):
-    with pytest.raises(ValidationError):
-        CompanyUpdate(minimum_order=value)
 
 
 # ---------- Agent da Company ----------

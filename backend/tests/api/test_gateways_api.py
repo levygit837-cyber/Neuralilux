@@ -231,16 +231,6 @@ def test_changing_base_url_with_explicit_empty_api_key_erases_the_saved_key(clie
     assert response.status_code == 200 and response.json()["has_api_key"] is False
 
 
-def test_patching_same_base_url_keeps_saved_api_key_without_resending_it(client, auth_headers):
-    gateway_id = _create_gateway(client, auth_headers).json()["id"]
-
-    response = client.patch(
-        f"{BASE}/{gateway_id}", json={"base_url": "http://localhost:5580/v1/", "timeout_seconds": 30}, headers=auth_headers
-    )
-
-    assert response.status_code == 200 and response.json()["has_api_key"] is True
-
-
 # --- probe e listagem de modelos usam o protocolo Messages ------------------- #
 
 @pytest.fixture

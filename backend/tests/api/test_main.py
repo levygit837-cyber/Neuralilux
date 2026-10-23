@@ -9,4 +9,4 @@ def test_root(client):
     """Test root endpoint"""
     response = client.get("/")
     assert response.status_code == 200
-    assert "Neuralilux API" in response.json()["message"]
+    assert response.json()["version"]

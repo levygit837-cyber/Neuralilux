@@ -75,11 +75,6 @@ def test_marking_the_same_refund_twice_is_idempotent(client, world):
     assert world["db"].get(PaymentRecord, world["a"].id).refunded_at == stamp  # a segunda chamada não regrava
 
 
-def test_already_refunded_record_still_answers_200(client, world):
-    response = client.post(f"/api/v1/orders/refunds/{world['a_done'].id}/refunded", headers=world["alice"])
-    assert response.status_code == 200 and response.json()["refund_status"] == "refunded"
-
-
 def test_unpaid_pix_can_be_dismissed_after_checking_the_bank(client, world):
     url = f"/api/v1/orders/refunds/{world['a_verify'].id}/dismissed"
     assert client.post(url, headers=world["alice"]).json()["refund_status"] == "dismissed"

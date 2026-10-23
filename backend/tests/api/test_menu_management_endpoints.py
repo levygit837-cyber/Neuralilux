@@ -201,42 +201,6 @@ def test_editing_imported_catalog_marks_it_manual_and_delete_category_removes_it
     assert db.query(MenuItem).filter(MenuItem.id == item_id).count() == 0
 
 
-def test_create_item_with_sku_and_stock(client, db):
-    """Test creating item with SKU and stock quantity fields."""
-    _, headers = _auth_headers_for_company(client, db)
-
-    category_response = client.post(
-        "/api/v1/menu/categories",
-        headers=headers,
-        json={"name": "Bebidas"},
-    )
-    assert category_response.status_code == 201
-    category_id = category_response.json()["id"]
-
-    create_response = client.post(
-        "/api/v1/menu/items",
-        headers=headers,
-        json={
-            "category_id": category_id,
-            "name": "Coca-Cola",
-            "description": "Refrigerante 350ml",
-            "price": "5.00",
-            "is_available": True,
-            "sku": "COCA-001",
-            "stock_quantity": 50,
-        },
-    )
-
-    assert create_response.status_code == 201
-    payload = create_response.json()
-    assert payload["sku"] == "COCA-001"
-    assert payload["stock_quantity"] == 50
-
-    item = db.query(MenuItem).filter(MenuItem.id == payload["id"]).one()
-    assert item.sku == "COCA-001"
-    assert item.stock_quantity == 50
-
-
 def test_duplicate_sku_rejected(client, db):
     """Test that duplicate SKUs are rejected."""
     _, headers = _auth_headers_for_company(client, db)

@@ -29,7 +29,7 @@ Contagem por linha de tabela (uma linha por função; parametrizado conta uma ve
 
 | Área | Arquivos | Funções | `keep` | `redundant` | `stub` | `wiring` | `wording` | `extreme` | `dead-e2e` |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| api / core / models | 21 | 214 | 191 | 13 | 0 | 9 | 1 | 0 | 0 |
+| api / core / models | 19 | 195 | 193 | 1 | 0 | 0 | 1 | 0 | 0 |
 | whatsapp / realtime (após #54) | 21 | 152 | 152 | 0 | 0 | 0 | 0 | 0 | 0 |
 | agent / packs / handoff / llm / scripts | 28 | 348 | 323 | 14 | 0 | 2 | 9 | 0 | 0 |
 | **Total** | 70 | 745 | **665** | **37** | **13** | **17** | **13** | **0** | **0** |
@@ -90,29 +90,31 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 
 | Arquivo | Teste | Categoria | Motivo / equivalente |
 |---|---|---|---|
-| `api/test_company_session_timeout.py` | `test_company_session_timeout_can_be_changed` | `redundant` | Mesmo `update_company` e mesma releitura de `session_timeout_minutes`: `tests/api/test_company_settings.py::test_owner_saves_every_company_field_and_reloads_them` (envia 90 e confere no GET). |
-| `api/test_company_session_timeout.py` | `test_company_timezone_can_be_changed_to_a_valid_zone` | `redundant` | Mesmo `update_company` com `timezone="America/Fortaleza"`: `tests/api/test_company_settings.py::test_owner_saves_every_company_field_and_reloads_them`. |
-| `api/test_company_session_timeout.py` | `test_session_timeout_must_be_positive (×2 casos)` | `redundant` | Mesma validação `ge=1` do schema: `tests/api/test_company_settings.py::test_invalid_values_are_422_and_nothing_is_saved` (caso `session_timeout_minutes: 0`); `-5` é o mesmo ramo. |
-| `api/test_company_settings.py` | `test_minimum_order_rejects_non_finite_values (×3 casos)` | `redundant` | Mesma recusa de NaN/Infinity/-Infinity (`allow_inf_nan=False`): `tests/api/test_company_settings.py::test_invalid_values_are_422_and_nothing_is_saved` (casos `"NaN"`, `"Infinity"`, `"-Infinity"`). |
-| `api/test_conversations_human_in_loop.py` | `test_list_reflects_human_in_loop_flag` | `redundant` | Mesma asserção de `human_in_loop` True/False na listagem: `tests/handoff/test_handoff_api.py::test_state_survives_reload_through_the_listing`. |
-| `api/test_conversations_human_in_loop.py` | `test_release_control_clears_flag_in_list` | `redundant` | Liberar e ver `human_in_loop` False na listagem já está em `tests/handoff/test_handoff_api.py::test_state_survives_reload_through_the_listing`. |
-| `api/test_gateways_api.py` | `test_patching_same_base_url_keeps_saved_api_key_without_resending_it` | `redundant` | Mesmo ramo (origem igual, sem `api_key` no corpo): `tests/api/test_gateways_api.py::test_changing_only_the_path_keeps_saved_api_key_without_resending_it`. |
-| `api/test_gateways_api.py` | `test_remote_models_other_errors_are_bad_gateway` | `redundant` | Mesmo mapeamento de erro do Gateway para 502: `tests/api/test_gateways_api.py::test_remote_models_uses_single_attempt_and_15s_timeout` (429 dá 502). |
-| `api/test_instance_agent_status.py` | `test_patch_agent_status_updates_flag_of_existing_instance` | `wiring` | Envia `agent_enabled: False` a uma Instance que já está False e confere False; só ecoa, sem transição. |
-| `api/test_instances_access.py` | `test_agent_binding_unbind_survives_later_requests` | `redundant` | Mesmo unbind com `agent_id` None e `agent_enabled` False: `tests/api/test_instance_agent_status.py::test_patch_agent_binding_unbinds_agent_and_disables_auto_reply`. |
-| `api/test_main.py` | `test_root` | `wording` | Fixa o texto literal `"Neuralilux API"` da mensagem da raiz; nada além de 200 é contrato |
-| `api/test_menu_management_endpoints.py` | `test_create_item_with_sku_and_stock` | `redundant` | POST de item com `sku`/`stock_quantity` e mesmas asserções já feitos em `tests/api/test_menu_management_endpoints.py::test_create_and_update_item_with_custom_attributes` (criação) e `::test_list_menu_includes_sku_and_stock` |
-| `api/test_order_refunds.py` | `test_already_refunded_record_still_answers_200` | `redundant` | Baixar registro já `refunded` e receber 200/`refunded` é a 2ª chamada de `tests/api/test_order_refunds.py::test_marking_the_same_refund_twice_is_idempotent` |
-| `api/test_order_status.py` | `test_panel_lists_newest_first_and_honours_limit` | `redundant` | Ordem `A-4, A-3` e `limit` já cobertos por `tests/api/test_order_status.py::test_offset_and_limit_page_through_the_filtered_list_with_the_total` e `::test_status_filter_splits_active_from_finished_and_all_lists_everything` |
-| `core/test_access_log_redaction.py` | `test_records_with_unexpected_args_pass_through` | `redundant` | Apesar do nome, usa tupla de `str` sem `token=` (não exercita args não-tuple/não-str); mesmo caminho e asserção de `tests/core/test_access_log_redaction.py::test_other_paths_are_left_untouched`. |
-| `models/test_payment_record_model.py` | `TestPaymentRecordModel::test_create_payment_record` | `wiring` | Só relê os campos que acabou de gravar (`amount == 100.00`, `pix_key`, `status == "pending"`); nenhuma regra/constraint/default de negócio, e o caminho é exercido por `tests/packs/test_pack_pix.py`. |
-| `models/test_payment_record_model.py` | `TestPaymentRecordModel::test_payment_record_expired_status` | `wiring` | `assert payment.status == "expired"` ecoa o valor gravado; não testa transição nem o índice único. |
-| `models/test_payment_record_model.py` | `TestPaymentRecordModel::test_payment_record_paid_status` | `wiring` | `assert payment.status == "paid"` e `paid_at is not None` apenas ecoam o que foi passado ao construtor. |
-| `models/test_payment_record_model.py` | `TestPaymentRecordModel::test_payment_record_relationships` | `wiring` | Só confere `payment.order.id == order.id` / `payment.conversation.id`; esses relationships não são usados em `app/`. |
-| `models/test_ticket_model.py` | `TestTicketModel::test_create_ticket` | `wiring` | Copia 8 campos e relê (`agent_type == "sac"`, `status == "open"`); sem regra de negócio, Ticket já é exercido em `tests/handoff/*`. |
-| `models/test_ticket_model.py` | `TestTicketModel::test_ticket_relationships` | `wiring` | Só confere `ticket.conversation.id == conversation.id` (e instance/contact); mapeamento ORM sem comportamento. |
-| `models/test_ticket_model.py` | `TestTicketModel::test_ticket_sales_agent_type` | `wiring` | `assert ticket.agent_type == "sales"` ecoa o valor passado ao construtor. |
-| `models/test_ticket_model.py` | `TestTicketModel::test_ticket_with_assigned_user` | `wiring` | `ticket.assigned_to == user.id` e `status == "in_progress"` apenas ecoam a entrada. |
+| `api/test_company_session_timeout.py` | `test_company_session_timeout_can_be_changed` | `redundant` | Mesmo `update_company` e mesma releitura de `session_timeout_minutes`: `tests/api/test_company_settings.py::test_owner_saves_every_company_field_and_reloads_them` (envia 90 e confere no GET).  **Removido na #53.**|
+| `api/test_company_session_timeout.py` | `test_company_timezone_can_be_changed_to_a_valid_zone` | `redundant` | Mesmo `update_company` com `timezone="America/Fortaleza"`: `tests/api/test_company_settings.py::test_owner_saves_every_company_field_and_reloads_them`.  **Removido na #53.**|
+| `api/test_company_session_timeout.py` | `test_session_timeout_must_be_positive (×2 casos)` | `redundant` | Mesma validação `ge=1` do schema: `tests/api/test_company_settings.py::test_invalid_values_are_422_and_nothing_is_saved` (caso `session_timeout_minutes: 0`); `-5` é o mesmo ramo.  **Removido na #53.**|
+| `api/test_company_settings.py` | `test_minimum_order_rejects_non_finite_values (×3 casos)` | `redundant` | Mesma recusa de NaN/Infinity/-Infinity (`allow_inf_nan=False`): `tests/api/test_company_settings.py::test_invalid_values_are_422_and_nothing_is_saved` (casos `"NaN"`, `"Infinity"`, `"-Infinity"`).  **Removido na #53.**|
+| `api/test_conversations_human_in_loop.py` | `test_list_reflects_human_in_loop_flag` | `redundant` | Mesma asserção de `human_in_loop` True/False na listagem: `tests/handoff/test_handoff_api.py::test_state_survives_reload_through_the_listing`.  **Removido na #53.**|
+| `api/test_conversations_human_in_loop.py` | `test_release_control_clears_flag_in_list` | `redundant` | Liberar e ver `human_in_loop` False na listagem já está em `tests/handoff/test_handoff_api.py::test_state_survives_reload_through_the_listing`.  **Removido na #53.**|
+| `api/test_gateways_api.py` | `test_patching_same_base_url_keeps_saved_api_key_without_resending_it` | `redundant` | Mesmo ramo (origem igual, sem `api_key` no corpo): `tests/api/test_gateways_api.py::test_changing_only_the_path_keeps_saved_api_key_without_resending_it`.  **Removido na #53.**|
+| `api/test_gateways_api.py` | `test_remote_models_other_errors_are_bad_gateway` | `redundant` | Mesmo mapeamento de erro do Gateway para 502: `tests/api/test_gateways_api.py::test_remote_models_uses_single_attempt_and_15s_timeout` (429 dá 502).  **Mantido na #53:** o equivalente citado cai em `LLMRateLimitError` (429, ramo `except LLMError`); este exercita `LLMProviderError` com 403 (ramo próprio da rota, `exc.status_code != 404`).|
+| `api/test_instance_agent_status.py` | `test_patch_agent_status_updates_flag_of_existing_instance` | `wiring` | Envia `agent_enabled: False` a uma Instance que já está False e confere False; só ecoa, sem transição.  **Removido na #53.**|
+| `api/test_instances_access.py` | `test_agent_binding_unbind_survives_later_requests` | `redundant` | Mesmo unbind com `agent_id` None e `agent_enabled` False: `tests/api/test_instance_agent_status.py::test_patch_agent_binding_unbinds_agent_and_disables_auto_reply`.  **Removido na #53.**|
+| `api/test_main.py` | `test_root` | `wording` | Fixa o texto literal `"Neuralilux API"` da mensagem da raiz; nada além de 200 é contrato  **Mantido na #53:** é o único teste que chama `GET /`; apagá-lo tira a rota `root` de `app/main.py` da cobertura. Fortalecido: a asserção do texto literal virou `version` não vazio.|
+| `api/test_menu_management_endpoints.py` | `test_create_item_with_sku_and_stock` | `redundant` | POST de item com `sku`/`stock_quantity` e mesmas asserções já feitos em `tests/api/test_menu_management_endpoints.py::test_create_and_update_item_with_custom_attributes` (criação) e `::test_list_menu_includes_sku_and_stock`  **Removido na #53.**|
+| `api/test_order_refunds.py` | `test_already_refunded_record_still_answers_200` | `redundant` | Baixar registro já `refunded` e receber 200/`refunded` é a 2ª chamada de `tests/api/test_order_refunds.py::test_marking_the_same_refund_twice_is_idempotent`  **Removido na #53.**|
+| `api/test_order_status.py` | `test_panel_lists_newest_first_and_honours_limit` | `redundant` | Ordem `A-4, A-3` e `limit` já cobertos por `tests/api/test_order_status.py::test_offset_and_limit_page_through_the_filtered_list_with_the_total` e `::test_status_filter_splits_active_from_finished_and_all_lists_everything`  **Removido na #53.**|
+| `core/test_access_log_redaction.py` | `test_records_with_unexpected_args_pass_through` | `redundant` | Apesar do nome, usa tupla de `str` sem `token=` (não exercita args não-tuple/não-str); mesmo caminho e asserção de `tests/core/test_access_log_redaction.py::test_other_paths_are_left_untouched`.  **Removido na #53.**|
+| `models/test_payment_record_model.py` | `TestPaymentRecordModel::test_create_payment_record` | `wiring` | Só relê os campos que acabou de gravar (`amount == 100.00`, `pix_key`, `status == "pending"`); nenhuma regra/constraint/default de negócio, e o caminho é exercido por `tests/packs/test_pack_pix.py`.  **Removido na #53.**|
+| `models/test_payment_record_model.py` | `TestPaymentRecordModel::test_payment_record_expired_status` | `wiring` | `assert payment.status == "expired"` ecoa o valor gravado; não testa transição nem o índice único.  **Removido na #53.**|
+| `models/test_payment_record_model.py` | `TestPaymentRecordModel::test_payment_record_paid_status` | `wiring` | `assert payment.status == "paid"` e `paid_at is not None` apenas ecoam o que foi passado ao construtor.  **Removido na #53.**|
+| `models/test_payment_record_model.py` | `TestPaymentRecordModel::test_payment_record_relationships` | `wiring` | Só confere `payment.order.id == order.id` / `payment.conversation.id`; esses relationships não são usados em `app/`.  **Removido na #53.**|
+| `models/test_ticket_model.py` | `TestTicketModel::test_create_ticket` | `wiring` | Copia 8 campos e relê (`agent_type == "sac"`, `status == "open"`); sem regra de negócio, Ticket já é exercido em `tests/handoff/*`.  **Removido na #53.**|
+| `models/test_ticket_model.py` | `TestTicketModel::test_ticket_relationships` | `wiring` | Só confere `ticket.conversation.id == conversation.id` (e instance/contact); mapeamento ORM sem comportamento.  **Removido na #53.**|
+| `models/test_ticket_model.py` | `TestTicketModel::test_ticket_sales_agent_type` | `wiring` | `assert ticket.agent_type == "sales"` ecoa o valor passado ao construtor.  **Removido na #53.**|
+| `models/test_ticket_model.py` | `TestTicketModel::test_ticket_with_assigned_user` | `wiring` | `ticket.assigned_to == user.id` e `status == "in_progress"` apenas ecoam a entrada.  **Removido na #53.**|
+
+Ticket #53 (área 1): 21 funções removidas, as marcadas **Removido na #53**; os 3 arquivos que ficaram sem teste (`test_conversations_human_in_loop.py`, `test_payment_record_model.py`, `test_ticket_model.py`) foram apagados. Duas ficam, com a razão na própria linha (**Mantido na #53**). `tests/api/test_handoff_event_bus.py` (2 `keep`) é novo: cobre o `publish_event` real de `handoff_service` (antes só exercido pelos testes removidos) e a falha do bus. Os cabeçalhos por arquivo (`N testes: ...`) seguem a contagem da #52; a linha da Área 1 em Totais já reflete o estado pós-#53. A linha **Total** acima não foi recalculada aqui: soma as três áreas depois que as três PRs entrarem.
 
 ### Área 2: whatsapp / realtime
 
@@ -190,11 +192,11 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
-|`test_company_session_timeout_can_be_changed`|`redundant`|Mesmo `update_company` e mesma releitura de `session_timeout_minutes`: `tests/api/test_company_settings.py::test_owner_saves_every_company_field_and_reloads_them` (envia 90 e confere no GET).|
-|`test_session_timeout_must_be_positive (×2 casos)`|`redundant`|Mesma validação `ge=1` do schema: `tests/api/test_company_settings.py::test_invalid_values_are_422_and_nothing_is_saved` (caso `session_timeout_minutes: 0`); `-5` é o mesmo ramo.|
+|`test_company_session_timeout_can_be_changed`|`redundant`|Mesmo `update_company` e mesma releitura de `session_timeout_minutes`: `tests/api/test_company_settings.py::test_owner_saves_every_company_field_and_reloads_them` (envia 90 e confere no GET). **Removido na #53.**|
+|`test_session_timeout_must_be_positive (×2 casos)`|`redundant`|Mesma validação `ge=1` do schema: `tests/api/test_company_settings.py::test_invalid_values_are_422_and_nothing_is_saved` (caso `session_timeout_minutes: 0`); `-5` é o mesmo ramo. **Removido na #53.**|
 |`test_update_rejects_a_timezone_zoneinfo_cannot_load (×4 casos)`|`keep`|Recusa `../x`, vazio e `None` (coluna NOT NULL); o teste de API só cobre `Marte/Olympus`.|
 |`test_create_rejects_a_timezone_zoneinfo_cannot_load (×3 casos)`|`keep`|Fuso inválido na criação (`CompanyCreate`), caminho que nenhum outro teste exercita.|
-|`test_company_timezone_can_be_changed_to_a_valid_zone`|`redundant`|Mesmo `update_company` com `timezone="America/Fortaleza"`: `tests/api/test_company_settings.py::test_owner_saves_every_company_field_and_reloads_them`.|
+|`test_company_timezone_can_be_changed_to_a_valid_zone`|`redundant`|Mesmo `update_company` com `timezone="America/Fortaleza"`: `tests/api/test_company_settings.py::test_owner_saves_every_company_field_and_reloads_them`. **Removido na #53.**|
 
 #### `tests/api/test_company_settings.py`
 28 testes: 27 keep, 1 redundant.
@@ -223,7 +225,7 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_overnight_interval_is_accepted_and_kept_as_typed`|`keep`|Intervalo que cruza meia-noite é aceito sem normalizar.|
 |`test_common_phone_formats_are_accepted (×4 casos)`|`keep`|Formatos comuns de telefone não são recusados.|
 |`test_minimum_order_accepts_zero_up_to_the_ceiling (×3 casos)`|`keep`|Limites 0 e 100000 do pedido mínimo.|
-|`test_minimum_order_rejects_non_finite_values (×3 casos)`|`redundant`|Mesma recusa de NaN/Infinity/-Infinity (`allow_inf_nan=False`): `tests/api/test_company_settings.py::test_invalid_values_are_422_and_nothing_is_saved` (casos `"NaN"`, `"Infinity"`, `"-Infinity"`).|
+|`test_minimum_order_rejects_non_finite_values (×3 casos)`|`redundant`|Mesma recusa de NaN/Infinity/-Infinity (`allow_inf_nan=False`): `tests/api/test_company_settings.py::test_invalid_values_are_422_and_nothing_is_saved` (casos `"NaN"`, `"Infinity"`, `"-Infinity"`). **Removido na #53.**|
 |`test_owner_saves_and_reloads_agent_settings`|`keep`|Salvar e recarregar temperatura e max_tokens do Agent.|
 |`test_agent_temperature_can_go_back_to_the_gateway_default`|`keep`|Temperatura volta a None (usa a do Gateway).|
 |`test_invalid_agent_settings_are_422 (×5 casos)`|`keep`|Limites de temperatura e max_tokens, e null em max_tokens.|
@@ -263,8 +265,8 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
-|`test_list_reflects_human_in_loop_flag`|`redundant`|Mesma asserção de `human_in_loop` True/False na listagem: `tests/handoff/test_handoff_api.py::test_state_survives_reload_through_the_listing`.|
-|`test_release_control_clears_flag_in_list`|`redundant`|Liberar e ver `human_in_loop` False na listagem já está em `tests/handoff/test_handoff_api.py::test_state_survives_reload_through_the_listing`.|
+|`test_list_reflects_human_in_loop_flag`|`redundant`|Mesma asserção de `human_in_loop` True/False na listagem: `tests/handoff/test_handoff_api.py::test_state_survives_reload_through_the_listing`. **Removido na #53.**|
+|`test_release_control_clears_flag_in_list`|`redundant`|Liberar e ver `human_in_loop` False na listagem já está em `tests/handoff/test_handoff_api.py::test_state_survives_reload_through_the_listing`. **Removido na #53.**|
 
 #### `tests/api/test_gateways_api.py`
 31 testes: 29 keep, 2 redundant.
@@ -290,12 +292,12 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_changing_base_url_without_new_api_key_is_rejected`|`keep`|Trocar origem sem reenviar chave dá 422 e não grava.|
 |`test_changing_base_url_with_new_api_key_replaces_both`|`keep`|Nova origem com nova chave troca ambas.|
 |`test_changing_base_url_with_explicit_empty_api_key_erases_the_saved_key`|`keep`|Chave vazia explícita apaga a chave salva.|
-|`test_patching_same_base_url_keeps_saved_api_key_without_resending_it`|`redundant`|Mesmo ramo (origem igual, sem `api_key` no corpo): `tests/api/test_gateways_api.py::test_changing_only_the_path_keeps_saved_api_key_without_resending_it`.|
+|`test_patching_same_base_url_keeps_saved_api_key_without_resending_it`|`redundant`|Mesmo ramo (origem igual, sem `api_key` no corpo): `tests/api/test_gateways_api.py::test_changing_only_the_path_keeps_saved_api_key_without_resending_it`. **Removido na #53.**|
 |`test_model_probe_calls_v1_messages_with_max_tokens_8`|`keep`|Probe usa `/v1/messages`, `max_tokens` 8 e esforço do modelo.|
 |`test_model_probe_reports_gateway_failure_as_not_ok`|`keep`|Falha HTTP 401 vira `ok` False com erro.|
 |`test_remote_models_reads_v1_models`|`keep`|Lista modelos de `/v1/models`.|
 |`test_remote_models_404_falls_back_to_registered_models`|`keep`|404 do Gateway cai nos modelos cadastrados.|
-|`test_remote_models_other_errors_are_bad_gateway`|`redundant`|Mesmo mapeamento de erro do Gateway para 502: `tests/api/test_gateways_api.py::test_remote_models_uses_single_attempt_and_15s_timeout` (429 dá 502).|
+|`test_remote_models_other_errors_are_bad_gateway`|`redundant`|Mesmo mapeamento de erro do Gateway para 502: `tests/api/test_gateways_api.py::test_remote_models_uses_single_attempt_and_15s_timeout` (429 dá 502). **Mantido na #53:** o equivalente citado cai em `LLMRateLimitError` (429, ramo `except LLMError`); este exercita `LLMProviderError` com 403 (ramo próprio da rota, `exc.status_code != 404`).|
 |`test_changing_only_the_path_keeps_saved_api_key_without_resending_it`|`keep`|Mudar só o path não exige reenviar a chave.|
 |`test_changing_scheme_host_or_port_requires_new_api_key (×4 casos)`|`keep`|Esquema, host ou porta diferentes exigem nova chave.|
 |`test_changing_only_host_letter_case_is_the_same_origin`|`keep`|Host em outra caixa é a mesma origem.|
@@ -303,13 +305,21 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_model_probe_uses_single_attempt_and_15s_timeout`|`keep`|Probe sem retry (1 requisição) com timeout curto.|
 |`test_remote_models_uses_single_attempt_and_15s_timeout`|`keep`|Listagem remota sem retry; 429 dá 502.|
 
+#### `tests/api/test_handoff_event_bus.py`
+Arquivo novo da #53. 2 testes: 2 keep.
+
+| Teste | Categoria | Motivo / equivalente |
+|---|---|---|
+|`test_take_and_release_publish_handoff_updated_on_the_event_bus`|`keep`|Assumir e devolver anunciam `handoff_updated` (`assumed`, `released`) no `realtime_event_bus` de verdade, sem o fixture que troca `publish_event`.|
+|`test_event_bus_failure_does_not_undo_the_release`|`keep`|Bus fora do ar não desfaz a devolução: API responde 200 e a Conversation volta ao Agent.|
+
 #### `tests/api/test_instance_agent_status.py`
 6 testes: 5 keep, 1 wiring.
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
 |`test_get_agent_status_returns_the_owners_instance_without_writing`|`keep`|Payload do status do Agent da Instance.|
-|`test_patch_agent_status_updates_flag_of_existing_instance`|`wiring`|Envia `agent_enabled: False` a uma Instance que já está False e confere False; só ecoa, sem transição.|
+|`test_patch_agent_status_updates_flag_of_existing_instance`|`wiring`|Envia `agent_enabled: False` a uma Instance que já está False e confere False; só ecoa, sem transição. **Removido na #53.**|
 |`test_patch_agent_status_requires_bound_agent_to_enable`|`keep`|Ligar sem Agent vinculado dá 400.|
 |`test_patch_agent_binding_assigns_agent_and_allows_enabling`|`keep`|Vincular Agent e depois ligar o auto-reply.|
 |`test_patch_agent_binding_unbinds_agent_and_disables_auto_reply`|`keep`|Desvincular Agent desliga o auto-reply.|
@@ -351,7 +361,7 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_owner_logout_disconnects_in_evolution`|`keep`|Logout desconecta na Evolution.|
 |`test_delete_when_evolution_no_longer_has_it_still_deactivates_locally`|`keep`|Evolution 404 no delete ainda desativa local.|
 |`test_delete_with_an_evolution_failure_keeps_the_local_instance`|`keep`|Falha 500 da Evolution mantém a Instance ativa.|
-|`test_agent_binding_unbind_survives_later_requests`|`redundant`|Mesmo unbind com `agent_id` None e `agent_enabled` False: `tests/api/test_instance_agent_status.py::test_patch_agent_binding_unbinds_agent_and_disables_auto_reply`.|
+|`test_agent_binding_unbind_survives_later_requests`|`redundant`|Mesmo unbind com `agent_id` None e `agent_enabled` False: `tests/api/test_instance_agent_status.py::test_patch_agent_binding_unbinds_agent_and_disables_auto_reply`. **Removido na #53.**|
 |`test_socket_subscription_follows_the_owner_rule`|`keep`|Regra de dono também vale na assinatura Socket.IO.|
 
 #### `tests/api/test_main.py`
@@ -360,7 +370,7 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
 |`test_health_check`|`keep`|Probe de saúde responde 200 e healthy|
-|`test_root`|`wording`|Fixa o texto literal `"Neuralilux API"` da mensagem da raiz; nada além de 200 é contrato|
+|`test_root`|`wording`|Fixa o texto literal `"Neuralilux API"` da mensagem da raiz; nada além de 200 é contrato **Mantido na #53:** é o único teste que chama `GET /`; apagá-lo tira a rota `root` de `app/main.py` da cobertura. Fortalecido: a asserção do texto literal virou `version` não vazio.|
 
 #### `tests/api/test_menu_inventory.py`
 6 testes: 6 keep (serviço sem chamador em `app/` fora do próprio módulo, mas cada teste cobre uma regra real da função).
@@ -383,7 +393,7 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_create_category_for_active_catalog`|`keep`|Categoria nasce no catálogo ativo da Company|
 |`test_create_and_update_item_with_custom_attributes`|`keep`|Criação e PATCH persistem sku, estoque e atributos|
 |`test_editing_imported_catalog_marks_it_manual_and_delete_category_removes_items`|`keep`|Editar catálogo importado vira manual; delete remove itens|
-|`test_create_item_with_sku_and_stock`|`redundant`|POST de item com `sku`/`stock_quantity` e mesmas asserções já feitos em `tests/api/test_menu_management_endpoints.py::test_create_and_update_item_with_custom_attributes` (criação) e `::test_list_menu_includes_sku_and_stock`|
+|`test_create_item_with_sku_and_stock`|`redundant`|POST de item com `sku`/`stock_quantity` e mesmas asserções já feitos em `tests/api/test_menu_management_endpoints.py::test_create_and_update_item_with_custom_attributes` (criação) e `::test_list_menu_includes_sku_and_stock` **Removido na #53.**|
 |`test_duplicate_sku_rejected`|`keep`|SKU duplicado na criação responde 409|
 |`test_update_sku_with_uniqueness_validation`|`keep`|PATCH para SKU já usado responde 409|
 |`test_stock_quantity_validation_on_delete`|`keep`|Categoria com item em estoque não pode ser apagada (400)|
@@ -397,7 +407,7 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_company_sees_only_its_own_open_refunds`|`keep`|Lista só estornos abertos da própria Company|
 |`test_marking_a_refund_as_done_removes_it_from_the_pending_list`|`keep`|Baixa grava refunded_at e some da lista|
 |`test_marking_the_same_refund_twice_is_idempotent`|`keep`|Segunda baixa não regrava refunded_at|
-|`test_already_refunded_record_still_answers_200`|`redundant`|Baixar registro já `refunded` e receber 200/`refunded` é a 2ª chamada de `tests/api/test_order_refunds.py::test_marking_the_same_refund_twice_is_idempotent`|
+|`test_already_refunded_record_still_answers_200`|`redundant`|Baixar registro já `refunded` e receber 200/`refunded` é a 2ª chamada de `tests/api/test_order_refunds.py::test_marking_the_same_refund_twice_is_idempotent` **Removido na #53.**|
 |`test_unpaid_pix_can_be_dismissed_after_checking_the_bank`|`keep`|Pix `verify` pode ser descartado, idempotente|
 |`test_contradicting_a_closed_refund_is_409_and_keeps_the_state`|`keep`|Descartar estorno já pago dá 409 sem mudar estado|
 |`test_refunds_require_a_token`|`keep`|Sem token: 401 em todas as rotas, estado intacto|
@@ -412,7 +422,7 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_panel_lists_only_active_confirmed_orders_by_default`|`keep`|Filtro padrão exclui entregue, cancelado, montagem, abandonado|
 |`test_panel_row_carries_what_the_company_needs_to_act`|`keep`|Linha traz itens, total e transições permitidas por status|
 |`test_order_being_altered_is_shown_as_such_and_cannot_be_moved`|`keep`|Pedido em alteração sinalizado e sem transições|
-|`test_panel_lists_newest_first_and_honours_limit`|`redundant`|Ordem `A-4, A-3` e `limit` já cobertos por `tests/api/test_order_status.py::test_offset_and_limit_page_through_the_filtered_list_with_the_total` e `::test_status_filter_splits_active_from_finished_and_all_lists_everything`|
+|`test_panel_lists_newest_first_and_honours_limit`|`redundant`|Ordem `A-4, A-3` e `limit` já cobertos por `tests/api/test_order_status.py::test_offset_and_limit_page_through_the_filtered_list_with_the_total` e `::test_status_filter_splits_active_from_finished_and_all_lists_everything` **Removido na #53.**|
 |`test_panel_flags_orders_with_a_pix_to_refund`|`keep`|Pedido com Pix a estornar expõe refund_status pending|
 |`test_status_filter_splits_active_from_finished_and_all_lists_everything`|`keep`|Filtros active/done/all com ordem e total exatos|
 |`test_unknown_status_filter_is_422`|`keep`|Filtro de status inválido é rejeitado com 422|
@@ -491,7 +501,7 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |---|---|---|
 |`test_token_value_is_masked_in_the_webhook_path`|`keep`|Token do webhook nunca vaza no access log; preserva `x=1`.|
 |`test_other_paths_are_left_untouched`|`keep`|Fronteira: `token_type=` não é mascarado.|
-|`test_records_with_unexpected_args_pass_through`|`redundant`|Apesar do nome, usa tupla de `str` sem `token=` (não exercita args não-tuple/não-str); mesmo caminho e asserção de `tests/core/test_access_log_redaction.py::test_other_paths_are_left_untouched`.|
+|`test_records_with_unexpected_args_pass_through`|`redundant`|Apesar do nome, usa tupla de `str` sem `token=` (não exercita args não-tuple/não-str); mesmo caminho e asserção de `tests/core/test_access_log_redaction.py::test_other_paths_are_left_untouched`. **Removido na #53.**|
 
 #### `tests/core/test_config_secret_key.py`
 6 testes: 6 keep.
@@ -510,20 +520,20 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
-|`TestPaymentRecordModel::test_create_payment_record`|`wiring`|Só relê os campos que acabou de gravar (`amount == 100.00`, `pix_key`, `status == "pending"`); nenhuma regra/constraint/default de negócio, e o caminho é exercido por `tests/packs/test_pack_pix.py`.|
-|`TestPaymentRecordModel::test_payment_record_paid_status`|`wiring`|`assert payment.status == "paid"` e `paid_at is not None` apenas ecoam o que foi passado ao construtor.|
-|`TestPaymentRecordModel::test_payment_record_relationships`|`wiring`|Só confere `payment.order.id == order.id` / `payment.conversation.id`; esses relationships não são usados em `app/`.|
-|`TestPaymentRecordModel::test_payment_record_expired_status`|`wiring`|`assert payment.status == "expired"` ecoa o valor gravado; não testa transição nem o índice único.|
+|`TestPaymentRecordModel::test_create_payment_record`|`wiring`|Só relê os campos que acabou de gravar (`amount == 100.00`, `pix_key`, `status == "pending"`); nenhuma regra/constraint/default de negócio, e o caminho é exercido por `tests/packs/test_pack_pix.py`. **Removido na #53.**|
+|`TestPaymentRecordModel::test_payment_record_paid_status`|`wiring`|`assert payment.status == "paid"` e `paid_at is not None` apenas ecoam o que foi passado ao construtor. **Removido na #53.**|
+|`TestPaymentRecordModel::test_payment_record_relationships`|`wiring`|Só confere `payment.order.id == order.id` / `payment.conversation.id`; esses relationships não são usados em `app/`. **Removido na #53.**|
+|`TestPaymentRecordModel::test_payment_record_expired_status`|`wiring`|`assert payment.status == "expired"` ecoa o valor gravado; não testa transição nem o índice único. **Removido na #53.**|
 
 #### `tests/models/test_ticket_model.py`
 4 testes: 4 wiring.
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
-|`TestTicketModel::test_create_ticket`|`wiring`|Copia 8 campos e relê (`agent_type == "sac"`, `status == "open"`); sem regra de negócio, Ticket já é exercido em `tests/handoff/*`.|
-|`TestTicketModel::test_ticket_with_assigned_user`|`wiring`|`ticket.assigned_to == user.id` e `status == "in_progress"` apenas ecoam a entrada.|
-|`TestTicketModel::test_ticket_sales_agent_type`|`wiring`|`assert ticket.agent_type == "sales"` ecoa o valor passado ao construtor.|
-|`TestTicketModel::test_ticket_relationships`|`wiring`|Só confere `ticket.conversation.id == conversation.id` (e instance/contact); mapeamento ORM sem comportamento.|
+|`TestTicketModel::test_create_ticket`|`wiring`|Copia 8 campos e relê (`agent_type == "sac"`, `status == "open"`); sem regra de negócio, Ticket já é exercido em `tests/handoff/*`. **Removido na #53.**|
+|`TestTicketModel::test_ticket_with_assigned_user`|`wiring`|`ticket.assigned_to == user.id` e `status == "in_progress"` apenas ecoam a entrada. **Removido na #53.**|
+|`TestTicketModel::test_ticket_sales_agent_type`|`wiring`|`assert ticket.agent_type == "sales"` ecoa o valor passado ao construtor. **Removido na #53.**|
+|`TestTicketModel::test_ticket_relationships`|`wiring`|Só confere `ticket.conversation.id == conversation.id` (e instance/contact); mapeamento ORM sem comportamento. **Removido na #53.**|
 
 ### Área 2: whatsapp / realtime
 
