@@ -275,7 +275,7 @@ Com `WEBHOOK_GLOBAL_WEBHOOK_BY_EVENTS=false` o nome vem em `event` e a URL não 
 | Evento | `data` | Consumer (`consumer.process_webhook_event`) |
 |---|---|---|
 | `messages.upsert` | um record como no `findMessages`, sem `MessageUpdate` (`key`, `pushName`, `message`, `messageType`, `messageTimestamp`, `source`, `instanceId`) | `_save_message_to_database` |
-| `messages.update` | **plano**: `{ messageId, keyId, remoteJid, fromMe, participant, status, instanceId }` (`status` ∈ `SERVER_ACK`, `DELIVERY_ACK`, `READ`) | `update_message_status` (veja divergência abaixo) |
+| `messages.update` | **plano**: `{ messageId, keyId, remoteJid, fromMe, participant, status, instanceId }` (`status` ∈ `SERVER_ACK`, `DELIVERY_ACK`, `READ`); `keyId` é o `Message.message_id` | `update_message_status` |
 | `connection.update` | `{ instance, state, statusReason, wuid, profileName, profilePictureUrl }` | `update_connection_status`; `state: "open"` dispara a importação de histórico |
 | `qrcode.updated` | QR code e contador | `publish_qr_code_update` |
 | `messages.set`, `chats.set`, `contacts.set` | histórico em lote | importação de histórico (`HISTORY_EVENTS`) |
@@ -300,7 +300,3 @@ O websocket (`evolution_realtime.py`) só encaminha 4 eventos (`messages.upsert`
 ## Nome de exibição
 
 A ordem usada em `history_sync` é assunto do grupo, `pushName` de Message recebida, `findContacts`, `findChats`. Motivo medido: `findChats.pushName` vem vazio em 8 de 12 chats e `findContacts.pushName` em 10 de 2020, mas `pushName` dentro das Messages recebidas existe em 100% dos records. Em grupo, o `pushName` do record é o do autor, não o do grupo; em `fromMe` é o do nosso número.
-
-## Divergências com o código
-
-- **`messages.update`**: o payload real é plano (`keyId`, `messageId`), mas `status_events.update_message_status` lê `data.key.id`. Com o payload real o `message_id` fica `None` e o status nunca é atualizado. O teste `test_update_message_status_normalizes_and_publishes_realtime_event` usa um payload com `key.id` que a Evolution não emite. Issue #63.

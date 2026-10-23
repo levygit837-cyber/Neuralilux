@@ -85,10 +85,10 @@ def find_instance(db: Session, instance_name: str) -> Optional[Instance]:
 
 
 async def update_message_status(db: Session, data: Dict[str, Any]) -> None:
-    """Update message status in database"""
+    """Grava o status da Message e avisa a UI. A Evolution manda `messages.update` plano: o id é `keyId`."""
     try:
         message_payload = unwrap_event_payload(data)
-        message_id = message_payload.get("key", {}).get("id")
+        message_id = message_payload.get("keyId")
         status = normalize_message_status(message_payload.get("status"))
         instance_name = data.get("instance")
 
