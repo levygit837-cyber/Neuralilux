@@ -7,9 +7,11 @@ pytest-cov==7.1.0
 pytest-mock==3.16.0
 pytest-xdist==3.8.0
 respx==0.23.1
+httpx2==2.13.1
 
 # Development
 black==26.10.1
 isort==9.0.2
 flake8==7.4.1
+ruff==0.17.2
 mypy==2.4.0

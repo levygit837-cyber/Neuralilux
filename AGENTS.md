@@ -21,6 +21,7 @@ Agente de atendimento por WhatsApp com IA (FastAPI + Next.js + Evolution API). V
 - Re-criptografar chaves de Gateway (HKDF): `cd backend && ./venv/bin/python scripts/reencrypt_gateway_secrets.py`. Passo único obrigatório ao atualizar um banco existente, antes de subir a app; idempotente.
 - Criar/promover superusuário (só superuser edita Gateways): `cd backend && SUPERUSER_EMAIL=... SUPERUSER_PASSWORD=... ./venv/bin/python scripts/create_superuser.py`. Em dev, `SEED_DEV_SUPERUSER=1` no `seed_data.py` promove o usuário de teste.
 - Frontend: `cd frontend && npx eslint . && npx tsc --noEmit && npx next build`
+- CI (`.github/workflows/backend.yml` e `frontend.yml`, em todo PR para `main`, sem segredos): o frontend roda o comando acima; o backend roda a suíte, `ruff check --select F app`, `alembic heads` com uma só head e o limite de 400 linhas. Local equivalente: `cd backend && ./venv/bin/ruff check --select F app && DATABASE_URL=sqlite:///./ci.db ./venv/bin/alembic heads; rm -f ci.db; ./venv/bin/python scripts/check_max_lines.py` (`alembic heads` deve listar uma única `(head)`).
 - Instalar deps Python: `PIP_CONFIG_FILE=/dev/null ./venv/bin/pip install --index-url https://pypi.org/simple -r requirements-dev.txt` (`requirements.txt` é só runtime, o que vai para a imagem; `requirements-dev.txt` inclui ele mais pytest, lint e tipos).
 
 ## Regras
