@@ -361,6 +361,66 @@ async def test_prompt_da_primeira_mensagem_nao_inventa_mensagem_anterior(turn_se
     assert "mensagem anterior" not in system
 
 
+async def _prompt_with_hours(turn_setup, agent, monkeypatch, hours):
+    db, conversation, _contact, instance = turn_setup
+    _at(db, conversation, "oi", "incoming", NOW)
+    db.get(Company, instance.company_id).business_hours = hours
+    db.commit()
+    return await _prompt(turn_setup, agent, monkeypatch)
+
+
+@pytest.mark.asyncio
+async def test_turn_com_company_fechada_traz_a_proxima_abertura_e_se_cai_antes_do_fim_da_session(
+    turn_setup, agent, monkeypatch
+):
+    # Quinta, 20:30 em Fortaleza; a Session expira em 3 h sem mensagens (padrão).
+    amanha = await _prompt_with_hours(turn_setup, agent, monkeypatch, {"thu": [["11:00", "18:00"]], "fri": [["11:00", "18:00"]]})
+    assert "fechada agora e abre amanhã às 11:00" in amanha
+    assert "a abertura cai depois desse prazo" in amanha
+
+    agent["client"].requests.clear()
+    db, _conversation, _contact, instance = turn_setup
+    db.get(Company, instance.company_id).business_hours = {"thu": [["21:00", "23:00"]]}
+    db.commit()
+    logo = await _prompt(turn_setup, agent, monkeypatch)
+    assert "fechada agora e abre hoje às 21:00" in logo
+    assert "a abertura cai antes desse prazo" in logo
+
+
+@pytest.mark.asyncio
+async def test_turn_com_company_aberta_diz_que_esta_aberta(turn_setup, agent, monkeypatch):
+    block = await _prompt_with_hours(turn_setup, agent, monkeypatch, {"thu": [["11:00", "23:00"]]})
+
+    assert "aberta agora" in block
+    assert "fechada" not in block
+
+
+@pytest.mark.asyncio
+async def test_turn_sem_horarios_cadastrados_nao_diz_nada_sobre_abertura(turn_setup, agent, monkeypatch):
+    block = await _prompt_with_hours(turn_setup, agent, monkeypatch, None)
+
+    assert "aberta" not in block and "fechada" not in block
+
+
+@pytest.mark.asyncio
+async def test_estado_aberto_fechado_fica_fora_do_system(turn_setup, agent, monkeypatch):
+    db, conversation, _contact, instance = turn_setup
+    monkeypatch.setattr(executor, "utc_now", lambda: NOW)
+    company = db.get(Company, instance.company_id)
+    company.business_hours = {"thu": [["11:00", "18:00"]]}
+    db.commit()
+    closed = await _turn(turn_setup, agent, "oi", minutes_ago=0)
+
+    company.business_hours = {"thu": [["11:00", "23:00"]]}
+    db.commit()
+    open_ = await _turn(turn_setup, agent, "quero pizza")
+
+    assert "fechada" in closed.messages[-1]["content"] and "aberta agora" in open_.messages[-1]["content"]
+    assert closed.system == open_.system
+    # As frases do estado (`clock.opening_notice`), não as palavras soltas: o prompt cita "aberta" nas regras.
+    assert "está aberta agora" not in open_.system and "está fechada agora" not in closed.system
+
+
 async def _turn(turn_setup, agent, text_in, minutes_ago=0):
     db, conversation, contact, instance = turn_setup
     newest = _message(db, conversation, text_in, "incoming", minutes_ago)

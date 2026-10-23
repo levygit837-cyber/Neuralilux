@@ -7,7 +7,9 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import structlog
 
+from app.agent.business_hours import describe_opening, is_open_at, next_opening
 from app.models import Company
+from app.models.company import DEFAULT_SESSION_TIMEOUT_MINUTES
 
 logger = structlog.get_logger()
 
@@ -66,3 +68,28 @@ def time_context(
             )
     lines.append('Use essa data e hora para saudação ("bom dia", "boa noite") e para "hoje", "ontem" e "amanhã".')
     return "\n".join(lines)
+
+
+def opening_notice(company: Company, now: datetime) -> str:
+    """Estado aberto/fechado da Company para o bloco do Turn; vazio se não há horários cadastrados.
+
+    Usa as mesmas funções de `finalizar` e `info_empresa` (`is_open_at`, `next_opening`). Fechada, diz também se a
+    abertura cai antes de a Session atual acabar por inatividade (ADR 0007): o ramo decide o que isso significa.
+    """
+    local_now = as_utc(now).astimezone(company_zone(company))
+    is_open = is_open_at(company.business_hours, local_now)
+    if is_open is None:
+        return ""
+    if is_open:
+        return "A empresa está aberta agora."
+    opening = next_opening(company.business_hours, local_now)
+    if opening is None:
+        return "A empresa está fechada agora e não tem próxima abertura cadastrada."
+    timeout = timedelta(minutes=company.session_timeout_minutes or DEFAULT_SESSION_TIMEOUT_MINUTES)
+    wait = opening - local_now
+    verdict = "antes" if wait <= timeout else "depois"
+    return (
+        f"A empresa está fechada agora e abre {describe_opening(opening, local_now)} (daqui a {humanize_elapsed(wait)}). "
+        f"O atendimento atual se encerra após {humanize_elapsed(timeout)} sem mensagens: "
+        f"a abertura cai {verdict} desse prazo."
+    )

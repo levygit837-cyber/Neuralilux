@@ -15,7 +15,7 @@ from datetime import datetime
 import structlog
 from sqlalchemy.orm import Session
 
-from app.agent.clock import time_context, utc_now
+from app.agent.clock import opening_notice, time_context, utc_now
 from app.agent.contracts import DEFAULT_MAX_TOKENS, ChatMessage, Pack, Tool, ToolContext
 from app.agent.delivery import notify_reply_delivered
 from app.agent.core_tools import core_tools
@@ -115,7 +115,9 @@ async def handle_incoming(
         now = utc_now()
         when = time_context(company, now, previous_message_at(db, conversation.id, message_ids, deferred_ids), conversation.session_started_at)
         system = build_system_prompt(company_name=company.name, packs=packs, ctx=ctx)
-        block = build_turn_context(time_context=when, packs=packs, ctx=ctx, summary=summary)
+        block = build_turn_context(
+            time_context=when, opening=opening_notice(company, now), packs=packs, ctx=ctx, summary=summary
+        )
         history = attach_turn_context(history, block)
         agent = company_agent(db, company.id)
         result = await run_turn(
