@@ -55,7 +55,7 @@ Banco existente com Gateways gravados antes do HKDF: rode `python scripts/reencr
 ## Testes
 
 ```bash
-rm -f test.db && env -u DATABASE_URL ./venv/bin/python -m pytest tests --ignore=tests/e2e; rm -f test.db
+rm -f test.db && env -u DATABASE_URL ./venv/bin/python -m pytest tests --ignore=tests/e2e -n auto; rm -f test.db
 ./venv/bin/python -m pytest tests/whatsapp          # uma área
 ./venv/bin/python -m pytest --cov=app tests --ignore=tests/e2e
 ```

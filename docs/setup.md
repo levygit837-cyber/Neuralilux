@@ -196,8 +196,8 @@ Para acompanhar os pedidos que o Agent fecha, abra **Pedidos** (`/pedidos`) no d
 
 ```bash
 cd backend
-rm -f test.db && env -u DATABASE_URL ./venv/bin/python -m pytest tests --ignore=tests/e2e; rm -f test.db
+rm -f test.db && env -u DATABASE_URL ./venv/bin/python -m pytest tests --ignore=tests/e2e -n auto; rm -f test.db
 cd ../frontend && npx eslint . && npx tsc --noEmit && npx next build
 ```
 
-Os testes do backend rodam em SQLite; `env -u DATABASE_URL` impede que a suíte use o banco de desenvolvimento. Os e2e só rodam com `RUN_E2E=1`.
+Os testes do backend rodam em SQLite; `env -u DATABASE_URL` impede que a suíte use o banco de desenvolvimento. Os e2e só rodam com `RUN_E2E=1`. A suíte roda em paralelo (`-n auto`, pytest-xdist): cada processo usa o próprio arquivo SQLite, e o bcrypt tem custo 4 só nos testes (produção usa 12). Para depurar um teste isolado, tire o `-n auto`.
