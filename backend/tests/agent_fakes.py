@@ -7,6 +7,16 @@ from dataclasses import dataclass, field
 from app.agent.contracts import MessagesRequest, MessagesResponse, Tool, ToolContext
 
 
+def without_turn_context(messages: list) -> list:
+    """`messages` sem o bloco de contexto do Turn (início da última mensagem `user`), para ver só a fala."""
+    from app.agent.turn_context import CLOSE_TAG
+
+    return [
+        {**m, "content": m["content"].split(f"{CLOSE_TAG}\n\n", 1)[-1]} if isinstance(m["content"], str) else m
+        for m in messages
+    ]
+
+
 def text(value: str) -> dict:
     return {"type": "text", "text": value}
 
@@ -50,9 +60,13 @@ class FakePack:
     name: str
     pack_tools: list[Tool]
     section: str = ""
+    turn: str = ""
 
     def tools(self) -> list[Tool]:
         return self.pack_tools
 
     def system_prompt_section(self, ctx: ToolContext) -> str:
         return self.section
+
+    def turn_context(self, ctx: ToolContext) -> str:
+        return self.turn

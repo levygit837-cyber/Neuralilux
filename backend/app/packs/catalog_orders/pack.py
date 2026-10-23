@@ -63,8 +63,10 @@ class CatalogOrdersPack:
         return [buscar_cardapio_tool(), gerenciar_pedido_tool(), status_pedido_tool()]
 
     def system_prompt_section(self, ctx: ToolContext) -> str:
-        note = session_orders.prompt_note(ctx)
-        return f"{PROMPT_SECTION}\n{note}" if note else PROMPT_SECTION
+        return PROMPT_SECTION
+
+    def turn_context(self, ctx: ToolContext) -> str:
+        return session_orders.prompt_note(ctx)
 
     def on_session_start(self, db: Session, conversation: Conversation) -> None:
         session_orders.abandon_active_orders(db, conversation.id)

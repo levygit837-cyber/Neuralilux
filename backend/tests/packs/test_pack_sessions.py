@@ -101,33 +101,34 @@ async def test_prompt_tells_the_agent_about_the_abandoned_order(world, pack, ped
     number = payload(await add_item(world, pedido, quantidade=2, observacao="sem cebola"))["pedido"]["numero"]
     await _abandon(world, pack)
 
-    section = pack.system_prompt_section(world.ctx)
+    section = pack.turn_context(world.ctx)
 
     assert number in section
     assert "2x Pizza Toscana (sem cebola)" in section
     assert "R$ 90,00" in section
     assert "retomar_pedido" in section
+    assert "## Pedido abandonado" not in pack.system_prompt_section(world.ctx)
 
 
 async def test_prompt_has_no_abandoned_note_without_an_abandoned_order(world, pack, pedido):
     await add_item(world, pedido)
 
-    assert "## Pedido abandonado" not in pack.system_prompt_section(world.ctx)
+    assert "## Pedido abandonado" not in pack.turn_context(world.ctx)
 
 
 async def test_prompt_drops_the_note_once_a_newer_order_exists(world, pack, pedido):
     await add_item(world, pedido)
     await _abandon(world, pack)
-    assert "## Pedido abandonado" in pack.system_prompt_section(world.ctx)
+    assert "## Pedido abandonado" in pack.turn_context(world.ctx)
 
     await add_item(world, pedido, name="Pizza Calabresa")
-    assert "## Pedido abandonado" not in pack.system_prompt_section(world.ctx)
+    assert "## Pedido abandonado" not in pack.turn_context(world.ctx)
 
     # Mesmo depois de fechar o novo, o abandonado não volta a ser oferecido.
     new = next(o for o in _orders(world) if o.status == "open")
     new.status = "closed"
     world.db.commit()
-    assert "## Pedido abandonado" not in pack.system_prompt_section(world.ctx)
+    assert "## Pedido abandonado" not in pack.turn_context(world.ctx)
 
 
 async def test_empty_abandoned_order_is_not_offered(world, pack, pedido):
@@ -135,7 +136,7 @@ async def test_empty_abandoned_order_is_not_offered(world, pack, pedido):
     await call(pedido, world.ctx, acao="remover_item", item_id=world.items["Pizza Toscana"].id)
     await _abandon(world, pack)
 
-    assert "## Pedido abandonado" not in pack.system_prompt_section(world.ctx)
+    assert "## Pedido abandonado" not in pack.turn_context(world.ctx)
 
 
 async def test_resume_recreates_the_order_from_the_abandoned_one(world, pack, pedido):
@@ -154,7 +155,7 @@ async def test_resume_recreates_the_order_from_the_abandoned_one(world, pack, pe
     ]
     assert data["total"] == 99.5
     assert _status(world, old) == "abandoned"
-    assert "## Pedido abandonado" not in pack.system_prompt_section(world.ctx)
+    assert "## Pedido abandonado" not in pack.turn_context(world.ctx)
 
 
 async def test_resume_uses_current_catalog_prices_and_reports_unavailable_items(world, pack, pedido):

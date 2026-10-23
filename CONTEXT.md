@@ -45,6 +45,10 @@ _Avoid_: Bot, assistente, super agent, sales agent, SAC agent
 O ciclo em que o Agent recebe as Messages que o Contact mandou numa rajada (agrupadas por uma pausa curta), pensa, chama Tools e produz no máximo uma resposta.
 _Avoid_: Execução, run, invocação
 
+**Turn Context**:
+O bloco delimitado no início da última mensagem do Contact num Turn, com o que muda de um Turn para o outro (hora local, nota do Pack, Summary). O system prompt e as Tools ficam fora dele para o prefix cache do servidor de inferência valer entre Turns.
+_Avoid_: Contexto dinâmico, prompt variável
+
 **Tool**:
 Uma capacidade nomeada que o Agent pode chamar durante um Turn, com argumentos em JSON.
 _Avoid_: Função, skill, ação

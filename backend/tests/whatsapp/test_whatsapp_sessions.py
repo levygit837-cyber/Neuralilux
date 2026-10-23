@@ -130,6 +130,9 @@ class PackWithoutHook:
     def system_prompt_section(self, ctx) -> str:
         return ""
 
+    def turn_context(self, ctx) -> str:
+        return ""
+
 
 async def test_pack_without_the_session_hook_still_gets_the_message_saved_and_the_turn_run(
     db, world, consumer, monkeypatch

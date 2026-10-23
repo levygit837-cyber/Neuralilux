@@ -32,6 +32,9 @@ class PackWithoutHook:
     def system_prompt_section(self, ctx) -> str:
         return ""
 
+    def turn_context(self, ctx) -> str:
+        return ""
+
 
 @pytest.fixture
 def company(db):

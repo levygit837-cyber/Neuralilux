@@ -6,7 +6,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from agent_fakes import FakeMessagesClient, reply, text, tool_use
+from agent_fakes import FakeMessagesClient, reply, text, tool_use, without_turn_context
 from consumer_helpers import JID, messages, upsert
 
 from app.agent import core_tools, executor
@@ -58,7 +58,7 @@ def deliver(consumer, **kwargs):
 
 
 def user_inputs(model) -> list[list[dict]]:
-    return [request.messages for request in model.requests]
+    return [without_turn_context(request.messages) for request in model.requests]
 
 
 async def test_text_media_text_in_one_window_is_one_turn_with_exactly_the_two_texts(
@@ -206,7 +206,9 @@ async def test_transfer_requested_in_a_burst_transfers_once_and_later_messages_d
     await consumer.drain()
 
     assert len(client.requests) == 1  # um só Turn chegou ao modelo
-    assert client.requests[0].messages == [{"role": "user", "content": "quero falar com um atendente\npor favor"}]
+    assert without_turn_context(client.requests[0].messages) == [
+        {"role": "user", "content": "quero falar com um atendente\npor favor"}
+    ]
     assert db.query(Ticket).count() == 1
     assert [e["type"] for e in handoff_events] == ["human_handoff_requested"]
     assert len(world["sent"]) == 1  # só a frase da transferência
