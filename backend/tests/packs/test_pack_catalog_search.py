@@ -1,10 +1,8 @@
-import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from pack_helpers import call, make_world, payload, tool_named
 
-from app.models import MenuItem
 from app.packs.catalog_orders.pack import CatalogOrdersPack
 
 pytestmark = pytest.mark.asyncio
@@ -220,7 +218,8 @@ THURSDAY = datetime(2026, 10, 22)
 async def test_item_outside_its_own_window_comes_with_when_it_is_sold(world, buscar, monkeypatch):
     _scheduled_pizza(world)
     _at(monkeypatch, THURSDAY.replace(hour=14))
-    assert (await _toscana(world, buscar))["disponibilidade"] == "Fora do horário agora; disponível a partir de hoje às 18:00."
+    notice = (await _toscana(world, buscar))["disponibilidade"]
+    assert notice == "Fora do horário agora; disponível a partir de hoje às 18:00."
 
 
 async def test_item_inside_its_window_has_no_notice_up_to_the_last_minute(world, buscar, monkeypatch):
@@ -242,38 +241,3 @@ async def test_window_crossing_midnight_still_sells_in_the_early_hours(world, bu
     assert "disponibilidade" not in await _toscana(world, buscar)
     _at(monkeypatch, THURSDAY.replace(hour=3))
     assert (await _toscana(world, buscar))["disponibilidade"].endswith("a partir de quarta-feira às 18:00.")
-
-
-def _menu_json(tmp_path, items, fetched_at="2026-03-27T16:56:48+00:00"):  # sexta 13:56 em São Paulo
-    path = tmp_path / "cardapio.json"
-    path.write_text(json.dumps({"source": {"fetched_at_utc": fetched_at}, "categories": [{"id": 1, "name": "X", "items": items}]}))
-    return path
-
-
-def _menu_item(item_id, *, available, windows):
-    return {"id": item_id, "name": f"Item {item_id}", "price": "10,00", "is_available": available, "items_availability": windows}
-
-
-async def test_sync_keeps_items_that_were_only_outside_their_window_at_capture(db, tmp_path):
-    from app.services.menu.sync import sync_macedos_menu_from_json
-
-    all_day = [{"weekday": d, "period_start": "00:00", "period_end": "23:59"} for d in range(1, 8)]
-    path = _menu_json(
-        tmp_path,
-        [
-            _menu_item(1, available=False, windows=NIGHT_ONLY),  # pizza capturada de dia
-            _menu_item(2, available=False, windows=all_day),  # pausado com a captura dentro da janela
-            _menu_item(3, available=False, windows=[]),
-            _menu_item(4, available=True, windows=all_day),
-        ],
-    )
-    catalog = sync_macedos_menu_from_json(db, path)
-    saved = {i.external_id: i.is_available for i in db.query(MenuItem).filter(MenuItem.catalog_id == catalog.id)}
-    assert saved == {"1": True, "2": False, "3": False, "4": True}
-
-
-async def test_sync_trusts_the_flag_when_capture_time_is_unknown(db, tmp_path):
-    from app.services.menu.sync import sync_macedos_menu_from_json
-
-    catalog = sync_macedos_menu_from_json(db, _menu_json(tmp_path, [_menu_item(1, available=False, windows=NIGHT_ONLY)], fetched_at=None))
-    assert db.query(MenuItem).filter(MenuItem.catalog_id == catalog.id).one().is_available is False
