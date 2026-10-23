@@ -112,7 +112,7 @@ class Pack(Protocol):
 
     `system_prompt_section` is the STABLE part of the Pack's instructions: it goes in the system prompt, which must
     be byte-identical across Turns of the same Company (prefix cache, issue #42). Anything that changes between
-    Turns (an abandoned Order note, an open/closed state) goes in `turn_context` instead, which the executor puts
+    Turns (a note about something left unfinished, the Company's open/closed state) goes in `turn_context` instead, which the executor puts
     in the delimited block at the start of the last `user` message (`app.agent.turn_context`). Return "" for none.
 
     A Pack MAY also define `on_session_start(db, conversation) -> None` (ADR 0007), called inside the
