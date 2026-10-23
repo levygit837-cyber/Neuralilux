@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from pack_helpers import call, make_world, payload, tool_named
 
@@ -189,3 +191,53 @@ async def test_empty_search_lists_categories_with_counts_and_no_items(world, bus
 
 async def test_query_of_only_filler_words_is_an_empty_search(world, buscar):
     assert payload(await call(buscar, world.ctx, consulta="de uma"))["itens"] == []
+
+
+NIGHT_ONLY = [{"weekday": d, "period_start": "18:00", "period_end": "22:59"} for d in range(1, 8)]
+
+
+def _scheduled_pizza(world, windows=NIGHT_ONLY):
+    world.items["Pizza Toscana"].raw_payload = {"items_availability": windows}
+    world.db.commit()
+
+
+def _at(monkeypatch, local: datetime):
+    from app.agent import clock
+
+    # A Company do world está em America/Fortaleza (UTC-3, sem horário de verão).
+    monkeypatch.setattr(clock, "utc_now", lambda: local.replace(tzinfo=timezone.utc) + timedelta(hours=3))
+
+
+async def _toscana(world, buscar):
+    return payload(await call(buscar, world.ctx, consulta="pizza toscana"))["itens"][0]
+
+
+THURSDAY = datetime(2026, 10, 22)
+
+
+async def test_item_outside_its_own_window_comes_with_when_it_is_sold(world, buscar, monkeypatch):
+    _scheduled_pizza(world)
+    _at(monkeypatch, THURSDAY.replace(hour=14))
+    notice = (await _toscana(world, buscar))["disponibilidade"]
+    assert notice == "Fora do horário agora; disponível a partir de hoje às 18:00."
+
+
+async def test_item_inside_its_window_has_no_notice_up_to_the_last_minute(world, buscar, monkeypatch):
+    _scheduled_pizza(world)
+    _at(monkeypatch, THURSDAY.replace(hour=22, minute=59))
+    assert "disponibilidade" not in await _toscana(world, buscar)
+
+
+async def test_after_tonight_window_the_notice_points_to_tomorrow(world, buscar, monkeypatch):
+    _scheduled_pizza(world)
+    _at(monkeypatch, THURSDAY.replace(hour=23))
+    assert (await _toscana(world, buscar))["disponibilidade"].endswith("a partir de amanhã às 18:00.")
+
+
+async def test_window_crossing_midnight_still_sells_in_the_early_hours(world, buscar, monkeypatch):
+    # weekday 4 = quarta (1 = domingo): quarta 18:00 até quinta 02:00.
+    _scheduled_pizza(world, [{"weekday": 4, "period_start": "18:00", "period_end": "02:00"}])
+    _at(monkeypatch, THURSDAY.replace(hour=1, minute=30))
+    assert "disponibilidade" not in await _toscana(world, buscar)
+    _at(monkeypatch, THURSDAY.replace(hour=3))
+    assert (await _toscana(world, buscar))["disponibilidade"].endswith("a partir de quarta-feira às 18:00.")
