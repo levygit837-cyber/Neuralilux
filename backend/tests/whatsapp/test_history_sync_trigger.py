@@ -1,9 +1,10 @@
 """Eventos da Evolution que disparam a importação de histórico: no máximo uma por Instance."""
 import asyncio
+from unittest.mock import MagicMock
 
 import pytest
 
-from app.whatsapp import history_sync
+from app.whatsapp import consumer as consumer_module, history_sync
 from app.whatsapp.consumer import WhatsAppMessageConsumer
 from consumer_helpers import process
 
@@ -95,13 +96,20 @@ async def test_failed_sync_is_logged_and_frees_the_instance(db, world, monkeypat
 
 
 @pytest.mark.asyncio
-async def test_worker_skips_silently_when_another_process_is_importing(db, world, monkeypatch):
+async def test_worker_skips_with_an_info_log_when_another_process_is_importing(db, world, monkeypatch):
     async def busy(db, instance):
         raise history_sync.SyncAlreadyRunning(instance.id)
 
+    logs = MagicMock()
     monkeypatch.setattr(history_sync, "sync_instance", busy)
+    monkeypatch.setattr(consumer_module, "logger", logs)
     consumer = WhatsAppMessageConsumer()
 
     await process(consumer, _event("messages.set"))
 
+    # Outro processo importando não é falha: sem `logger.exception`, e a Instance fica livre para a próxima.
+    logs.exception.assert_not_called()
+    assert "History sync skipped: another process is already importing" in [
+        call.args[0] for call in logs.info.call_args_list
+    ]
     assert consumer._syncing == set()

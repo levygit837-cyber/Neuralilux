@@ -29,49 +29,8 @@ def svc():
     return service
 
 
-class TestEvolutionAPIError:
-    def test_message_and_code(self):
-        err = EvolutionAPIError("test error", 400)
-        assert err.message == "test error"
-        assert err.status_code == 400
-        assert str(err) == "test error"
-
-    def test_default_status_code(self):
-        err = EvolutionAPIError("server error")
-        assert err.status_code == 500
-
-
-class TestEvolutionAPIService:
-    def test_init_sets_base_url_and_headers(self):
-        svc = EvolutionAPIService()
-        assert svc.base_url is not None
-        assert "apikey" in svc.headers
-        assert "Content-Type" in svc.headers
-
-
 class TestFetchChats:
     """Tests for fetch_chats - POST /chat/findChats/{instance}."""
-
-    @respx.mock
-    @pytest.mark.asyncio
-    async def test_uses_post_method(self, svc):
-        """Verify fetch_chats uses POST (not GET)."""
-        route = respx.post(f"{BASE_URL}/chat/findChats/test-instance").mock(
-            return_value=httpx.Response(200, json=[{"id": "chat1"}])
-        )
-        result = await svc.fetch_chats("test-instance")
-        assert route.called
-        assert route.calls[0].request.method == "POST"
-
-    @respx.mock
-    @pytest.mark.asyncio
-    async def test_correct_url(self, svc):
-        """Verify fetch_chats hits the correct endpoint."""
-        route = respx.post(f"{BASE_URL}/chat/findChats/my-instance").mock(
-            return_value=httpx.Response(200, json=[])
-        )
-        await svc.fetch_chats("my-instance")
-        assert route.calls[0].request.url.path == "/chat/findChats/my-instance"
 
     @respx.mock
     @pytest.mark.asyncio
@@ -95,17 +54,6 @@ class TestFetchChats:
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_returns_chat_list(self, svc):
-        """Verify fetch_chats returns the response JSON."""
-        chats = [{"id": "chat1", "name": "Contact 1"}, {"id": "chat2"}]
-        respx.post(f"{BASE_URL}/chat/findChats/test-instance").mock(
-            return_value=httpx.Response(200, json=chats)
-        )
-        result = await svc.fetch_chats("test-instance")
-        assert result == chats
-
-    @respx.mock
-    @pytest.mark.asyncio
     async def test_raises_on_404(self, svc):
         """Verify fetch_chats raises EvolutionAPIError on 404."""
         respx.post(f"{BASE_URL}/chat/findChats/test-instance").mock(
@@ -118,24 +66,6 @@ class TestFetchChats:
 
 class TestFetchMessages:
     """Tests for fetch_messages - POST /chat/findMessages/{instance}."""
-
-    @respx.mock
-    @pytest.mark.asyncio
-    async def test_uses_post_method(self, svc):
-        route = respx.post(f"{BASE_URL}/chat/findMessages/test-instance").mock(
-            return_value=httpx.Response(200, json={"messages": {"records": []}})
-        )
-        await svc.fetch_messages("test-instance", "5511999999999@s.whatsapp.net")
-        assert route.calls[0].request.method == "POST"
-
-    @respx.mock
-    @pytest.mark.asyncio
-    async def test_correct_url(self, svc):
-        route = respx.post(f"{BASE_URL}/chat/findMessages/my-instance").mock(
-            return_value=httpx.Response(200, json={"messages": {"records": []}})
-        )
-        await svc.fetch_messages("my-instance", "5511999999999@s.whatsapp.net")
-        assert route.calls[0].request.url.path == "/chat/findMessages/my-instance"
 
     @respx.mock
     @pytest.mark.asyncio
@@ -152,47 +82,9 @@ class TestFetchMessages:
         assert body["where"]["key"]["remoteJid"] == "5511999999999@s.whatsapp.net"
         assert body["limit"] == 10
 
-    @respx.mock
-    @pytest.mark.asyncio
-    async def test_default_offset(self, svc):
-        route = respx.post(f"{BASE_URL}/chat/findMessages/test-instance").mock(
-            return_value=httpx.Response(200, json={"messages": {"records": []}})
-        )
-        await svc.fetch_messages("test-instance", "5511999999999@s.whatsapp.net")
-        body = json.loads(route.calls[0].request.content)
-        assert body["limit"] == 20
-
-    @respx.mock
-    @pytest.mark.asyncio
-    async def test_returns_messages(self, svc):
-        response_data = {"messages": {"total": 5, "records": [{"id": "msg1"}]}}
-        respx.post(f"{BASE_URL}/chat/findMessages/test-instance").mock(
-            return_value=httpx.Response(200, json=response_data)
-        )
-        result = await svc.fetch_messages("test-instance", "5511999999999@s.whatsapp.net")
-        assert result == response_data
-
 
 class TestFetchContacts:
     """Tests for fetch_contacts - POST /chat/findContacts/{instance}."""
-
-    @respx.mock
-    @pytest.mark.asyncio
-    async def test_uses_post_method(self, svc):
-        route = respx.post(f"{BASE_URL}/chat/findContacts/test-instance").mock(
-            return_value=httpx.Response(200, json=[])
-        )
-        await svc.fetch_contacts("test-instance")
-        assert route.calls[0].request.method == "POST"
-
-    @respx.mock
-    @pytest.mark.asyncio
-    async def test_correct_url(self, svc):
-        route = respx.post(f"{BASE_URL}/chat/findContacts/my-instance").mock(
-            return_value=httpx.Response(200, json=[])
-        )
-        await svc.fetch_contacts("my-instance")
-        assert route.calls[0].request.url.path == "/chat/findContacts/my-instance"
 
     @respx.mock
     @pytest.mark.asyncio
@@ -203,28 +95,9 @@ class TestFetchContacts:
         await svc.fetch_contacts("test-instance")
         assert route.calls[0].request.content == b"{}"
 
-    @respx.mock
-    @pytest.mark.asyncio
-    async def test_returns_contacts(self, svc):
-        contacts = [{"id": "c1", "name": "John"}]
-        respx.post(f"{BASE_URL}/chat/findContacts/test-instance").mock(
-            return_value=httpx.Response(200, json=contacts)
-        )
-        result = await svc.fetch_contacts("test-instance")
-        assert result == contacts
-
 
 class TestSendTextMessage:
     """Tests for send_text_message."""
-
-    @respx.mock
-    @pytest.mark.asyncio
-    async def test_uses_post_method(self, svc):
-        route = respx.post(f"{BASE_URL}/message/sendText/test-instance").mock(
-            return_value=httpx.Response(200, json={"key": {"id": "msg1"}})
-        )
-        await svc.send_text_message("test-instance", "5511999999999@s.whatsapp.net", "Hi")
-        assert route.calls[0].request.method == "POST"
 
     @respx.mock
     @pytest.mark.asyncio

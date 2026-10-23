@@ -30,7 +30,7 @@ Contagem por linha de tabela (uma linha por função; parametrizado conta uma ve
 | Área | Arquivos | Funções | `keep` | `redundant` | `stub` | `wiring` | `wording` | `extreme` | `dead-e2e` |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | api / core / models | 21 | 214 | 191 | 13 | 0 | 9 | 1 | 0 | 0 |
-| whatsapp / realtime | 21 | 183 | 151 | 10 | 13 | 6 | 3 | 0 | 0 |
+| whatsapp / realtime (após #54) | 21 | 152 | 152 | 0 | 0 | 0 | 0 | 0 | 0 |
 | agent / packs / handoff / llm / scripts | 28 | 348 | 323 | 14 | 0 | 2 | 9 | 0 | 0 |
 | **Total** | 70 | 745 | **665** | **37** | **13** | **17** | **13** | **0** | **0** |
 
@@ -118,38 +118,38 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 
 | Arquivo | Teste | Categoria | Motivo / equivalente |
 |---|---|---|---|
-| `realtime/test_socket_thinking_events.py` | `test_event_without_instance_is_dropped` | `redundant` | O descarte por falta de `instance_name` é o mesmo `return` inicial de `emit_realtime_event` coberto por `tests/agent/test_handoff_socket.py::test_handoff_event_without_instance_is_dropped_like_other_events`. |
-| `realtime/test_socket_thinking_events.py` | `test_handoff_request_reaches_both_rooms_with_ticket_and_reason` | `redundant` | Mesmas salas e `ticketId`/`reason` no socket que `tests/agent/test_handoff_socket.py::test_handoff_event_from_the_tool_reaches_instance_and_conversation_rooms`, que parte da Tool real; aqui só passa por `publish_handoff_requested`, helper sem chamador em `app/`. |
-| `whatsapp/test_evolution_service.py` | `TestEvolutionAPIError::test_default_status_code` | `wording` | Fixa o default incidental `status_code == 500` do construtor |
-| `whatsapp/test_evolution_service.py` | `TestEvolutionAPIError::test_message_and_code` | `wiring` | Só relê atributos que o `__init__` acabou de atribuir (`err.message`, `err.status_code`, `str(err)`) |
-| `whatsapp/test_evolution_service.py` | `TestEvolutionAPIService::test_init_sets_base_url_and_headers` | `stub` | Só `base_url is not None` e chaves presentes em `headers`, sem checar valor |
-| `whatsapp/test_evolution_service.py` | `TestFetchChats::test_correct_url` | `redundant` | URL já é exigida pela rota respx de todo teste da classe. Equivalente: `tests/whatsapp/test_evolution_service.py::TestFetchChats::test_sends_empty_json_body` |
-| `whatsapp/test_evolution_service.py` | `TestFetchChats::test_returns_chat_list` | `wiring` | `result == chats`: só repassa o JSON do mock |
-| `whatsapp/test_evolution_service.py` | `TestFetchChats::test_uses_post_method` | `redundant` | Rota respx já é `post`; `method == "POST"` é tautologia. Equivalente: `tests/whatsapp/test_evolution_service.py::TestFetchChats::test_sends_empty_json_body` |
-| `whatsapp/test_evolution_service.py` | `TestFetchContacts::test_correct_url` | `redundant` | URL já é exigida pela rota respx. Equivalente: `tests/whatsapp/test_evolution_service.py::TestFetchContacts::test_sends_empty_json_body` |
-| `whatsapp/test_evolution_service.py` | `TestFetchContacts::test_returns_contacts` | `wiring` | `result == contacts`: só repassa o JSON do mock |
-| `whatsapp/test_evolution_service.py` | `TestFetchContacts::test_uses_post_method` | `redundant` | Rota respx já é `post`. Equivalente: `tests/whatsapp/test_evolution_service.py::TestFetchContacts::test_sends_empty_json_body` |
-| `whatsapp/test_evolution_service.py` | `TestFetchMessages::test_correct_url` | `redundant` | URL já é exigida pela rota respx. Equivalente: `tests/whatsapp/test_evolution_service.py::TestFetchMessages::test_sends_correct_payload` |
-| `whatsapp/test_evolution_service.py` | `TestFetchMessages::test_default_offset` | `wording` | Fixa o default incidental `limit == 20` |
-| `whatsapp/test_evolution_service.py` | `TestFetchMessages::test_returns_messages` | `wiring` | `result == response_data`: só repassa o JSON do mock |
-| `whatsapp/test_evolution_service.py` | `TestFetchMessages::test_uses_post_method` | `redundant` | Rota respx já é `post`. Equivalente: `tests/whatsapp/test_evolution_service.py::TestFetchMessages::test_sends_correct_payload` |
-| `whatsapp/test_evolution_service.py` | `TestSendTextMessage::test_uses_post_method` | `redundant` | Rota respx já é `post`. Equivalente: `tests/whatsapp/test_evolution_service.py::TestSendTextMessage::test_strips_jid_suffix` |
-| `whatsapp/test_history_sync_trigger.py` | `test_worker_skips_silently_when_another_process_is_importing` | `wording` | Só `consumer._syncing == set()` (atributo interno); passa igual se `SyncAlreadyRunning` cair no `except Exception`, já coberto pelo teste de falha |
-| `whatsapp/test_realtime_bridge.py` | `test_save_message_to_database_does_not_trigger_agent_when_instance_is_disabled` | `redundant` | Mesma asserção (`agent_enabled=False` ⇒ sem Turn nem envio). Equivalente: `tests/whatsapp/test_whatsapp_consumer.py::test_disabled_agent_does_not_answer` |
-| `whatsapp/test_whatsapp_actions.py` | `TestConnectionStatus::test_get_instance_status_valid_states` | `stub` | `state in valid_states or isinstance(state, str)` é tautologia |
-| `whatsapp/test_whatsapp_actions.py` | `TestEvolutionAPIConnectivity::test_api_base_url_configured` | `stub` | `"localhost:8081" in url or "http" in url` é tautologia |
-| `whatsapp/test_whatsapp_actions.py` | `TestEvolutionAPIConnectivity::test_api_is_reachable` | `stub` | Só falha se a Evolution estiver fora do ar; testa ambiente, não código |
-| `whatsapp/test_whatsapp_actions.py` | `TestEvolutionAPIConnectivity::test_api_key_configured` | `wiring` | Confere só que `settings.EVOLUTION_API_KEY` chegou a `api_key` |
-| `whatsapp/test_whatsapp_actions.py` | `TestEvolutionAPIConnectivity::test_headers_contain_apikey` | `wiring` | Cópia `api_key`→`headers["apikey"]`; header já enviado em `test_evolution_service.py::TestFetchChats::test_sends_apikey_header` |
-| `whatsapp/test_whatsapp_actions.py` | `TestInstanceLifecycle::test_create_and_delete_instance` | `stub` | Só `is not None` nos dois retornos; erro HTTP já levantaria sozinho |
-| `whatsapp/test_whatsapp_actions.py` | `TestInstanceLifecycle::test_create_duplicate_instance_handled` | `stub` | Passa se o segundo create tiver sucesso ou falhar com 4 códigos; sem asserção sobre o tratamento |
-| `whatsapp/test_whatsapp_actions.py` | `TestListChats::test_fetch_chats_response_structure` | `stub` | `... or isinstance(chat, dict)` é tautologia; vazio se não há chats |
-| `whatsapp/test_whatsapp_actions.py` | `TestListChats::test_fetch_chats_with_valid_instance` | `stub` | Só `assert result is not None`; já coberto pelo `returns_list` |
-| `whatsapp/test_whatsapp_actions.py` | `TestListContacts::test_fetch_contacts_response_structure` | `stub` | `isinstance(contact, dict)` só se houver contato; instância nova é vazia |
-| `whatsapp/test_whatsapp_actions.py` | `TestListContacts::test_fetch_contacts_with_valid_instance` | `stub` | Só `assert result is not None`; já coberto pelo `returns_list` |
-| `whatsapp/test_whatsapp_actions.py` | `TestReadMessages::test_fetch_messages_default_offset` | `stub` | Docstring fala em offset 20 mas só assere `is not None` (payload já em `test_evolution_service.py::TestFetchMessages::test_default_offset`) |
-| `whatsapp/test_whatsapp_actions.py` | `TestReadMessages::test_fetch_messages_with_pagination` | `stub` | Só `assert result is not None`; `page` é ignorado pelo client |
-| `whatsapp/test_whatsapp_actions.py` | `TestSendMessage::test_send_text_message_accepts_request` | `stub` | Engole status 500 (caso normal sem WhatsApp conectado); quase nunca assere nada |
+| `realtime/test_socket_thinking_events.py` | `test_event_without_instance_is_dropped` | `redundant` | O descarte por falta de `instance_name` é o mesmo `return` inicial de `emit_realtime_event` coberto por `tests/agent/test_handoff_socket.py::test_handoff_event_without_instance_is_dropped_like_other_events`. **Removido (#54).** |
+| `realtime/test_socket_thinking_events.py` | `test_handoff_request_reaches_both_rooms_with_ticket_and_reason` | `redundant` | Mesmas salas e `ticketId`/`reason` no socket que `tests/agent/test_handoff_socket.py::test_handoff_event_from_the_tool_reaches_instance_and_conversation_rooms`, que parte da Tool real; aqui só passa por `publish_handoff_requested`, helper sem chamador em `app/`. **Removido (#54).** |
+| `whatsapp/test_evolution_service.py` | `TestEvolutionAPIError::test_default_status_code` | `wording` | Fixa o default incidental `status_code == 500` do construtor **Removido (#54).** |
+| `whatsapp/test_evolution_service.py` | `TestEvolutionAPIError::test_message_and_code` | `wiring` | Só relê atributos que o `__init__` acabou de atribuir (`err.message`, `err.status_code`, `str(err)`) **Removido (#54).** |
+| `whatsapp/test_evolution_service.py` | `TestEvolutionAPIService::test_init_sets_base_url_and_headers` | `stub` | Só `base_url is not None` e chaves presentes em `headers`, sem checar valor **Removido (#54).** |
+| `whatsapp/test_evolution_service.py` | `TestFetchChats::test_correct_url` | `redundant` | URL já é exigida pela rota respx de todo teste da classe. Equivalente: `tests/whatsapp/test_evolution_service.py::TestFetchChats::test_sends_empty_json_body` **Removido (#54).** |
+| `whatsapp/test_evolution_service.py` | `TestFetchChats::test_returns_chat_list` | `wiring` | `result == chats`: só repassa o JSON do mock **Removido (#54).** |
+| `whatsapp/test_evolution_service.py` | `TestFetchChats::test_uses_post_method` | `redundant` | Rota respx já é `post`; `method == "POST"` é tautologia. Equivalente: `tests/whatsapp/test_evolution_service.py::TestFetchChats::test_sends_empty_json_body` **Removido (#54).** |
+| `whatsapp/test_evolution_service.py` | `TestFetchContacts::test_correct_url` | `redundant` | URL já é exigida pela rota respx. Equivalente: `tests/whatsapp/test_evolution_service.py::TestFetchContacts::test_sends_empty_json_body` **Removido (#54).** |
+| `whatsapp/test_evolution_service.py` | `TestFetchContacts::test_returns_contacts` | `wiring` | `result == contacts`: só repassa o JSON do mock **Removido (#54).** |
+| `whatsapp/test_evolution_service.py` | `TestFetchContacts::test_uses_post_method` | `redundant` | Rota respx já é `post`. Equivalente: `tests/whatsapp/test_evolution_service.py::TestFetchContacts::test_sends_empty_json_body` **Removido (#54).** |
+| `whatsapp/test_evolution_service.py` | `TestFetchMessages::test_correct_url` | `redundant` | URL já é exigida pela rota respx. Equivalente: `tests/whatsapp/test_evolution_service.py::TestFetchMessages::test_sends_correct_payload` **Removido (#54).** |
+| `whatsapp/test_evolution_service.py` | `TestFetchMessages::test_default_offset` | `wording` | Fixa o default incidental `limit == 20` **Removido (#54).** |
+| `whatsapp/test_evolution_service.py` | `TestFetchMessages::test_returns_messages` | `wiring` | `result == response_data`: só repassa o JSON do mock **Removido (#54).** |
+| `whatsapp/test_evolution_service.py` | `TestFetchMessages::test_uses_post_method` | `redundant` | Rota respx já é `post`. Equivalente: `tests/whatsapp/test_evolution_service.py::TestFetchMessages::test_sends_correct_payload` **Removido (#54).** |
+| `whatsapp/test_evolution_service.py` | `TestSendTextMessage::test_uses_post_method` | `redundant` | Rota respx já é `post`. Equivalente: `tests/whatsapp/test_evolution_service.py::TestSendTextMessage::test_strips_jid_suffix` **Removido (#54).** |
+| `whatsapp/test_history_sync_trigger.py` | `test_worker_skips_silently_when_another_process_is_importing` | `wording` | Só `consumer._syncing == set()` (atributo interno); passa igual se `SyncAlreadyRunning` cair no `except Exception`, já coberto pelo teste de falha **Mantido (#54):** reforçado e renomeado para `test_worker_skips_with_an_info_log_when_another_process_is_importing`; agora afirma o log informativo, a ausência de `logger.exception` e a Instance liberada. Passa a `keep`. |
+| `whatsapp/test_realtime_bridge.py` | `test_save_message_to_database_does_not_trigger_agent_when_instance_is_disabled` | `redundant` | Mesma asserção (`agent_enabled=False` ⇒ sem Turn nem envio). Equivalente: `tests/whatsapp/test_whatsapp_consumer.py::test_disabled_agent_does_not_answer` **Removido (#54).** |
+| `whatsapp/test_whatsapp_actions.py` | `TestConnectionStatus::test_get_instance_status_valid_states` | `stub` | `state in valid_states or isinstance(state, str)` é tautologia **Removido (#54).** |
+| `whatsapp/test_whatsapp_actions.py` | `TestEvolutionAPIConnectivity::test_api_base_url_configured` | `stub` | `"localhost:8081" in url or "http" in url` é tautologia **Removido (#54).** |
+| `whatsapp/test_whatsapp_actions.py` | `TestEvolutionAPIConnectivity::test_api_is_reachable` | `stub` | Só falha se a Evolution estiver fora do ar; testa ambiente, não código **Removido (#54).** |
+| `whatsapp/test_whatsapp_actions.py` | `TestEvolutionAPIConnectivity::test_api_key_configured` | `wiring` | Confere só que `settings.EVOLUTION_API_KEY` chegou a `api_key` **Removido (#54).** |
+| `whatsapp/test_whatsapp_actions.py` | `TestEvolutionAPIConnectivity::test_headers_contain_apikey` | `wiring` | Cópia `api_key`→`headers["apikey"]`; header já enviado em `test_evolution_service.py::TestFetchChats::test_sends_apikey_header` **Removido (#54).** |
+| `whatsapp/test_whatsapp_actions.py` | `TestInstanceLifecycle::test_create_and_delete_instance` | `stub` | Só `is not None` nos dois retornos; erro HTTP já levantaria sozinho **Removido (#54).** |
+| `whatsapp/test_whatsapp_actions.py` | `TestInstanceLifecycle::test_create_duplicate_instance_handled` | `stub` | Passa se o segundo create tiver sucesso ou falhar com 4 códigos; sem asserção sobre o tratamento **Removido (#54).** |
+| `whatsapp/test_whatsapp_actions.py` | `TestListChats::test_fetch_chats_response_structure` | `stub` | `... or isinstance(chat, dict)` é tautologia; vazio se não há chats **Removido (#54).** |
+| `whatsapp/test_whatsapp_actions.py` | `TestListChats::test_fetch_chats_with_valid_instance` | `stub` | Só `assert result is not None`; já coberto pelo `returns_list` **Removido (#54).** |
+| `whatsapp/test_whatsapp_actions.py` | `TestListContacts::test_fetch_contacts_response_structure` | `stub` | `isinstance(contact, dict)` só se houver contato; instância nova é vazia **Removido (#54).** |
+| `whatsapp/test_whatsapp_actions.py` | `TestListContacts::test_fetch_contacts_with_valid_instance` | `stub` | Só `assert result is not None`; já coberto pelo `returns_list` **Removido (#54).** |
+| `whatsapp/test_whatsapp_actions.py` | `TestReadMessages::test_fetch_messages_default_offset` | `stub` | Docstring fala em offset 20 mas só assere `is not None` (payload já em `test_evolution_service.py::TestFetchMessages::test_default_offset`) **Removido (#54).** |
+| `whatsapp/test_whatsapp_actions.py` | `TestReadMessages::test_fetch_messages_with_pagination` | `stub` | Só `assert result is not None`; `page` é ignorado pelo client **Removido (#54).** |
+| `whatsapp/test_whatsapp_actions.py` | `TestSendMessage::test_send_text_message_accepts_request` | `stub` | Engole status 500 (caso normal sem WhatsApp conectado); quase nunca assere nada **Removido (#54).** |
 
 ### Área 3: agent / packs / handoff / llm / scripts
 
@@ -549,15 +549,15 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_leaving_never_needs_access`|`keep`|Sair da sala funciona e remove a sala.|
 
 #### `tests/realtime/test_socket_thinking_events.py`
-5 testes: 3 keep, 2 redundant.
+5 testes: 3 keep, 2 redundant. #54 removeu os 2 `redundant`; restam 3.
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
 |`test_thinking_reaches_the_conversation_room_and_the_instance_room`|`keep`|Roteamento de thinking para as duas salas; único teste dessa ponta do socket.|
 |`test_tool_call_reaches_the_client_as_started_then_completed_with_one_trace`|`keep`|Normalização camelCase de tool_event e traceId único no socket.|
 |`test_failed_tool_reaches_the_client_with_its_error`|`keep`|Fase `failed` e `error` chegam ao cliente (camada socket).|
-|`test_handoff_request_reaches_both_rooms_with_ticket_and_reason`|`redundant`|Mesmas salas e `ticketId`/`reason` no socket que `tests/agent/test_handoff_socket.py::test_handoff_event_from_the_tool_reaches_instance_and_conversation_rooms`, que parte da Tool real; aqui só passa por `publish_handoff_requested`, helper sem chamador em `app/`.|
-|`test_event_without_instance_is_dropped`|`redundant`|O descarte por falta de `instance_name` é o mesmo `return` inicial de `emit_realtime_event` coberto por `tests/agent/test_handoff_socket.py::test_handoff_event_without_instance_is_dropped_like_other_events`.|
+|`test_handoff_request_reaches_both_rooms_with_ticket_and_reason`|`redundant`|Mesmas salas e `ticketId`/`reason` no socket que `tests/agent/test_handoff_socket.py::test_handoff_event_from_the_tool_reaches_instance_and_conversation_rooms`, que parte da Tool real; aqui só passa por `publish_handoff_requested`, helper sem chamador em `app/`. **Removido (#54).**|
+|`test_event_without_instance_is_dropped`|`redundant`|O descarte por falta de `instance_name` é o mesmo `return` inicial de `emit_realtime_event` coberto por `tests/agent/test_handoff_socket.py::test_handoff_event_without_instance_is_dropped_like_other_events`. **Removido (#54).**|
 
 #### `tests/whatsapp/test_debounce_context.py`
 6 testes: 6 keep.
@@ -577,28 +577,28 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_forward_event_publishes_webhook_payload`|`keep`|Injeta `event` e `source` que o websocket não envia|
 
 #### `tests/whatsapp/test_evolution_service.py`
-29 testes: 15 keep, 7 redundant, 4 wiring, 2 wording, 1 stub.
+29 testes: 15 keep, 7 redundant, 4 wiring, 2 wording, 1 stub. #54 removeu os 14 candidatos; restam 15.
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
-|`TestEvolutionAPIError::test_message_and_code`|`wiring`|Só relê atributos que o `__init__` acabou de atribuir (`err.message`, `err.status_code`, `str(err)`)|
-|`TestEvolutionAPIError::test_default_status_code`|`wording`|Fixa o default incidental `status_code == 500` do construtor|
-|`TestEvolutionAPIService::test_init_sets_base_url_and_headers`|`stub`|Só `base_url is not None` e chaves presentes em `headers`, sem checar valor|
-|`TestFetchChats::test_uses_post_method`|`redundant`|Rota respx já é `post`; `method == "POST"` é tautologia. Equivalente: `tests/whatsapp/test_evolution_service.py::TestFetchChats::test_sends_empty_json_body`|
-|`TestFetchChats::test_correct_url`|`redundant`|URL já é exigida pela rota respx de todo teste da classe. Equivalente: `tests/whatsapp/test_evolution_service.py::TestFetchChats::test_sends_empty_json_body`|
+|`TestEvolutionAPIError::test_message_and_code`|`wiring`|Só relê atributos que o `__init__` acabou de atribuir (`err.message`, `err.status_code`, `str(err)`) **Removido (#54).**|
+|`TestEvolutionAPIError::test_default_status_code`|`wording`|Fixa o default incidental `status_code == 500` do construtor **Removido (#54).**|
+|`TestEvolutionAPIService::test_init_sets_base_url_and_headers`|`stub`|Só `base_url is not None` e chaves presentes em `headers`, sem checar valor **Removido (#54).**|
+|`TestFetchChats::test_uses_post_method`|`redundant`|Rota respx já é `post`; `method == "POST"` é tautologia. Equivalente: `tests/whatsapp/test_evolution_service.py::TestFetchChats::test_sends_empty_json_body` **Removido (#54).**|
+|`TestFetchChats::test_correct_url`|`redundant`|URL já é exigida pela rota respx de todo teste da classe. Equivalente: `tests/whatsapp/test_evolution_service.py::TestFetchChats::test_sends_empty_json_body` **Removido (#54).**|
 |`TestFetchChats::test_sends_empty_json_body`|`keep`|Evolution v2.3.7 exige POST com corpo `{}`|
 |`TestFetchChats::test_sends_apikey_header`|`keep`|Autenticação: header `apikey` chega à Evolution|
-|`TestFetchChats::test_returns_chat_list`|`wiring`|`result == chats`: só repassa o JSON do mock|
+|`TestFetchChats::test_returns_chat_list`|`wiring`|`result == chats`: só repassa o JSON do mock **Removido (#54).**|
 |`TestFetchChats::test_raises_on_404`|`keep`|HTTP 404 vira `EvolutionAPIError` com status|
-|`TestFetchMessages::test_uses_post_method`|`redundant`|Rota respx já é `post`. Equivalente: `tests/whatsapp/test_evolution_service.py::TestFetchMessages::test_sends_correct_payload`|
-|`TestFetchMessages::test_correct_url`|`redundant`|URL já é exigida pela rota respx. Equivalente: `tests/whatsapp/test_evolution_service.py::TestFetchMessages::test_sends_correct_payload`|
+|`TestFetchMessages::test_uses_post_method`|`redundant`|Rota respx já é `post`. Equivalente: `tests/whatsapp/test_evolution_service.py::TestFetchMessages::test_sends_correct_payload` **Removido (#54).**|
+|`TestFetchMessages::test_correct_url`|`redundant`|URL já é exigida pela rota respx. Equivalente: `tests/whatsapp/test_evolution_service.py::TestFetchMessages::test_sends_correct_payload` **Removido (#54).**|
 |`TestFetchMessages::test_sends_correct_payload`|`keep`|`where.key.remoteJid` e `limit` vindos de `offset`|
-|`TestFetchMessages::test_default_offset`|`wording`|Fixa o default incidental `limit == 20`|
-|`TestFetchMessages::test_returns_messages`|`wiring`|`result == response_data`: só repassa o JSON do mock|
-|`TestFetchContacts::test_uses_post_method`|`redundant`|Rota respx já é `post`. Equivalente: `tests/whatsapp/test_evolution_service.py::TestFetchContacts::test_sends_empty_json_body`|
-|`TestFetchContacts::test_correct_url`|`redundant`|URL já é exigida pela rota respx. Equivalente: `tests/whatsapp/test_evolution_service.py::TestFetchContacts::test_sends_empty_json_body`|
+|`TestFetchMessages::test_default_offset`|`wording`|Fixa o default incidental `limit == 20` **Removido (#54).**|
+|`TestFetchMessages::test_returns_messages`|`wiring`|`result == response_data`: só repassa o JSON do mock **Removido (#54).**|
+|`TestFetchContacts::test_uses_post_method`|`redundant`|Rota respx já é `post`. Equivalente: `tests/whatsapp/test_evolution_service.py::TestFetchContacts::test_sends_empty_json_body` **Removido (#54).**|
+|`TestFetchContacts::test_correct_url`|`redundant`|URL já é exigida pela rota respx. Equivalente: `tests/whatsapp/test_evolution_service.py::TestFetchContacts::test_sends_empty_json_body` **Removido (#54).**|
 |`TestFetchContacts::test_sends_empty_json_body`|`keep`|Evolution v2.3.7 exige POST com corpo `{}`|
-|`TestFetchContacts::test_returns_contacts`|`wiring`|`result == contacts`: só repassa o JSON do mock|
-|`TestSendTextMessage::test_uses_post_method`|`redundant`|Rota respx já é `post`. Equivalente: `tests/whatsapp/test_evolution_service.py::TestSendTextMessage::test_strips_jid_suffix`|
+|`TestFetchContacts::test_returns_contacts`|`wiring`|`result == contacts`: só repassa o JSON do mock **Removido (#54).**|
+|`TestSendTextMessage::test_uses_post_method`|`redundant`|Rota respx já é `post`. Equivalente: `tests/whatsapp/test_evolution_service.py::TestSendTextMessage::test_strips_jid_suffix` **Removido (#54).**|
 |`TestSendTextMessage::test_strips_jid_suffix`|`keep`|`number` vai só com dígitos, sem `@s.whatsapp.net`|
 |`TestSendTextMessage::test_sends_text_and_options`|`keep`|Texto enviado chega no payload (delay/presence junto)|
 |`TestSendTextMessage::test_raises_on_500`|`keep`|HTTP 500 no envio vira `EvolutionAPIError`|
@@ -639,7 +639,7 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_sync_raises_when_another_process_holds_the_lock`|`keep`|Sem o lock: `SyncAlreadyRunning`, sem importar nem unlock|
 
 #### `tests/whatsapp/test_history_sync_trigger.py`
-6 testes: 5 keep, 1 wording.
+6 testes: 5 keep, 1 wording. #54 não removeu: o teste `wording` foi reforçado e virou `keep`; restam 6.
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
 |`test_history_events_schedule_one_sync (×4 casos)`|`keep`|Cada evento de histórico agenda uma importação|
@@ -647,7 +647,7 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_second_event_is_ignored_while_a_sync_runs_and_allowed_after`|`keep`|No máximo uma importação por Instance, liberada depois|
 |`test_sync_for_unknown_instance_is_ignored`|`keep`|Instance desconhecida não dispara importação|
 |`test_failed_sync_is_logged_and_frees_the_instance`|`keep`|Falha da importação libera a Instance para nova tentativa|
-|`test_worker_skips_silently_when_another_process_is_importing`|`wording`|Só `consumer._syncing == set()` (atributo interno); passa igual se `SyncAlreadyRunning` cair no `except Exception`, já coberto pelo teste de falha|
+|`test_worker_skips_silently_when_another_process_is_importing`|`wording`|Só `consumer._syncing == set()` (atributo interno); passa igual se `SyncAlreadyRunning` cair no `except Exception`, já coberto pelo teste de falha **Mantido (#54):** reforçado e renomeado para `test_worker_skips_with_an_info_log_when_another_process_is_importing`; agora afirma o log informativo, a ausência de `logger.exception` e a Instance liberada. Passa a `keep`.|
 
 #### `tests/whatsapp/test_message_queue_service.py`
 7 testes: 7 keep.
@@ -662,13 +662,13 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_stop_waits_for_in_flight_deliveries_before_returning`|`keep`|Shutdown espera entregas em voo|
 
 #### `tests/whatsapp/test_realtime_bridge.py`
-5 testes: 4 keep, 1 redundant.
+5 testes: 4 keep, 1 redundant. #54 removeu o `redundant`; restam 4.
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
 |`test_save_message_to_database_handles_evolution_event_shape_and_publishes_realtime`|`keep`|Contact, Conversation, Message e evento ao vivo no shape do frontend|
 |`test_update_message_status_normalizes_and_publishes_realtime_event`|`keep`|Status `READ` normalizado, gravado e publicado|
 |`test_connection_update_normalizes_state_and_publishes_realtime_event`|`keep`|Estado `open` vira `connected` e é publicado|
-|`test_save_message_to_database_does_not_trigger_agent_when_instance_is_disabled`|`redundant`|Mesma asserção (`agent_enabled=False` ⇒ sem Turn nem envio). Equivalente: `tests/whatsapp/test_whatsapp_consumer.py::test_disabled_agent_does_not_answer`|
+|`test_save_message_to_database_does_not_trigger_agent_when_instance_is_disabled`|`redundant`|Mesma asserção (`agent_enabled=False` ⇒ sem Turn nem envio). Equivalente: `tests/whatsapp/test_whatsapp_consumer.py::test_disabled_agent_does_not_answer` **Removido (#54).**|
 |`test_save_message_to_database_triggers_agent_when_instance_is_enabled`|`keep`|Turn, envio da resposta e Summary disparados|
 
 #### `tests/whatsapp/test_recap_delivery_consumer.py`
@@ -718,34 +718,34 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_presence_failure_ends_the_loop_without_raising`|`keep`|Falha de presença não derruba o Turn nem insiste|
 
 #### `tests/whatsapp/test_whatsapp_actions.py`
-24 testes (o grep `def test_` conta 25 porque casa também a fixture `test_instance`): 10 keep, 12 stub, 2 wiring. Arquivo inteiro marcado `e2e` (pulado sem `RUN_E2E=1`, ver `tests/conftest.py::pytest_collection_modifyitems`), mas NÃO é `dead-e2e`: todos os métodos chamados (`fetch_chats`, `fetch_contacts`, `fetch_messages`, `get_instance_status`, `send_text_message`, `create_instance`, `delete_instance`) existem em `app/whatsapp/evolution_client.py` com a assinatura usada, e a Evolution 2.3.7 responde em `localhost:8081` (curl: 200 na raiz, 401 com apikey inválida). Só precisa de `EVOLUTION_API_KEY` válida no ambiente (sem `.env` no worktree e variável não definida no shell). [INFERÊNCIA, lendo o código: sem chave válida a fixture `test_instance` dá skip por 401 e os testes de "instância inválida" falham por 401 fora de [400,404,500].] Dentro do arquivo, as asserções vazias foram classificadas individualmente.
+24 testes (o grep `def test_` contava 25 porque casava também a fixture `test_instance`): 10 keep, 12 stub, 2 wiring. Decisão de #54: **mantido como e2e documentado e funcionando**, só leitura. Os 14 `stub`/`wiring` foram removidos; restam os 10 `keep`. O arquivo não cria nem apaga instância (o fixture que criava `integration-test-instance` saiu), não envia mensagem (o único `send_text_message` vai a uma instância inexistente e tem de falhar) e lê a instância real `Macedos` (sobrescrevível por `E2E_EVOLUTION_INSTANCE`). Rodado com `RUN_E2E=1` contra a Evolution local: 10 passed. Como rodar: docstring do arquivo e `docs/setup.md`.
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
 |`TestListChats::test_fetch_chats_returns_list`|`keep`|Contrato real: `findChats` devolve lista|
-|`TestListChats::test_fetch_chats_with_valid_instance`|`stub`|Só `assert result is not None`; já coberto pelo `returns_list`|
+|`TestListChats::test_fetch_chats_with_valid_instance`|`stub`|Só `assert result is not None`; já coberto pelo `returns_list` **Removido (#54).**|
 |`TestListChats::test_fetch_chats_invalid_instance_raises_error`|`keep`|Instância inexistente vira `EvolutionAPIError` real|
-|`TestListChats::test_fetch_chats_response_structure`|`stub`|`... or isinstance(chat, dict)` é tautologia; vazio se não há chats|
+|`TestListChats::test_fetch_chats_response_structure`|`stub`|`... or isinstance(chat, dict)` é tautologia; vazio se não há chats **Removido (#54).**|
 |`TestListContacts::test_fetch_contacts_returns_list`|`keep`|Contrato real: `findContacts` devolve lista|
-|`TestListContacts::test_fetch_contacts_with_valid_instance`|`stub`|Só `assert result is not None`; já coberto pelo `returns_list`|
+|`TestListContacts::test_fetch_contacts_with_valid_instance`|`stub`|Só `assert result is not None`; já coberto pelo `returns_list` **Removido (#54).**|
 |`TestListContacts::test_fetch_contacts_invalid_instance_raises_error`|`keep`|Instância inexistente vira `EvolutionAPIError` real|
-|`TestListContacts::test_fetch_contacts_response_structure`|`stub`|`isinstance(contact, dict)` só se houver contato; instância nova é vazia|
+|`TestListContacts::test_fetch_contacts_response_structure`|`stub`|`isinstance(contact, dict)` só se houver contato; instância nova é vazia **Removido (#54).**|
 |`TestReadMessages::test_fetch_messages_returns_dict`|`keep`|Contrato real: `findMessages` devolve dict|
-|`TestReadMessages::test_fetch_messages_with_pagination`|`stub`|Só `assert result is not None`; `page` é ignorado pelo client|
-|`TestReadMessages::test_fetch_messages_default_offset`|`stub`|Docstring fala em offset 20 mas só assere `is not None` (payload já em `test_evolution_service.py::TestFetchMessages::test_default_offset`)|
+|`TestReadMessages::test_fetch_messages_with_pagination`|`stub`|Só `assert result is not None`; `page` é ignorado pelo client **Removido (#54).**|
+|`TestReadMessages::test_fetch_messages_default_offset`|`stub`|Docstring fala em offset 20 mas só assere `is not None` (payload já em `test_evolution_service.py::TestFetchMessages::test_default_offset`) **Removido (#54).**|
 |`TestReadMessages::test_fetch_messages_invalid_instance_raises_error`|`keep`|Instância inexistente vira `EvolutionAPIError` real|
 |`TestConnectionStatus::test_get_instance_status_returns_dict`|`keep`|Contrato real: `connectionState` devolve dict|
 |`TestConnectionStatus::test_get_instance_status_contains_state`|`keep`|Resposta traz `instance` ou `state`|
-|`TestConnectionStatus::test_get_instance_status_valid_states`|`stub`|`state in valid_states or isinstance(state, str)` é tautologia|
+|`TestConnectionStatus::test_get_instance_status_valid_states`|`stub`|`state in valid_states or isinstance(state, str)` é tautologia **Removido (#54).**|
 |`TestConnectionStatus::test_get_instance_status_invalid_instance_raises_error`|`keep`|Instância inexistente vira `EvolutionAPIError` real|
-|`TestSendMessage::test_send_text_message_accepts_request`|`stub`|Engole status 500 (caso normal sem WhatsApp conectado); quase nunca assere nada|
+|`TestSendMessage::test_send_text_message_accepts_request`|`stub`|Engole status 500 (caso normal sem WhatsApp conectado); quase nunca assere nada **Removido (#54).**|
 |`TestSendMessage::test_send_text_message_invalid_instance_raises_error`|`keep`|Envio a instância inexistente levanta erro real|
-|`TestEvolutionAPIConnectivity::test_api_is_reachable`|`stub`|Só falha se a Evolution estiver fora do ar; testa ambiente, não código|
-|`TestEvolutionAPIConnectivity::test_api_base_url_configured`|`stub`|`"localhost:8081" in url or "http" in url` é tautologia|
-|`TestEvolutionAPIConnectivity::test_api_key_configured`|`wiring`|Confere só que `settings.EVOLUTION_API_KEY` chegou a `api_key`|
-|`TestEvolutionAPIConnectivity::test_headers_contain_apikey`|`wiring`|Cópia `api_key`→`headers["apikey"]`; header já enviado em `test_evolution_service.py::TestFetchChats::test_sends_apikey_header`|
-|`TestInstanceLifecycle::test_create_and_delete_instance`|`stub`|Só `is not None` nos dois retornos; erro HTTP já levantaria sozinho|
-|`TestInstanceLifecycle::test_create_duplicate_instance_handled`|`stub`|Passa se o segundo create tiver sucesso ou falhar com 4 códigos; sem asserção sobre o tratamento|
+|`TestEvolutionAPIConnectivity::test_api_is_reachable`|`stub`|Só falha se a Evolution estiver fora do ar; testa ambiente, não código **Removido (#54).**|
+|`TestEvolutionAPIConnectivity::test_api_base_url_configured`|`stub`|`"localhost:8081" in url or "http" in url` é tautologia **Removido (#54).**|
+|`TestEvolutionAPIConnectivity::test_api_key_configured`|`wiring`|Confere só que `settings.EVOLUTION_API_KEY` chegou a `api_key` **Removido (#54).**|
+|`TestEvolutionAPIConnectivity::test_headers_contain_apikey`|`wiring`|Cópia `api_key`→`headers["apikey"]`; header já enviado em `test_evolution_service.py::TestFetchChats::test_sends_apikey_header` **Removido (#54).**|
+|`TestInstanceLifecycle::test_create_and_delete_instance`|`stub`|Só `is not None` nos dois retornos; erro HTTP já levantaria sozinho **Removido (#54).**|
+|`TestInstanceLifecycle::test_create_duplicate_instance_handled`|`stub`|Passa se o segundo create tiver sucesso ou falhar com 4 códigos; sem asserção sobre o tratamento **Removido (#54).**|
 
 #### `tests/whatsapp/test_whatsapp_consumer.py`
 20 testes: 20 keep.

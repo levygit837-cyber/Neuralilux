@@ -261,7 +261,7 @@ async def test_disabled_agent_does_not_answer(db, world):
 
     await process(WhatsAppMessageConsumer(), upsert())
 
-    assert world["turns"] == [] and len(messages(db)) == 1
+    assert world["turns"] == [] and world["sent"] == [] and len(messages(db)) == 1
 
 
 # --- Concorrência ----------------------------------------------------------------------------------
