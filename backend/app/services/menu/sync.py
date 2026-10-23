@@ -7,8 +7,9 @@ from typing import Any, Optional
 import structlog
 from sqlalchemy.orm import Session
 
+from app.agent.clock import company_zone
 from app.models import BusinessType, Company, MenuCatalog, MenuCategory, MenuItem
-from app.services.menu.availability import item_is_available
+from app.services.menu.availability import capture_time, item_is_available
 from app.services.menu.snapshot import (
     DEFAULT_MENU_JSON_PATH,
     MACEDOS_CATALOG_NAME,
@@ -64,6 +65,7 @@ def sync_macedos_menu_from_json(
 ) -> MenuCatalog:
     payload = load_menu_payload(json_path)
     company = _ensure_macedos_company(db, payload)
+    captured_local = capture_time(payload, company_zone(company))
 
     catalog = (
         db.query(MenuCatalog)
@@ -111,7 +113,7 @@ def sync_macedos_menu_from_json(
                     description=(item.get("description") or "").strip() or None,
                     price=parse_price(item.get("price") or item.get("numeric_price") or item.get("base_price")),
                     image_url=(item.get("image_url") or item.get("cover_photo") or "").strip() or None,
-                    is_available=item_is_available(item),
+                    is_available=item_is_available(item, captured_local),
                     sort_order=int(item.get("view_order") or item_index),
                     raw_payload=item,
                 )

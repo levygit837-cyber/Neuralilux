@@ -12,10 +12,10 @@ from __future__ import annotations
 import json
 import re
 import unicodedata
+from datetime import datetime
 from typing import Any
 
 from app.agent import clock
-from app.agent.clock import company_zone
 from app.agent.contracts import Tool, ToolContext, ToolResult
 from app.models import Company, MenuCatalog, MenuCategory, MenuItem
 from app.services.menu.availability import schedule_note
@@ -140,25 +140,29 @@ async def _buscar_cardapio(ctx: ToolContext, args: dict[str, Any]) -> ToolResult
         return ToolResult(content=json.dumps(data, ensure_ascii=False))
 
     company = ctx.db.get(Company, ctx.company_id)
-    now_local = clock.utc_now().astimezone(company_zone(company)) if company else None
+    now_local = clock.utc_now().astimezone(clock.company_zone(company)) if company else None
     found = _rank(rows, query_tokens, category_tokens)
     data.update(
         {
             "total_encontrado": len(found),
-            "itens": [
-                {
-                    "id": item.id,
-                    "nome": item.name,
-                    "preco": float(item.price),
-                    "descricao": _short(item.description),
-                    "categoria": category.name,
-                    **({"disponibilidade": note} if now_local and (note := schedule_note(item.raw_payload, now_local)) else {}),
-                }
-                for item, category in found[:MAX_RESULTS]
-            ],
+            "itens": [_item_entry(item, category, now_local) for item, category in found[:MAX_RESULTS]],
         }
     )
     return ToolResult(content=json.dumps(data, ensure_ascii=False))
+
+
+def _item_entry(item: MenuItem, category: MenuCategory, now_local: datetime | None) -> dict[str, Any]:
+    entry = {
+        "id": item.id,
+        "nome": item.name,
+        "preco": float(item.price),
+        "descricao": _short(item.description),
+        "categoria": category.name,
+    }
+    note = schedule_note(item.raw_payload, now_local) if now_local else None
+    if note:
+        entry["disponibilidade"] = note
+    return entry
 
 
 def buscar_cardapio_tool() -> Tool:

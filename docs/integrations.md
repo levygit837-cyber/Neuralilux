@@ -59,7 +59,7 @@ curl -s -X PATCH "http://localhost:8000/api/v1/menu/items/$ITEM_ID" \
 
 A Tool `buscar_cardapio` só devolve itens disponíveis, então a mudança vale já no próximo Turn.
 
-Item com horário próprio (ex.: pizza só à noite) não é marcado indisponível fora da janela. O sync do cardápio (`app/services/menu/availability.py`) grava como disponível o item que vem `is_available=false` mas tem janelas em `items_availability` (`weekday` 1 = domingo a 7 = sábado; fim antes do início cruza a meia-noite). A janela é avaliada na hora da busca: fora dela o item volta com `disponibilidade` ("Fora do horário agora; hoje só das 18:00 às 23:59.") e o Agent diz que existe e quando pode ser pedido. Para tirar um item do cardápio de verdade, use `is_available: false` sem janelas.
+Item com horário próprio (ex.: pizza só à noite) não some fora da janela. O JSON do cardápio traz as janelas em `items_availability` (`weekday` 1 = domingo a 7 = sábado, `period_end` inclusivo; fim antes do início cruza a meia-noite, as mesmas regras de `business_hours`) e marca `is_available=false` no item que estava fora da janela na hora da captura (`source.fetched_at_utc`). O sync (`app/services/menu/availability.py`) lê esse horário no fuso da Company: se a captura caiu fora da janela, o `false` é só do horário e o item é gravado disponível; se caiu dentro (item pausado ou esgotado) ou o JSON não traz o horário da captura, o `false` vale. Na busca, fora da janela o item volta com `disponibilidade` ("Fora do horário agora; disponível a partir de hoje às 18:00.") e o Agent diz que existe e quando pode ser pedido.
 
 ### Eventos para o sistema de gestão
 

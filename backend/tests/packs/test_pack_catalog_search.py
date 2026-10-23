@@ -1,6 +1,10 @@
+import json
+from datetime import datetime, timedelta, timezone
+
 import pytest
 from pack_helpers import call, make_world, payload, tool_named
 
+from app.models import MenuItem
 from app.packs.catalog_orders.pack import CatalogOrdersPack
 
 pytestmark = pytest.mark.asyncio
@@ -194,52 +198,82 @@ async def test_query_of_only_filler_words_is_an_empty_search(world, buscar):
 NIGHT_ONLY = [{"weekday": d, "period_start": "18:00", "period_end": "22:59"} for d in range(1, 8)]
 
 
-def _night_pizza(world):
-    item = world.items["Pizza Toscana"]
-    item.raw_payload = {"items_availability": NIGHT_ONLY}
+def _scheduled_pizza(world, windows=NIGHT_ONLY):
+    world.items["Pizza Toscana"].raw_payload = {"items_availability": windows}
     world.db.commit()
-    return item
 
 
-def _at(monkeypatch, hour):
-    from datetime import datetime, timezone
-
+def _at(monkeypatch, local: datetime):
     from app.agent import clock
 
-    # 2026-10-22 é quinta; America/Sao_Paulo = UTC-3
-    monkeypatch.setattr(clock, "utc_now", lambda: datetime(2026, 10, 22, hour + 3, 0, tzinfo=timezone.utc))
+    # A Company do world está em America/Fortaleza (UTC-3, sem horário de verão).
+    monkeypatch.setattr(clock, "utc_now", lambda: local.replace(tzinfo=timezone.utc) + timedelta(hours=3))
 
 
-async def test_item_com_horario_proprio_aparece_com_aviso_fora_da_janela(world, buscar, monkeypatch):
-    _night_pizza(world)
-    _at(monkeypatch, 14)
-    item = next(i for i in payload(await call(buscar, world.ctx, consulta="pizza toscana"))["itens"])
-    assert "Fora do horário" in item["disponibilidade"]
-    assert "18:00 às 22:59" in item["disponibilidade"]
+async def _toscana(world, buscar):
+    return payload(await call(buscar, world.ctx, consulta="pizza toscana"))["itens"][0]
 
 
-async def test_item_com_horario_proprio_sem_aviso_dentro_da_janela(world, buscar, monkeypatch):
-    _night_pizza(world)
-    _at(monkeypatch, 20)
-    item = payload(await call(buscar, world.ctx, consulta="pizza toscana"))["itens"][0]
-    assert "disponibilidade" not in item
+THURSDAY = datetime(2026, 10, 22)
 
 
-async def test_sync_nao_grava_indisponivel_o_item_so_fora_do_horario():
-    from app.services.menu.availability import item_is_available
-
-    scheduled = {"is_available": False, "status": "UNAVAILABLE", "items_availability": NIGHT_ONLY}
-    assert item_is_available(scheduled) is True
-    assert item_is_available({"is_available": False}) is False
-    assert item_is_available({"is_available": True}) is True
+async def test_item_outside_its_own_window_comes_with_when_it_is_sold(world, buscar, monkeypatch):
+    _scheduled_pizza(world)
+    _at(monkeypatch, THURSDAY.replace(hour=14))
+    assert (await _toscana(world, buscar))["disponibilidade"] == "Fora do horário agora; disponível a partir de hoje às 18:00."
 
 
-async def test_janela_que_cruza_a_meia_noite_vale_na_madrugada_seguinte():
-    from datetime import datetime
+async def test_item_inside_its_window_has_no_notice_up_to_the_last_minute(world, buscar, monkeypatch):
+    _scheduled_pizza(world)
+    _at(monkeypatch, THURSDAY.replace(hour=22, minute=59))
+    assert "disponibilidade" not in await _toscana(world, buscar)
 
-    from app.services.menu.availability import schedule_note
 
-    # weekday 4 = quarta (1 = domingo); 2026-10-22 é quinta
-    late_wednesday = {"items_availability": [{"weekday": 4, "period_start": "18:00", "period_end": "02:00"}]}
-    assert schedule_note(late_wednesday, datetime(2026, 10, 22, 1, 0)) is None
-    assert schedule_note(late_wednesday, datetime(2026, 10, 22, 3, 0)) == "Não é vendido hoje."
+async def test_after_tonight_window_the_notice_points_to_tomorrow(world, buscar, monkeypatch):
+    _scheduled_pizza(world)
+    _at(monkeypatch, THURSDAY.replace(hour=23))
+    assert (await _toscana(world, buscar))["disponibilidade"].endswith("a partir de amanhã às 18:00.")
+
+
+async def test_window_crossing_midnight_still_sells_in_the_early_hours(world, buscar, monkeypatch):
+    # weekday 4 = quarta (1 = domingo): quarta 18:00 até quinta 02:00.
+    _scheduled_pizza(world, [{"weekday": 4, "period_start": "18:00", "period_end": "02:00"}])
+    _at(monkeypatch, THURSDAY.replace(hour=1, minute=30))
+    assert "disponibilidade" not in await _toscana(world, buscar)
+    _at(monkeypatch, THURSDAY.replace(hour=3))
+    assert (await _toscana(world, buscar))["disponibilidade"].endswith("a partir de quarta-feira às 18:00.")
+
+
+def _menu_json(tmp_path, items, fetched_at="2026-03-27T16:56:48+00:00"):  # sexta 13:56 em São Paulo
+    path = tmp_path / "cardapio.json"
+    path.write_text(json.dumps({"source": {"fetched_at_utc": fetched_at}, "categories": [{"id": 1, "name": "X", "items": items}]}))
+    return path
+
+
+def _menu_item(item_id, *, available, windows):
+    return {"id": item_id, "name": f"Item {item_id}", "price": "10,00", "is_available": available, "items_availability": windows}
+
+
+async def test_sync_keeps_items_that_were_only_outside_their_window_at_capture(db, tmp_path):
+    from app.services.menu.sync import sync_macedos_menu_from_json
+
+    all_day = [{"weekday": d, "period_start": "00:00", "period_end": "23:59"} for d in range(1, 8)]
+    path = _menu_json(
+        tmp_path,
+        [
+            _menu_item(1, available=False, windows=NIGHT_ONLY),  # pizza capturada de dia
+            _menu_item(2, available=False, windows=all_day),  # pausado com a captura dentro da janela
+            _menu_item(3, available=False, windows=[]),
+            _menu_item(4, available=True, windows=all_day),
+        ],
+    )
+    catalog = sync_macedos_menu_from_json(db, path)
+    saved = {i.external_id: i.is_available for i in db.query(MenuItem).filter(MenuItem.catalog_id == catalog.id)}
+    assert saved == {"1": True, "2": False, "3": False, "4": True}
+
+
+async def test_sync_trusts_the_flag_when_capture_time_is_unknown(db, tmp_path):
+    from app.services.menu.sync import sync_macedos_menu_from_json
+
+    catalog = sync_macedos_menu_from_json(db, _menu_json(tmp_path, [_menu_item(1, available=False, windows=NIGHT_ONLY)], fetched_at=None))
+    assert db.query(MenuItem).filter(MenuItem.catalog_id == catalog.id).one().is_available is False

@@ -8,10 +8,12 @@ from decimal import Decimal, InvalidOperation
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 import structlog
 
-from app.services.menu.availability import item_is_available
+from app.agent.clock import DEFAULT_TIMEZONE
+from app.services.menu.availability import capture_time, item_is_available
 
 
 logger = structlog.get_logger()
@@ -101,6 +103,8 @@ def load_menu_payload(json_path: Path = DEFAULT_MENU_JSON_PATH) -> dict[str, Any
 
 def build_menu_snapshot_from_json(json_path: Path = DEFAULT_MENU_JSON_PATH) -> MenuSnapshot:
     payload = load_menu_payload(json_path)
+    # Snapshot sem Company (fallback do JSON): o fuso é o padrão, o mesmo da Macedos.
+    captured_local = capture_time(payload, ZoneInfo(DEFAULT_TIMEZONE))
     categories: list[MenuCategoryRecord] = []
     items: list[MenuItemRecord] = []
 
@@ -126,7 +130,7 @@ def build_menu_snapshot_from_json(json_path: Path = DEFAULT_MENU_JSON_PATH) -> M
                     description=(item.get("description") or "").strip() or None,
                     price=parse_price(item.get("price") or item.get("numeric_price") or item.get("base_price")),
                     image_url=(item.get("image_url") or item.get("cover_photo") or "").strip() or None,
-                    is_available=item_is_available(item),
+                    is_available=item_is_available(item, captured_local),
                     sort_order=int(item.get("view_order") or item_index),
                 )
             )
