@@ -2,6 +2,7 @@
 import uuid
 
 import pytest
+import pytest_asyncio
 from sqlalchemy.orm import sessionmaker
 
 from app.realtime import socket as socket_module
@@ -12,8 +13,8 @@ pytestmark = pytest.mark.asyncio
 OWNER, OTHER, ADMIN = "dono@example.com", "outro@example.com", "admin@example.com"
 
 
-@pytest.fixture
-def world(client, db, monkeypatch):
+@pytest_asyncio.fixture
+async def world(client, db, monkeypatch):
     """Duas Instances de donos diferentes, cada uma com uma Conversation, e um superusuário."""
     monkeypatch.setattr(socket_module, "SessionLocal", sessionmaker(bind=db.get_bind()))
     connected: list[str] = []
@@ -32,7 +33,7 @@ def world(client, db, monkeypatch):
     }
     # O manager do Socket.IO é um singleton do módulo: não deixa conexões ou salas para o próximo teste.
     for sid in connected:
-        socket_module.chat_socket_service.server.manager.disconnect(sid, "/")
+        await socket_module.chat_socket_service.server.manager.disconnect(sid, "/")
 
 
 async def _connect(world, monkeypatch, email: str) -> tuple[str, object]:

@@ -69,7 +69,7 @@ async def list_contacts(
     )
 
     return PaginatedContacts(
-        items=[ContactResponse.from_orm(c) for c in contacts],
+        items=[ContactResponse.model_validate(c) for c in contacts],
         total=total,
         skip=skip,
         limit=limit,

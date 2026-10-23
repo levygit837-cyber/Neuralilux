@@ -6,7 +6,7 @@ Usa o cliente da Evolution API para buscar e enviar Messages.
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import structlog
 
 from app.api.access import get_instance_for_user, instance_ids_for_user
@@ -87,7 +87,7 @@ async def list_conversations(
     )
 
     return PaginatedConversations(
-        items=[ConversationResponse.from_orm(c) for c in conversations],
+        items=[ConversationResponse.model_validate(c) for c in conversations],
         total=total,
         skip=skip,
         limit=limit,
@@ -135,7 +135,7 @@ async def get_conversation_messages(
     )
 
     return PaginatedMessages(
-        items=[MessageResponse.from_orm(m) for m in messages],
+        items=[MessageResponse.model_validate(m) for m in messages],
         total=total,
         skip=skip,
         limit=limit,
@@ -209,12 +209,12 @@ async def send_conversation_message(
             direction="outgoing",
             status="sent",
             is_from_me=True,
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
         )
         db.add(db_message)
 
         # Update conversation last message info
-        conversation.last_message_at = datetime.utcnow()
+        conversation.last_message_at = datetime.now(timezone.utc)
         conversation.last_message_preview = request.content[:200] if request.content else None
         db.commit()
         # Um Attendant escreveu pelo painel: reinicia o timeout do Handoff.

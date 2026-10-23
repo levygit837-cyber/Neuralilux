@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Any, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.agent.clock import DEFAULT_TIMEZONE
 from app.models.company import DEFAULT_SESSION_TIMEOUT_MINUTES
@@ -143,8 +143,7 @@ class CompanyResponse(BaseModel):
     created_at: datetime
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class AgentSettings(BaseModel):

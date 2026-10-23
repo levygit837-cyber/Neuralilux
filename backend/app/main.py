@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -17,12 +19,30 @@ configure_logging()
 
 logger = structlog.get_logger()
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    logger.info("Starting Neuralilux API", environment=settings.ENVIRONMENT)
+    await message_queue_service.connect()
+    await realtime_event_bus.start(chat_socket_service.emit_realtime_event)
+    try:
+        await evolution_realtime_service.start()
+    except Exception as exc:  # pragma: no cover - defensive startup logging
+        logger.error("Failed to start Evolution realtime bridge", error=str(exc))
+    yield
+    logger.info("Shutting down Neuralilux API")
+    await evolution_realtime_service.stop()
+    await realtime_event_bus.stop()
+    await message_queue_service.disconnect()
+
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
     description="Sistema de automação de conversas WhatsApp com IA",
     docs_url="/docs" if settings.ENVIRONMENT == "development" else None,
     redoc_url="/redoc" if settings.ENVIRONMENT == "development" else None,
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -36,25 +56,6 @@ app.add_middleware(
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 app.include_router(api_router, prefix="/api/v1")
-
-
-@app.on_event("startup")
-async def startup_event():
-    logger.info("Starting Neuralilux API", environment=settings.ENVIRONMENT)
-    await message_queue_service.connect()
-    await realtime_event_bus.start(chat_socket_service.emit_realtime_event)
-    try:
-        await evolution_realtime_service.start()
-    except Exception as exc:  # pragma: no cover - defensive startup logging
-        logger.error("Failed to start Evolution realtime bridge", error=str(exc))
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    logger.info("Shutting down Neuralilux API")
-    await evolution_realtime_service.stop()
-    await realtime_event_bus.stop()
-    await message_queue_service.disconnect()
 
 
 @app.get("/health")
