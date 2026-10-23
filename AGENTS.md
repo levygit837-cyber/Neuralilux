@@ -14,6 +14,7 @@ Agente de atendimento por WhatsApp com IA (FastAPI + Next.js + Evolution API). V
 - Testes backend: `cd backend && rm -f test.db && env -u DATABASE_URL ./venv/bin/python -m pytest tests --ignore=tests/e2e -q; rm -f test.db`
 - Infra local: `cp docker-compose.example.yml docker-compose.yml && docker compose --env-file backend/.env up -d` (precisa de `EVOLUTION_API_KEY` e `EVOLUTION_WEBHOOK_TOKEN` no `backend/.env`).
 - Migrações: `cd backend && ./venv/bin/alembic upgrade head` (cadeia fixa em `docs/agents/migrations.md`).
+- Worktrees (caminhos absolutos, `npm ci` por worktree, conferir o checkout principal antes de reportar): `docs/agents/worktrees.md`.
 - Seed de dev: `cd backend && SEED_DEV_SUPERUSER=1 ./venv/bin/python scripts/seed_data.py`.
 - API e worker: `cd backend && ./venv/bin/uvicorn app.main:socket_app --host 0.0.0.0 --port 8000 --reload` e `./venv/bin/python scripts/run_worker.py`.
 - Re-criptografar chaves de Gateway (HKDF): `cd backend && ./venv/bin/python scripts/reencrypt_gateway_secrets.py`. Passo único obrigatório ao atualizar um banco existente, antes de subir a app; idempotente.
