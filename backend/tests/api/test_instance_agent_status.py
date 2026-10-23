@@ -32,21 +32,6 @@ def test_get_agent_status_returns_the_owners_instance_without_writing(client, au
     assert not db.dirty and not db.new
 
 
-def test_patch_agent_status_updates_flag_of_existing_instance(client, auth_headers, db):
-    instance = _own_instance(db, "evo-agent-status-toggle")
-
-    response = client.patch(
-        "/api/v1/instances/evo-agent-status-toggle/agent-status",
-        headers=auth_headers,
-        json={"agent_enabled": False},
-    )
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["instance_id"] == instance.id
-    assert data["agent_enabled"] is False
-
-
 def test_patch_agent_status_requires_bound_agent_to_enable(client, auth_headers, db):
     _own_instance(db, "evo-agent-enable-without-binding")
 

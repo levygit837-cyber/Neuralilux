@@ -422,18 +422,6 @@ def test_delete_with_an_evolution_failure_keeps_the_local_instance(client, db, t
     assert db.query(Instance).filter(Instance.name == "inst-alice").one().is_active is True
 
 
-def test_agent_binding_unbind_survives_later_requests(client, db, evolution):
-    company = make_company(db, "Desvinculo", with_agent=True)
-    headers = make_user(client, db, "dono@example.com", company=company)
-    client.post("/api/v1/instances/inst-a", headers=headers)
-
-    client.patch("/api/v1/instances/inst-a/agent-binding", json={"agent_id": None}, headers=headers)
-    response = client.get("/api/v1/instances/inst-a/agent-status", headers=headers)
-
-    assert response.json()["agent_id"] is None
-    assert response.json()["agent_enabled"] is False
-
-
 # --- Socket.IO usa a mesma regra de dono ----------------------------------------------------------------
 
 

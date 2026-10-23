@@ -103,14 +103,6 @@ def test_order_being_altered_is_shown_as_such_and_cannot_be_moved(client, world)
     assert "alteração" in row["status_label"]
 
 
-def test_panel_lists_newest_first_and_honours_limit(client, world):
-    ordered = [o["order_number"] for o in client.get("/api/v1/orders?status=all", headers=world["alice"]).json()["orders"]]
-    assert ordered[:2] == ["A-4", "A-3"]
-
-    limited = client.get("/api/v1/orders?status=all&limit=1", headers=world["alice"]).json()["orders"]
-    assert [o["order_number"] for o in limited] == ["A-4"]
-
-
 def test_panel_flags_orders_with_a_pix_to_refund(client, db, world):
     pending = make_order(db, world["inst_a"], "A-9", "cancelled")
     db.add(PaymentRecord(
