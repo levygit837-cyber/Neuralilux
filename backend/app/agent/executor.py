@@ -1,7 +1,7 @@
 """Executa um Turn para uma Message recebida do Contact.
 
 Ordem: gate de Handoff lido do banco, contexto (Summary + Recent Window da Session atual, hora local), Gateway
-do `whatsapp_agent`, loop com as Tools dos Packs da Company, formatação para o
+do `whatsapp_agent` (system estável; o que muda por Turn vai no bloco da última mensagem `user`), loop com as Tools dos Packs da Company, formatação para o
 WhatsApp e nova leitura do Handoff antes de devolver a resposta. Quem chama envia
 `reply_text` (se houver) e depois agenda `refresh_summary` fora do caminho da resposta.
 """
@@ -26,6 +26,7 @@ from app.agent.memory import build_context, maybe_refresh_summary
 from app.agent.prompts import build_system_prompt
 from app.agent.sessions import previous_message_at
 from app.agent.tools import ToolRegistry
+from app.agent.turn_context import attach_turn_context, build_turn_context
 from app.core import database
 from app.llm.registry import resolve as resolve_gateway
 from app.models import Company, Contact, Conversation, Instance
@@ -47,6 +48,9 @@ class CorePack:
         return core_tools()
 
     def system_prompt_section(self, ctx: ToolContext) -> str:
+        return ""
+
+    def turn_context(self, ctx: ToolContext) -> str:
         return ""
 
 
@@ -110,9 +114,9 @@ async def handle_incoming(
         client, model, effort = resolve_gateway(AGENT_TYPE)
         now = utc_now()
         when = time_context(company, now, previous_message_at(db, conversation.id, message_ids, deferred_ids), conversation.session_started_at)
-        system = build_system_prompt(
-            company_name=company.name, packs=packs, ctx=ctx, summary=summary, time_context=when
-        )
+        system = build_system_prompt(company_name=company.name, packs=packs, ctx=ctx)
+        block = build_turn_context(time_context=when, packs=packs, ctx=ctx, summary=summary)
+        history = attach_turn_context(history, block)
         agent = company_agent(db, company.id)
         result = await run_turn(
             client,

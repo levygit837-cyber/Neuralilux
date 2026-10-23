@@ -1,5 +1,6 @@
 """ToolRegistry: schemas no formato Messages e execução de tool_use."""
 
+import json
 from dataclasses import dataclass
 from unittest.mock import MagicMock
 
@@ -36,6 +37,9 @@ class FakePack:
     def system_prompt_section(self, ctx: ToolContext) -> str:
         return ""
 
+    def turn_context(self, ctx: ToolContext) -> str:
+        return ""
+
 
 def _tool(name, handler, schema=ITEM_SCHEMA, description="desc"):
     return Tool(name=name, description=description, input_schema=schema, handler=handler)
@@ -61,6 +65,16 @@ def test_schemas_no_formato_messages_de_todos_os_packs():
         {"name": "info_empresa", "description": "Dados da Company", "input_schema": {"type": "object"}},
         {"name": "buscar_cardapio", "description": "Busca itens", "input_schema": ITEM_SCHEMA},
     ]
+
+
+def test_schemas_serializam_igual_independente_da_ordem_das_chaves():
+    one = {"type": "object", "properties": {"b": {"type": "string"}, "a": {"type": "integer"}}, "required": ["a"]}
+    other = {"required": ["a"], "properties": {"a": {"type": "integer"}, "b": {"type": "string"}}, "type": "object"}
+
+    first = ToolRegistry.from_packs([FakePack("p", [_tool("x", _echo, one)])]).schemas()
+    second = ToolRegistry.from_packs([FakePack("p", [_tool("x", _echo, other)])]).schemas()
+
+    assert json.dumps(first) == json.dumps(second)
 
 
 def test_nome_de_tool_duplicado_entre_packs_e_recusado():

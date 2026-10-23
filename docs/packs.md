@@ -37,7 +37,8 @@ class Tool:
 class Pack(Protocol):
     name: str
     def tools(self) -> list[Tool]: ...
-    def system_prompt_section(self, ctx: ToolContext) -> str: ...
+    def system_prompt_section(self, ctx: ToolContext) -> str: ...  # estável por Company, vai no system
+    def turn_context(self, ctx: ToolContext) -> str: ...            # muda por Turn, vai no bloco do Turn ("" se não há)
 
 # Opcional, fora do Protocol: define-se só se o ramo tem pendência ao trocar de Session.
 #     def on_session_start(self, db: Session, conversation: Conversation) -> None: ...
@@ -60,7 +61,8 @@ Regras que o `ToolRegistry` (`app/agent/tools.py`) impõe:
 - `on_session_start` é **opcional**: o núcleo só o chama se o Pack o definir (`getattr`). Roda quando uma Session nova substitui a anterior ([ADR 0007](adr/0007-session-de-atendimento.md)), na transação que grava a Message, sem `commit`. Use para tratar o que ficou pendente do ramo; o Pack de pedidos marca o Order aberto como `abandoned`. Sem pendência, não defina o método.
 - `on_reply_delivered` também é **opcional**. Roda depois de a resposta do Turn `turn_id` ter sido enviada ao Contact, nunca antes, e não roda se o Turn falhou, ficou sem resposta, teve a resposta descartada ou o envio falhou. Use quando o ramo precisa saber que o Contact viu algo; o Pack de pedidos só dá a Recap por apresentada aqui.
 - `turn_state` é rascunho por Turn: cada Pack guarda o que precisar sob a chave do próprio nome (`ctx.turn_state["catalog_orders"]`), sem colidir com outro Pack e sem o núcleo conhecer o conteúdo (ADR 0004). O `turn_id` e o `turn_state` são recriados a cada Turn; o que precisa sobreviver a ele vai para o banco.
-- A `system_prompt_section` descreve o fluxo e as regras do ramo, citando as Tools pelo nome. Ela é anexada ao prompt base; não repita o que o prompt base já diz.
+- A `system_prompt_section` descreve o fluxo e as regras do ramo, citando as Tools pelo nome. Ela é anexada ao prompt base; não repita o que o prompt base já diz. Tem de ser **estável**: o mesmo texto, byte a byte, entre Turns da mesma Company, senão o prefix cache do servidor de inferência não vale.
+- O que muda de um Turn para o outro (nota de pedido abandonado, estado do dia) vai em `turn_context(ctx)`, que o executor põe no bloco `<contexto_do_atendimento>` da última mensagem `user` ([Turn Context](agent.md#turn-context)). Devolva `""` quando não há nada. O Pack de pedidos devolve ali a nota do pedido abandonado.
 
 ## Exemplo: Pack de academia
 
@@ -127,6 +129,9 @@ class GymPack:
 
     def system_prompt_section(self, ctx: ToolContext) -> str:
         return PROMPT_SECTION
+
+    def turn_context(self, ctx: ToolContext) -> str:
+        return ""
 ```
 
 ### Ligar o Pack a um Business Type

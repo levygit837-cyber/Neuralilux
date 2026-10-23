@@ -11,12 +11,35 @@ Como o Agent de uma Company executa um Turn. Termos conforme o [glossário](../C
 3. Monta o `ToolContext` e emite `thinking_start`.
 4. Monta o contexto: Summary + Recent Window da Session atual, com a Message atual sempre no fim.
 5. Resolve o Gateway do tipo `whatsapp_agent` (`app/llm/registry.py`): atribuição própria, senão `default`, senão `LLMNotConfiguredError`.
-6. Monta o system prompt (`prompts.py`): base genérica + data/hora local da Company e há quanto tempo foi a Message anterior (`clock.py`) + seção de cada Pack + Summary.
+6. Monta o system prompt (`prompts.py`): base genérica + seção estável de cada Pack. Só conteúdo estável por Company/Pack, idêntico byte a byte entre Turns. O que muda por Turn vai no [Turn Context](#turn-context), na última mensagem `user`.
 7. Busca o Agent ativo da Company (`company_service.company_agent`) e roda `loop.run_turn` com as Tools do núcleo e do Pack do Business Type, passando `max_tokens` e `temperature` desse Agent (sem Agent: 1024 e a temperatura do Gateway).
 8. Emite `thinking_end` e relê o Handoff. Se um Attendant assumiu enquanto o modelo respondia, a resposta é descartada, exceto quando foi a própria Tool de Handoff que encerrou o Turn.
 9. Converte o markdown para WhatsApp (`formatting.to_whatsapp`) e devolve o `TurnResult`.
 
 Qualquer exceção no Turn faz `rollback` e devolve a resposta fixa `FALLBACK_REPLY`; o Contact nunca fica sem retorno por uma falha interna.
+
+## Turn Context
+
+O servidor de inferência só reaproveita o prefixo do prompt (prefix cache) se ele for idêntico desde o primeiro token, e as Tools entram no fim do system no template do LFM2.5. Por isso o system e as Tools não mudam entre Turns da mesma Company ([issue #42](https://github.com/levygit837-cyber/Neuralilux/issues/42)). O que muda vai num bloco delimitado no início da última mensagem `user` (`app/agent/turn_context.py`):
+
+```text
+<contexto_do_atendimento>
+Agora é quinta-feira, 22/10/2026, 20:30 ... (clock.py)
+
+<Pack.turn_context de cada Pack, ex.: nota do pedido abandonado>
+
+Resumo da conversa até aqui (mensagens antigas):
+<Summary>
+</contexto_do_atendimento>
+
+<texto do Contact>
+```
+
+- Ponto de extensão do núcleo: `turn_context.build_turn_context` (uma seção nova, ex.: estado aberto/fechado da Company). Ponto de extensão do ramo: `Pack.turn_context(ctx)`. O texto estável de instruções continua em `system_prompt_section`.
+- O bloco fica na mensagem do Turn, então é o mesmo em todos os passos do loop.
+- O texto do Contact (e os `tool_result`) passa por `neutralize`: `<contexto_do_atendimento` e `</contexto_do_atendimento`, em qualquer caixa e espaçamento, viram `‹...`. O Contact não consegue abrir nem fechar o bloco.
+- `ToolRegistry.schemas()` devolve as Tools na ordem dos Packs, com as chaves de cada schema em ordem alfabética.
+- Limite conhecido: a Recent Window desliza uma Message por vez depois de 20 Messages. Então o histórico muda a cada Turn e o cache cobre só system + Tools.
 
 ## O loop
 

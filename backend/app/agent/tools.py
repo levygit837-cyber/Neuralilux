@@ -8,6 +8,7 @@ genérica e o erro real vai para o log.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
@@ -16,6 +17,7 @@ import structlog
 from jsonschema import Draft202012Validator
 
 from app.agent.contracts import Pack, Tool, ToolContext, ToolResultBlock, ToolUseBlock
+from app.agent.turn_context import neutralize
 
 logger = structlog.get_logger()
 
@@ -40,22 +42,22 @@ class ToolRegistry:
     def __init__(self, tools: Iterable[Tool]) -> None:
         self._tools: dict[str, Tool] = {}
         self._validators: dict[str, Draft202012Validator] = {}
+        self._schemas: list[dict[str, Any]] = []
         for tool in tools:
             if tool.name in self._tools:
                 raise ValueError(f"Tool duplicada entre Packs: {tool.name}")
             Draft202012Validator.check_schema(tool.input_schema)
             self._tools[tool.name] = tool
             self._validators[tool.name] = Draft202012Validator(tool.input_schema)
+            self._schemas.append(_canonical(tool))
 
     @classmethod
     def from_packs(cls, packs: Iterable[Pack]) -> ToolRegistry:
         return cls(tool for pack in packs for tool in pack.tools())
 
     def schemas(self) -> list[dict[str, Any]]:
-        return [
-            {"name": tool.name, "description": tool.description, "input_schema": tool.input_schema}
-            for tool in self._tools.values()
-        ]
+        """Schemas na ordem dos Packs, com as chaves em ordem alfabética: o mesmo JSON a cada Turn (prefix cache)."""
+        return self._schemas
 
     async def execute(self, ctx: ToolContext, block: ToolUseBlock) -> ToolCall:
         name = block["name"]
@@ -82,10 +84,15 @@ class ToolRegistry:
             )
             return _error(block, GENERIC_TOOL_ERROR)
 
-        result: ToolResultBlock = {"type": "tool_result", "tool_use_id": block["id"], "content": outcome.content}
+        result: ToolResultBlock = {"type": "tool_result", "tool_use_id": block["id"], "content": neutralize(outcome.content)}
         if outcome.is_error:
             result["is_error"] = True
         return ToolCall(name=name, input=args, result=result, ends_turn=outcome.ends_turn)
+
+
+def _canonical(tool: Tool) -> dict[str, Any]:
+    schema = {"name": tool.name, "description": tool.description, "input_schema": tool.input_schema}
+    return json.loads(json.dumps(schema, sort_keys=True, ensure_ascii=False))
 
 
 def _describe(problem: Any) -> str:
