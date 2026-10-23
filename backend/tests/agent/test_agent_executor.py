@@ -98,12 +98,13 @@ async def test_conversation_em_handoff_nao_responde_nem_chama_o_modelo(turn_setu
 @pytest.mark.asyncio
 async def test_turn_com_tool_usa_a_memoria_e_devolve_resposta_formatada(turn_setup, agent):
     db, conversation, contact, instance = turn_setup
-    old = _message(db, conversation, "Quero uma calabresa", "incoming", minutes_ago=30)
+    earlier = _message(db, conversation, "Oi", "incoming", minutes_ago=60)
+    _message(db, conversation, "Quero uma calabresa", "incoming", minutes_ago=30)
     db.add(
         ConversationMemorySummary(
             conversation_id=conversation.id,
             summary="Cliente já pediu calabresa antes.",
-            covered_until_message_id=old.id,
+            covered_until_message_id=earlier.id,
             message_count=1,
         )
     )

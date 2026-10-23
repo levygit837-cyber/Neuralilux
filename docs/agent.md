@@ -53,7 +53,7 @@ Resumo da conversa até aqui (mensagens antigas):
 - O bloco fica na mensagem do Turn, então é o mesmo em todos os passos do loop.
 - O texto do Contact (e os `tool_result`) passa por `neutralize`: `<contexto_do_atendimento` e `</contexto_do_atendimento`, em qualquer caixa e espaçamento, viram `‹...`. O Contact não consegue abrir nem fechar o bloco.
 - `ToolRegistry.schemas()` devolve as Tools na ordem dos Packs, com as chaves de cada schema em ordem alfabética.
-- Limite conhecido: a Recent Window desliza uma Message por vez depois de 20 Messages. Então o histórico muda a cada Turn e o cache cobre só system + Tools.
+- A Recent Window desliza em blocos (ver [Memória](#memória)), então entre dois cortes o histórico só cresce no fim e o cache cobre system + Tools + o histórico do Turn anterior. No Turn que corta, o histórico muda desde o início e o cache cobre só system + Tools.
 
 ## O loop
 
@@ -121,11 +121,14 @@ Três camadas ([ADR 0003](adr/0003-memory-window-summary-fts.md)); a Recent Wind
 
 | Camada | Parâmetro | Padrão | Como funciona |
 |---|---|---|---|
-| Recent Window | `MEMORY_WINDOW` | 20 | As últimas 20 Messages de texto **da Session atual**, em ordem cronológica. Messages seguidas do mesmo papel viram uma só e a primeira é sempre `user`. |
-| Summary | `SUMMARY_EVERY` | 20 | Quando há 20 Messages fora da janela ainda não resumidas, o modelo une o Summary anterior a elas (até 1200 caracteres, lotes de no máximo 100). |
+| Recent Window | `MEMORY_WINDOW`, `MEMORY_WINDOW_BLOCK` | 20, 10 | As Messages de texto **da Session atual** que o Summary ainda não cobre, em ordem cronológica, até 20. Passou de 20, o corte tira as mais antigas de uma vez, em blocos de 10 (`MEMORY_WINDOW_BLOCK`, de 1 a `MEMORY_WINDOW`). Messages seguidas do mesmo papel viram uma só e a primeira é sempre `user`. |
+| Summary | `SUMMARY_EVERY` | 20 | Cobre exatamente o que saiu da janela: o modelo une o Summary anterior às Messages cortadas (até 1200 caracteres, lotes de no máximo 100). Messages de Sessions anteriores, que ficam fora da janela pela fronteira da Session, só viram Summary quando somam 20. |
 | History Search | `HISTORY_SEARCH_LIMIT` | 8 | Tool `buscar_historico`: full-text search do Postgres (`portuguese`) nas Messages do Contact dentro da Instance. |
 
 - O Summary é atualizado **depois** que a resposta já foi enviada (`executor.refresh_summary`, tarefa de fundo do worker com Session própria). Falha só vai para o log; o próximo Turn tenta de novo.
+- **Deslizamento em blocos.** A janela é "tudo da Session atual depois de `covered_until_message_id` do Summary". Quem a encurta é o refresh do Summary, não uma contagem a cada Turn: quando a janela passa de 20 Messages, ele corta as 10 mais antigas e resume essas 10. Como as Messages chegam em pares (Contact e Agent), na prática o corte acontece com 21 ou 22 e a janela volta a 11 ou 12. Dali em diante só cresce no fim, cerca de 5 Turns até passar de 20 e cortar de novo. Se o bloco pararia numa Message do Agent, o corte avança até a janela começar em `user`. Em Turns sem corte o histórico do Turn N é prefixo exato do histórico do Turn N+1, que é o que o prefix cache do modelo aproveita.
+- **Por que 10.** O cache só se perde no Turn do corte, então bloco maior o perde menos vezes, mas deixa menos conversa literal logo depois dele (a janela cai para cerca de `20 - bloco` Messages). Com 10 a janela oscila entre umas 11 e 22: o corte vem a cada ~5 Turns e o Agent nunca fica com menos de ~5 trocas literais, o suficiente para um pedido em andamento. Valor 1 volta ao deslizamento de uma Message por Turn.
+- **Sem lacuna.** Cortar e resumir são a mesma gravação (`covered_until_message_id` é o início da janela), então nenhuma Message fica fora da janela e do Summary ao mesmo tempo. O refresh roda depois da resposta; até ele gravar (ou se o Gateway falhar), a janela fica acima de 20, com todas as Messages ainda nela. Isso só aumenta o histórico por um tempo e o próximo Turn tenta o corte de novo.
 - A History Search nunca devolve Messages de outro Contact. No SQLite dos testes ela cai para `ILIKE`; só o Postgres usa `ts_rank` e o índice GIN da migração `0004`.
 - Não há embeddings nem vetores.
 

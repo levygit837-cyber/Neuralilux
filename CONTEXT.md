@@ -64,7 +64,7 @@ _Avoid_: Provider, LLM, backend de IA
 ### Memória
 
 **Recent Window**:
-As últimas Messages da Session atual que o Agent vê literalmente em cada Turn.
+As Messages da Session atual que o Summary ainda não cobre, que o Agent vê literalmente em cada Turn. Cresce no fim e encolhe em blocos, quando passa do limite.
 _Avoid_: Contexto, buffer
 
 **Summary**:

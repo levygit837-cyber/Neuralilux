@@ -56,34 +56,41 @@ def _oldest_first(query: Query) -> Query:
     return query.order_by(Message.timestamp.asc(), Message.id.asc())
 
 
+def _after(query: Query, message: Message) -> Query:
+    return query.filter(tuple_(Message.timestamp, Message.id) > (message.timestamp, message.id))
+
+
 def build_context(
     db: Session,
     conversation: Conversation,
-    window: int = settings.MEMORY_WINDOW,
     exclude_ids: Collection[str] = (),
 ) -> tuple[str | None, list[ChatMessage]]:
     """Summary (se houver) e Recent Window da Conversation, prontos para o prompt.
 
-    A janela são as últimas `window` Messages de texto da Session atual (ADR 0007), em ordem cronológica;
-    o que veio antes da Session fica para o Summary e a History Search. Messages consecutivas do mesmo papel viram uma só e a primeira é sempre `user`.
+    A janela são as Messages de texto da Session atual (ADR 0007) que o Summary ainda não cobre, em ordem
+    cronológica; o que veio antes da Session fica para o Summary e a History Search. Ela desliza em blocos:
+    quem a encurta é o Summary (`maybe_refresh_summary`), de `settings.MEMORY_WINDOW_BLOCK` em
+    `settings.MEMORY_WINDOW_BLOCK` Messages, então entre dois cortes o histórico só cresce no fim e o prefixo
+    se repete de um Turn para o outro. Como a janela começa exatamente onde o Summary termina, nenhuma Message
+    fica fora dos dois. Messages consecutivas do mesmo papel viram uma só e a primeira é sempre `user`.
 
     `exclude_ids` tira da janela as Messages que disparam o Turn (já gravadas); quem chama as põe de volta, juntas, no fim.
     """
+    row = db.get(ConversationMemorySummary, conversation.id)
     query = _session_messages(db, conversation)
+    if row is not None:
+        query = _after(query, db.get(Message, row.covered_until_message_id))
     if exclude_ids:
         query = query.filter(Message.id.notin_(exclude_ids))
-    recent = _newest_first(query).limit(window).all()
-    recent.reverse()
 
     history: list[ChatMessage] = []
-    for message in recent:
+    for message in _oldest_first(query).all():
         role = _role(message)
         if history and history[-1]["role"] == role:
             history[-1]["content"] = f"{history[-1]['content']}\n{message.content}"
         elif history or role == "user":
             history.append({"role": role, "content": message.content})
 
-    row = db.get(ConversationMemorySummary, conversation.id)
     return (row.summary if row else None), history
 
 
@@ -92,11 +99,21 @@ async def maybe_refresh_summary(
     client: MessagesClient,
     model: str,
     conversation: Conversation,
-    window: int = settings.MEMORY_WINDOW,
 ) -> None:
-    """Atualiza o Summary quando há `settings.SUMMARY_EVERY` Messages fora da janela ainda não resumidas.
+    """Corta a Recent Window quando ela passa de `settings.MEMORY_WINDOW` e resume o que saiu.
 
-    `window` tem de ser o mesmo usado em `build_context`; por isso ambos partem de `settings.MEMORY_WINDOW`.
+    O corte tira da janela as Messages mais antigas em blocos de `settings.MEMORY_WINDOW_BLOCK`: o mínimo de
+    blocos para a janela voltar a caber (e um pouco mais, se for preciso para ela começar em `user`). O
+    Summary passa a cobrir exatamente essas Messages: `covered_until_message_id` é onde a janela começa em
+    `build_context`, então cortar e resumir são a mesma gravação e nenhuma Message fica fora dos dois.
+
+    Este refresh roda depois da resposta. Até ele gravar, a janela pode estar acima do limite (uma ou duas
+    Messages no caso normal, mais se o refresh falhar). Isso só deixa a janela maior por um tempo, nunca
+    perde Message. Um Turn que começa antes do refresh gravar vê a janela antiga, inteira.
+
+    Sem corte, Messages de Sessions anteriores ainda não resumidas viram Summary quando chegam a
+    `settings.SUMMARY_EVERY`; até lá só a History Search as alcança.
+
     Cada chamada resume no máximo as `SUMMARY_BATCH_MAX` Messages pendentes mais antigas; o que sobra
     entra no próximo refresh.
 
@@ -106,7 +123,7 @@ async def maybe_refresh_summary(
     Qualquer falha só é logada: o próximo Turn tenta de novo.
     """
     try:
-        await _refresh_summary(db, client, model, conversation, window)
+        await _refresh_summary(db, client, model, conversation)
     except Exception:
         db.rollback()
         logger.warning(
@@ -114,31 +131,54 @@ async def maybe_refresh_summary(
         )
 
 
+def _cut_size(window: list[Message]) -> int:
+    """Quantas Messages mais antigas saem da janela: blocos inteiros, e a janela que sobra começa em `user`."""
+    overflow = len(window) - settings.MEMORY_WINDOW
+    if overflow <= 0:
+        return 0
+    block = settings.MEMORY_WINDOW_BLOCK
+    cut = -(-overflow // block) * block
+    while cut < len(window) and _role(window[cut]) != "user":
+        cut += 1
+    return cut if cut < len(window) else 0
+
+
+def _starts_with_user(pending: list[Message], following: list[Message]) -> list[Message]:
+    """Encurta um lote truncado para que a janela que sobra comece em `user` (senão `build_context` a descartaria)."""
+    if not following or _role(following[0]) == "user":
+        return pending
+    while pending:
+        if _role(pending.pop()) == "user":
+            break
+    return pending
+
+
 async def _refresh_summary(
-    db: Session, client: MessagesClient, model: str, conversation: Conversation, window: int
+    db: Session, client: MessagesClient, model: str, conversation: Conversation
 ) -> None:
-    outside = _text_messages(db, conversation.id)
-    # A Message mais recente fora da janela: a primeira além de `window` na Session atual ou, se a
-    # Session cabe na janela, a última de uma Session anterior.
-    window_start = _newest_first(_session_messages(db, conversation)).offset(window).first()
-    if window_start is None and conversation.session_started_at is not None:
-        window_start = _newest_first(outside.filter(Message.timestamp < conversation.session_started_at)).first()
-    if window_start is None:
-        return
-    # Tudo até `window_start` ainda pode ser resumido.
-    outside = outside.filter(
-        tuple_(Message.timestamp, Message.id) <= (window_start.timestamp, window_start.id)
-    )
-
     previous = db.get(ConversationMemorySummary, conversation.id)
-    if previous is not None:
-        covered = db.get(Message, previous.covered_until_message_id)
-        outside = outside.filter(
-            tuple_(Message.timestamp, Message.id) > (covered.timestamp, covered.id)
-        )
+    covered = db.get(Message, previous.covered_until_message_id) if previous else None
 
-    pending = _oldest_first(outside).limit(SUMMARY_BATCH_MAX).all()
-    if len(pending) < settings.SUMMARY_EVERY:
+    in_session = _session_messages(db, conversation)
+    outside = _text_messages(db, conversation.id)
+    if covered is not None:
+        in_session = _after(in_session, covered)
+        outside = _after(outside, covered)
+    cut = _cut_size(_oldest_first(in_session).all())
+    if cut:
+        # Tudo até a última Message do bloco; Sessions anteriores ainda não resumidas vão junto.
+        last = _oldest_first(in_session).offset(cut - 1).first()
+        outside = outside.filter(tuple_(Message.timestamp, Message.id) <= (last.timestamp, last.id))
+    elif conversation.session_started_at is not None:
+        outside = outside.filter(Message.timestamp < conversation.session_started_at)
+    else:
+        return
+
+    rows = _oldest_first(outside).limit(SUMMARY_BATCH_MAX + 1).all()
+    pending, following = rows[:SUMMARY_BATCH_MAX], rows[SUMMARY_BATCH_MAX:]
+    if cut:
+        pending = _starts_with_user(pending, following)
+    if not pending or (not cut and len(pending) < settings.SUMMARY_EVERY):
         return
 
     transcript = "\n".join(
