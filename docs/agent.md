@@ -18,6 +18,18 @@ Como o Agent de uma Company executa um Turn. Termos conforme o [glossário](../C
 
 Qualquer exceção no Turn faz `rollback` e devolve a resposta fixa `FALLBACK_REPLY`; o Contact nunca fica sem retorno por uma falha interna.
 
+## Estrutura do prompt
+
+O system é núcleo → Pack, nessa ordem (as Tools vêm antes dele no pedido ao Gateway). Os dois textos seguem a mesma estrutura: papel e objetivo → regras → fluxo → formato da resposta.
+
+| Parte | Arquivo | O que cabe |
+|---|---|---|
+| Núcleo | `BASE_PROMPT` em `app/agent/prompts.py` | Papel de atendente da Company e objetivo (resolver o que o Contact veio fazer no menor número de mensagens, sem pular confirmações obrigatórias); tom gentil, caloroso e proativo; regras fixas (dados só das Tools, nunca expor falha, ID, nome de Tool ou raciocínio, Handoff quando o Contact pede ou reclama de verdade, não opinar fora do escopo nem prometer o que as Tools não confirmam); o que é o bloco do Turn; juntar as perguntas numa mensagem só; formato curto de WhatsApp. **Nenhum termo de um ramo** (ADR 0004): `tests/agent/test_base_prompt.py` falha se aparecer pedido, cardápio, entrega ou item. |
+| Pack | `PROMPT_SECTION` do Pack | O fluxo e as regras do ramo, citando as Tools pelo nome. No Pack "catálogo & pedidos": entender o pedido, adicionar, sugerir um complemento uma vez, pedir nome, entrega ou retirada (com endereço) e pagamento numa mensagem só, Recap, confirmação; mais Recap antes de `finalizar`, nova Recap a cada mudança, cancelar e alterar, Pix, status, Handoff, `disponibilidade` de horário do item e aviso de empresa fechada. O que a Tool já garante não é repetido em detalhe. |
+| Company | `Agent.system_prompt` | Instruções da Company, reservadas ao ticket de instruções editáveis ([#76](https://github.com/levygit837-cyber/Neuralilux/issues/76)). |
+
+Dois pontos que o texto depende do bloco do Turn: o estado aberto/fechado da Company e a Session (quando o atendimento se encerra) chegam no bloco, nunca no system, então o prompt só diz o que fazer com eles.
+
 ## Turn Context
 
 O servidor de inferência só reaproveita o prefixo do prompt (prefix cache) se ele for idêntico desde o primeiro token, e as Tools entram no fim do system no template do LFM2.5. Por isso o system e as Tools não mudam entre Turns da mesma Company ([issue #42](https://github.com/levygit837-cyber/Neuralilux/issues/42)). O que muda vai num bloco delimitado no início da última mensagem `user` (`app/agent/turn_context.py`):
