@@ -1,7 +1,7 @@
 import { io, type Socket } from 'socket.io-client'
 import { WS_URL } from '@/lib/constants'
 import { formatTimestamp } from '@/lib/utils'
-import { useChatStore } from '@/stores/useChatStore'
+import { findConversation as findInStore, useChatStore } from '@/stores/useChatStore'
 import {
   mapMessageStatus,
   mapRealtimeMessage,
@@ -25,6 +25,8 @@ export type SocketNotice =
   | { type: 'denied'; action: 'subscribe_instance' | 'join_conversation' }
   /** Chegou evento de uma Conversation que ainda não está na lista: recarregue a lista. */
   | { type: 'unknown_conversation' }
+  /** Uma Conversation da lista mudou (mensagem nova): contadores e filtros podem estar defasados. */
+  | { type: 'conversation_activity'; conversationId: string }
 
 type NoticeListener = (notice: SocketNotice) => void
 
@@ -48,7 +50,12 @@ interface HandoffPayload {
 
 /** A Conversation de um evento: o realtime a chama pelo `remote_jid`, o handoff pelo UUID. */
 function findConversation(ref: string) {
-  return useChatStore.getState().conversations.find((item) => item.id === ref || item.remoteJid === ref)
+  return findInStore(useChatStore.getState(), ref)
+}
+
+function isOpenByUser(conversationId: string): boolean {
+  const { activeConversationId, isActiveExplicit } = useChatStore.getState()
+  return isActiveExplicit && activeConversationId === conversationId
 }
 
 /** O Evolution manda o QR como texto ou como objeto `{ base64, code }`. */
@@ -144,9 +151,11 @@ class SocketService {
         lastMessage: raw.lastMessage ?? conversation.lastMessage,
         timestamp: formatTimestamp(at),
         lastMessageAt: at.toISOString(),
-        // A Conversation aberta já está lida: o backend só soma `unread_count`, a UI zera.
-        unreadCount: useChatStore.getState().activeConversationId === conversation.id ? 0 : (raw.unreadCount ?? conversation.unreadCount),
+        // A Conversation que o usuário abriu já está lida: o backend só soma `unread_count`, a UI zera.
+        // A primeira da lista, aberta sozinha, continua não lida.
+        unreadCount: isOpenByUser(conversation.id) ? 0 : (raw.unreadCount ?? conversation.unreadCount),
       })
+      this.notify({ type: 'conversation_activity', conversationId: conversation.id })
     })
 
     socket.on('message_status_update', ({ messageId, status }: { messageId: string; status: string }) => {

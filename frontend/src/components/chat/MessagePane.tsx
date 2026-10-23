@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { useChatStore } from '@/stores/useChatStore'
+import { selectActiveConversation, useChatStore } from '@/stores/useChatStore'
 import { MessageBubble } from './MessageBubble'
 import { ChatInput } from './ChatInput'
 import { TypingIndicator } from './TypingIndicator'
@@ -23,6 +23,7 @@ export function MessagePane({ conversationId, onSendMessage, onRetryMessage }: M
   const isTyping = useChatStore((state) => state.typingIndicators[conversationId] ?? false)
   const isLoading = useChatStore((state) => state.isLoadingMessages)
   const isSending = useChatStore((state) => state.isSending)
+  const isGroup = useChatStore((state) => selectActiveConversation(state)?.isGroup ?? false)
   const endRef = useRef<HTMLDivElement>(null)
   const scrolledRef = useRef<string | null>(null)
 
@@ -46,7 +47,7 @@ export function MessagePane({ conversationId, onSendMessage, onRetryMessage }: M
               message.messageType === 'system' && message.systemMetadata ? (
                 <SystemMessage key={message.id} metadata={message.systemMetadata} />
               ) : (
-                <MessageBubble key={message.id} message={message} onRetry={onRetryMessage} />
+                <MessageBubble key={message.id} message={message} showSender={isGroup} onRetry={onRetryMessage} />
               )
             )}
             <ThinkingManager conversationId={conversationId} />

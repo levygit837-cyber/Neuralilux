@@ -48,6 +48,7 @@ class Message(Base):
     direction = Column(String, nullable=False)  # incoming, outgoing
     status = Column(String, default="pending")  # pending, sent, delivered, read, failed
     is_from_me = Column(Boolean, default=False)
+    sender_name = Column(String(200))  # Quem escreveu, em grupo (pushName do participante); NULL em 1:1
     sent_by = Column(String(20))  # NULL: Contact, Agent ou Attendant; "system": aviso da API (ex.: status do Order, #34)
     timestamp = Column(DateTime(timezone=True), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

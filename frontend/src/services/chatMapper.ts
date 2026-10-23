@@ -1,5 +1,5 @@
 import { formatTimestamp } from '@/lib/utils'
-import type { Conversation, Message, MessageStatus } from '@/types/chat'
+import type { ChatCounts, Conversation, Message, MessageStatus } from '@/types/chat'
 
 /** Formas que o backend devolve em `/conversations` e `/conversations/{id}/messages`. */
 export interface ContactResponse {
@@ -13,6 +13,7 @@ export interface ConversationResponse {
   id: string
   remote_jid: string
   unread_count: number
+  is_group?: boolean
   human_in_loop?: boolean
   handoff_assigned_to?: string | null
   last_message_at?: string | null
@@ -30,7 +31,19 @@ export interface MessageResponse {
   direction: string
   status: string
   is_from_me: boolean
+  /** Quem falou, nas Conversations de grupo. */
+  sender_name?: string | null
   timestamp: string
+}
+
+/** `GET /conversations/counts`. */
+export interface CountsResponse {
+  all: number
+  unread: number
+  groups: number
+  ai: number
+  human: number
+  unread_messages: number
 }
 
 export interface Paginated<T> {
@@ -97,6 +110,7 @@ export function mapMessageStatus(status?: string): MessageStatus {
 export function mapConversation(raw: ConversationResponse): Conversation {
   const contact = raw.contact
   const lastMessageAt = raw.last_message_at ? parseServerDate(raw.last_message_at) : null
+  const isGroup = raw.is_group ?? false
 
   return {
     id: raw.id,
@@ -111,9 +125,22 @@ export function mapConversation(raw: ConversationResponse): Conversation {
     timestamp: lastMessageAt ? formatTimestamp(lastMessageAt) : '',
     lastMessageAt: lastMessageAt?.toISOString(),
     unreadCount: raw.unread_count ?? 0,
+    isGroup,
+    conversationType: isGroup ? 'group' : 'individual',
     humanHandoff: raw.human_in_loop ?? false,
     handoffAssignedTo: raw.handoff_assigned_to ?? null,
     isOnline: false,
+  }
+}
+
+export function mapCounts(raw: CountsResponse): ChatCounts {
+  return {
+    all: raw.all,
+    unread: raw.unread,
+    groups: raw.groups,
+    ai: raw.ai,
+    human: raw.human,
+    unreadMessages: raw.unread_messages,
   }
 }
 
@@ -125,7 +152,14 @@ function messageText(type: string, content?: string | null, caption?: string | n
  * O id da Message na UI é o da Evolution (`message_id`) quando existe: é o que chega nos eventos
  * `new_message` e `message_status_update`, então dedup e atualização de status batem.
  */
-export function mapMessage(raw: MessageResponse, conversationId: string, contactName: string): Message {
+export function mapMessage(
+  raw: MessageResponse,
+  conversationId: string,
+  contactName: string,
+  isGroup = false
+): Message {
+  // No grupo `contactName` é o nome do grupo: quem fala vem em `sender_name`.
+  const senderName = isGroup ? raw.sender_name?.trim() || 'Participante' : contactName
   return {
     id: raw.message_id || raw.id,
     conversationId,
@@ -134,7 +168,7 @@ export function mapMessage(raw: MessageResponse, conversationId: string, contact
     isOutgoing: raw.is_from_me,
     status: mapMessageStatus(raw.status),
     messageType: 'text',
-    sender: raw.is_from_me ? undefined : { name: contactName },
+    sender: raw.is_from_me ? undefined : { name: senderName },
   }
 }
 

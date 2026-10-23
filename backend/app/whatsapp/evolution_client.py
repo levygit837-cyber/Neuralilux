@@ -18,6 +18,14 @@ logger = structlog.get_logger()
 PRESENCE_TIMEOUT = httpx.Timeout(5.0)
 
 
+def _recipient(remote_jid: str) -> str:
+    """`number` da Evolution. Grupo (`@g.us`) e `@lid` sem número real vão com o JID inteiro, que a Evolution
+    aceita; os demais, só os dígitos. Os dígitos de um `@lid` não são um telefone e iriam para outra pessoa."""
+    if remote_jid.endswith(("@g.us", "@lid")):
+        return remote_jid
+    return re.sub(r"\D", "", remote_jid.split("@")[0])
+
+
 class EvolutionAPIError(Exception):
     """Custom exception for Evolution API errors."""
     def __init__(self, message: str, status_code: int = 500):
@@ -212,17 +220,7 @@ class EvolutionAPIService:
         page: int = 1,
         offset: int = 20,
     ) -> Dict[str, Any]:
-        """
-        Fetch message history for a specific chat.
-        
-        Args:
-            instance_name: The Evolution API instance name.
-            remote_jid: WhatsApp contact JID (e.g., 5511999999999@s.whatsapp.net).
-            page: Page number for pagination.
-            offset: Number of messages per page.
-        
-        Returns dict with array of messages.
-        """
+        """Histórico de um chat (`remote_jid`). `page` é ignorado: a Evolution usa só `limit`."""
         logger.info(
             "Fetching messages from Evolution API",
             instance=instance_name,
@@ -278,7 +276,7 @@ class EvolutionAPIService:
         timeout de leitura é curto e independente do `delay`, e estourá-lo vale como "aceito": o `delay` pode passar
         do timeout padrão de 30 s sem derrubar a presença. Conexão recusada e erro HTTP continuam levantando.
         """
-        number = re.sub(r"\D", "", remote_jid.split("@")[0])
+        number = _recipient(remote_jid)
         if not instance_name or not number:
             raise EvolutionAPIError("instance_name and a numeric remote_jid are required", status_code=400)
         try:
@@ -328,9 +326,7 @@ class EvolutionAPIService:
         if not text or not text.strip():
             raise EvolutionAPIError("text message is required", status_code=400)
         
-        # Normalize JID to number
-        number = remote_jid.split("@")[0] if "@" in remote_jid else remote_jid
-        number = re.sub(r"\D", "", number)
+        number = _recipient(remote_jid)
         
         if not number:
             raise EvolutionAPIError(

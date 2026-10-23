@@ -5,14 +5,14 @@ Usa o cliente da Evolution API para buscar e enviar Messages.
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
 from typing import Optional
 from datetime import datetime
 import structlog
 
 from app.api.access import get_instance_for_user, instance_ids_for_user
 from app.api.deps import get_current_user, get_db
-from app.models import User, Contact, Conversation, Message
+from app.api.routes.conversations.categories import Category, apply_category, apply_search
+from app.models import User, Conversation, Message
 from app.services import handoff_service
 from app.schemas.conversation import ConversationResponse, PaginatedConversations
 from app.schemas.message import (
@@ -35,7 +35,8 @@ async def list_conversations(
     is_active: Optional[bool] = Query(None, description="Filter active/inactive conversations"),
     is_archived: Optional[bool] = Query(None, description="Filter archived/unarchived conversations"),
     priority: Optional[str] = Query(None, description="Filter by priority (low, normal, high, urgent)"),
-    search: Optional[str] = Query(None, description="Search by contact name or phone"),
+    search: Optional[str] = Query(None, description="Search by contact name, phone or last message"),
+    category: Category = Query("all", description="all, unread, groups, ai ou human"),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -74,14 +75,8 @@ async def list_conversations(
         query = query.filter(Conversation.priority == priority)
 
     if search:
-        # Join with Contact to search by name or phone
-        query = query.join(Contact).filter(
-            or_(
-                Contact.name.ilike(f"%{search}%"),
-                Contact.phone_number.ilike(f"%{search}%"),
-                Contact.push_name.ilike(f"%{search}%"),
-            )
-        )
+        query = apply_search(query, search)
+    query = apply_category(query, category)
 
     total = query.count()
     conversations = (

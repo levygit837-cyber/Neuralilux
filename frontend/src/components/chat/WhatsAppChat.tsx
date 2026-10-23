@@ -1,6 +1,6 @@
 'use client'
 
-import { useChatStore } from '@/stores/useChatStore'
+import { selectActiveConversation, useChatStore } from '@/stores/useChatStore'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useResolvedInstance } from '@/hooks/useResolvedInstance'
 import { useAgentControl } from '@/hooks/useAgentControl'
@@ -28,7 +28,16 @@ export function WhatsAppChat() {
   const isLoadingConversations = useChatStore((state) => state.isLoadingConversations)
   const isTyping = useChatStore((state) => state.typingIndicators[state.activeConversationId ?? ''] ?? false)
   const error = useChatStore((state) => state.error)
+  const openConversationJid = useChatStore((state) => selectActiveConversation(state)?.remoteJid)
   const setActiveConversation = useChatStore((state) => state.setActiveConversation)
+  const category = useChatStore((state) => state.category)
+  const search = useChatStore((state) => state.search)
+  const counts = useChatStore((state) => state.counts)
+  const isSyncing = useChatStore((state) => state.isSyncing)
+  const setCategory = useChatStore((state) => state.setCategory)
+  const setSearch = useChatStore((state) => state.setSearch)
+  const hasMore = useChatStore((state) => state.conversations.length < state.totalConversations)
+  const isLoadingMore = useChatStore((state) => state.isLoadingMore)
 
   const { resolvedInstance, isResolvingInstance, resolveError } = useResolvedInstance()
   const instanceName = resolvedInstance?.name
@@ -38,9 +47,12 @@ export function WhatsAppChat() {
   const { isConnected } = useChatRealtime({
     token,
     instanceName,
-    openConversationJid: conversations.find((item) => item.id === activeConversationId)?.remoteJid,
+    openConversationJid,
   })
-  const { activeConversation, sendMessage, retryMessage } = useChatData(resolvedInstance?.id, isConnected)
+  const { activeConversation, sendMessage, retryMessage, syncHistory, loadMoreConversations } = useChatData(
+    resolvedInstance?.id,
+    isConnected
+  )
 
   if (isResolvingInstance && !resolvedInstance) {
     return (
@@ -53,10 +65,21 @@ export function WhatsAppChat() {
   return (
     <div className="flex flex-1 h-full min-h-0 bg-brand-base overflow-hidden">
       <ChatSidebar
+        key={resolvedInstance?.id}
         conversations={conversations}
         activeConversationId={activeConversationId}
         onSelectConversation={setActiveConversation}
         isLoading={isLoadingConversations}
+        category={category}
+        onCategoryChange={setCategory}
+        search={search}
+        onSearchChange={setSearch}
+        counts={counts}
+        isSyncing={isSyncing}
+        onSync={() => void syncHistory()}
+        hasMore={hasMore}
+        isLoadingMore={isLoadingMore}
+        onLoadMore={() => void loadMoreConversations()}
       />
       <div className="flex-1 flex flex-col min-h-0 relative overflow-hidden">
         <div className="absolute inset-0 chat-pattern opacity-80 pointer-events-none z-0" />

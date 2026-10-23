@@ -20,8 +20,9 @@ from app.core.config import settings
 from app.core.database import SessionLocal
 from app.agent.sessions import roll_session
 from app.models import Company, Contact, Conversation, Instance, Message
-from app.models.base import generate_uuid
+from app.whatsapp import history_sync
 from app.whatsapp.agent_turn import resolve_default_agent, run_agent_turn
+from app.whatsapp.message_store import get_or_create_contact, get_or_create_conversation, new_message
 from app.whatsapp.message_queue import message_queue_service
 from app.whatsapp import system_notice
 from app.whatsapp.handoff_tracking import track_handoff
@@ -37,7 +38,9 @@ from app.whatsapp.status_events import (
 )
 from app.whatsapp.webhook_parser import (
     ParsedContent,
+    is_group_chat,
     is_ignored_chat,
+    is_invisible_message,
     parse_content,
     parse_message_timestamp,
     resolve_remote_jid,
@@ -45,6 +48,9 @@ from app.whatsapp.webhook_parser import (
 )
 
 logger = structlog.get_logger()
+
+# Eventos da Evolution que anunciam histórico novo: disparam a importação da Instance.
+HISTORY_EVENTS = ("messages.set", "chats.set", "contacts.set", "chats.upsert")
 
 # Resposta fixa para mídia sem texto: o Agent não é chamado.
 MEDIA_REPLY = "Por enquanto só consigo ler mensagens de texto. Pode me escrever o que você precisa?"
@@ -66,6 +72,7 @@ class WhatsAppMessageConsumer:
         self._locks: Dict[str, list] = {}  # chave da Conversation -> [Lock, quantos a usam]
         self._background: set[asyncio.Task] = set()
         self._summarizing: set[str] = set()
+        self._syncing: set[str] = set()
         self._missing_agent_logged: set[str] = set()
         self._batcher = TurnBatcher()
 
@@ -103,8 +110,12 @@ class WhatsAppMessageConsumer:
                 await update_message_status(db, data)
             elif event == "connection.update":
                 await update_connection_status(db, data)
+                if unwrap_event_payload(data).get("state") == "open":
+                    self._spawn_history_sync(db, data)
             elif event == "qrcode.updated":
                 await publish_qr_code_update(data)
+            elif event in HISTORY_EVENTS:
+                self._spawn_history_sync(db, data)
             else:
                 logger.warning("Unknown webhook event", webhook_event=event)
             
@@ -141,7 +152,10 @@ class WhatsAppMessageConsumer:
             from_me = bool(key.get("fromMe", False))
 
             if is_ignored_chat(remote_jid):
-                logger.info("Group or broadcast message ignored", message_id=message_id, remote_jid=remote_jid)
+                logger.info("Broadcast message ignored", message_id=message_id, remote_jid=remote_jid)
+                return
+            if is_invisible_message(payload.get("message") or {}):
+                logger.info("Invisible message type skipped", message_id=message_id, remote_jid=remote_jid)
                 return
 
             async with self._serialized(f"{instance.id}:{remote_jid}"):
@@ -169,6 +183,7 @@ class WhatsAppMessageConsumer:
         push_name = payload.get("pushName")
         timestamp = parse_message_timestamp(payload.get("messageTimestamp"))
         parsed = parse_content(payload.get("message") or {})
+        is_group = is_group_chat(remote_jid)
 
         # Dedup antes de qualquer escrita: inclui o eco do webhook para a resposta do próprio Agent.
         if message_id and db.query(Message.id).filter(Message.message_id == message_id).first():
@@ -180,70 +195,24 @@ class WhatsAppMessageConsumer:
             logger.info("Echo of a system notice matched", message_id=message_id)
             return
 
-        local_part = remote_jid.split("@")[0] if "@" in remote_jid else remote_jid
-        phone_number = local_part.split("-")[0][:20]
+        # O pushName de uma mensagem `fromMe` é o do nosso número; o de uma mensagem de grupo é o do
+        # participante. Nenhum dos dois é o nome do Contact.
+        contact = get_or_create_contact(db, instance, remote_jid, push_name=None if from_me or is_group else push_name)
+        conversation, _ = get_or_create_conversation(db, instance, contact, remote_jid)
+        sender_name = push_name if is_group and not from_me else None
 
-        contact = db.query(Contact).filter(
-            Contact.instance_id == instance.id,
-            Contact.remote_jid == remote_jid
-        ).first()
-        if not contact:
-            contact = Contact(
-                instance_id=instance.id,
-                phone_number=phone_number,
-                remote_jid=remote_jid,
-                name=push_name or phone_number,
-                push_name=push_name,
-                created_at=datetime.now(timezone.utc),
-                updated_at=datetime.now(timezone.utc)
-            )
-            db.add(contact)
-            db.flush()
-        elif push_name and not from_me:
-            # Em mensagem `fromMe` o pushName é o do nosso próprio número, não o do Contact.
-            contact.push_name = push_name
-            if not contact.name or contact.name == phone_number:
-                contact.name = push_name
-
-        conversation = db.query(Conversation).filter(
-            Conversation.instance_id == instance.id,
-            Conversation.contact_id == contact.id
-        ).first()
-        if not conversation:
-            conversation = Conversation(
-                instance_id=instance.id,
-                contact_id=contact.id,
-                remote_jid=remote_jid,
-                is_active=True,
-                created_at=datetime.now(timezone.utc),
-                updated_at=datetime.now(timezone.utc)
-            )
-            db.add(conversation)
-            db.flush()
-
-        if not from_me:
+        if not from_me and not is_group:
             self._roll_session(db, instance, conversation, timestamp)
 
-        stored_id = generate_uuid()
-        db.add(
-            Message(
-                id=stored_id,
-                instance_id=instance.id,
-                conversation_id=conversation.id,
-                remote_jid=remote_jid,
-                message_id=message_id,
-                message_type=parsed.message_type,
-                content=parsed.content,
-                direction="outgoing" if from_me else "incoming",
-                status="sent",
-                is_from_me=from_me,
-                timestamp=timestamp,
-            )
+        stored = new_message(
+            instance, conversation, remote_jid, message_id, parsed, from_me, timestamp, sender_name=sender_name
         )
+        stored_id = stored.id  # lido antes do commit: depois dele o objeto expira e `.id` custaria uma consulta
+        db.add(stored)
         touch_conversation(conversation, parsed.content, timestamp, unread=not from_me)
         db.commit()
         # Sem `await` entre o commit e o `hold`: a líder do agrupamento não fecha o grupo com esta Message a caminho.
-        hold = None if from_me else self._batcher.hold(str(conversation.id))
+        hold = None if from_me or is_group else self._batcher.hold(str(conversation.id))
         logger.info(
             "Message saved to database",
             message_id=message_id,
@@ -253,9 +222,13 @@ class WhatsAppMessageConsumer:
         )
 
         try:
-            await publish_message(instance_name, remote_jid, contact, conversation, message_id, parsed.content, timestamp, from_me)
+            await publish_message(
+                instance_name, remote_jid, contact, conversation, message_id, parsed.content, timestamp, from_me,
+                sender_name,
+            )
 
-            await track_handoff(db, instance, conversation, remote_jid, parsed.content, from_me)
+            if not is_group:  # Session e Handoff são do atendimento 1:1
+                await track_handoff(db, instance, conversation, remote_jid, parsed.content, from_me)
 
             skip = self._skip_agent_reason(from_me, remote_jid, timestamp)
             if skip:
@@ -282,6 +255,8 @@ class WhatsAppMessageConsumer:
         roll_session(db, conversation, company, executor.packs_for(company), timestamp)
 
     def _skip_agent_reason(self, from_me: bool, remote_jid: str, timestamp: datetime) -> Optional[str]:
+        if is_group_chat(remote_jid):
+            return "group"  # grupos são gravados para a UI, mas o Agent nunca fala neles
         if from_me:
             return "from_me"
         if remote_jid.endswith("@lid"):
@@ -345,6 +320,30 @@ class WhatsAppMessageConsumer:
         flag = db.query(Conversation.human_in_loop).filter(Conversation.id == conversation_id).scalar()
         return bool(flag)
 
+    def _spawn_history_sync(self, db: Session, data: Dict[str, Any]) -> None:
+        """Importa o histórico da Instance numa task rastreada; no máximo uma por Instance."""
+        instance = find_instance(db, data.get("instance") or "")
+        if instance is None or instance.id in self._syncing:
+            return
+        self._syncing.add(instance.id)
+        task = asyncio.create_task(self._run_history_sync(instance.id))
+        self._background.add(task)
+        task.add_done_callback(self._background.discard)
+
+    async def _run_history_sync(self, instance_id: str) -> None:
+        sync_db = SessionLocal()
+        try:
+            instance = sync_db.get(Instance, instance_id)
+            if instance is not None:
+                await history_sync.sync_instance(sync_db, instance)
+        except history_sync.SyncAlreadyRunning:
+            logger.info("History sync skipped: another process is already importing", instance_id=instance_id)
+        except Exception:
+            logger.exception("History sync failed", instance_id=instance_id)
+        finally:
+            sync_db.close()
+            self._syncing.discard(instance_id)
+
     def _spawn_summary(self, conversation_id: str) -> None:
         """Atualiza o Summary fora do caminho da resposta, numa task rastreada do loop do worker."""
         if conversation_id in self._summarizing:
@@ -375,7 +374,7 @@ class WhatsAppMessageConsumer:
         await self.mq.start_consuming()
 
     async def stop(self) -> None:
-        """Para de consumir, espera as entregas em voo e os Summaries pendentes."""
+        """Para de consumir, espera as entregas em voo e as tasks de fundo (Summaries e importações de histórico)."""
         logger.info("Stopping WhatsApp message consumer")
         await self.mq.stop_consuming()
         pending = tuple(self._background)
@@ -385,12 +384,14 @@ class WhatsAppMessageConsumer:
                 task.cancel()
             if unfinished:
                 logger.error(
-                    "Summaries cancelled: shutdown drain timed out", pending=len(unfinished), timeout=DRAIN_TIMEOUT
+                    "Background tasks cancelled (summaries/history syncs): shutdown drain timed out",
+                    pending=len(unfinished),
+                    timeout=DRAIN_TIMEOUT,
                 )
                 await asyncio.gather(*unfinished, return_exceptions=True)
 
     async def drain(self) -> None:
-        """Espera as tasks de fundo (Summaries) que ainda estão em andamento."""
+        """Espera as tasks de fundo (Summaries e importações de histórico) que ainda estão em andamento."""
         while self._background:
             await asyncio.gather(*tuple(self._background), return_exceptions=True)
 

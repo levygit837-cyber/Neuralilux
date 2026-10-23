@@ -36,6 +36,7 @@ async def publish_message(
     content: str,
     timestamp: datetime,
     from_me: bool,
+    sender_name: Optional[str] = None,
 ) -> None:
     name = contact.name or contact.phone_number
     event = (
@@ -60,7 +61,7 @@ async def publish_message(
                     "timestamp": timestamp.isoformat(),
                     "isOutgoing": from_me,
                     "status": "sent",
-                    "sender": None if from_me else {"name": name},
+                    "sender": None if from_me else {"name": sender_name or name},
                 },
             },
         }

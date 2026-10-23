@@ -82,7 +82,8 @@ Siga a ordem; o primeiro que bater é a causa. Mensagens em `código` aparecem n
 |---|---|---|
 | Nada: nenhuma linha `Processing webhook event` | O webhook não chega à fila ou o worker está parado. | Veja as duas linhas abaixo. |
 | `Message for unknown instance discarded` | Não há Instance com `evolution_instance_id` igual ao nome na Evolution. | Crie a Instance por `POST /api/v1/instances/{nome}` (é a única rota que grava a linha local) e tente de novo. |
-| `Group or broadcast message ignored` | Chat de grupo (`@g.us`) ou lista de transmissão (`@broadcast`). A Message é descartada antes de ser gravada. | Esperado: o Agent não atende grupos nem listas. Nada fica no banco. |
+| `Broadcast message ignored` | Lista de transmissão (`@broadcast`, inclui `status@broadcast`). A Message é descartada antes de ser gravada. | Esperado: nada fica no banco. Grupos (`@g.us`) são gravados, mas o Agent não os atende (`Message not processed by agent` com `reason=group`). |
+| `Invisible message type skipped` | Protocolo, reação, enquete, edição ou payload sem conteúdo. | Esperado: não vira linha de Message. |
 | `Message not processed by agent` com `reason=from_me` | Mensagem enviada pelo próprio número. | Esperado. |
 | `reason=unresolved_lid` | JID `@lid` sem número real: não há como responder. | Esperado; aguarde o Contact aparecer com número. |
 | `reason=stale` | Mensagem mais velha que 5 min em relação ao início do worker (backlog de uma queda). | Esperado; fica gravada, sem resposta. |

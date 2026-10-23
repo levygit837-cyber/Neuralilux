@@ -88,7 +88,19 @@ export interface ThinkingEvent {
   startedAt?: Date
 }
 
-export type ContactFilter = 'all' | 'unread' | 'groups' | 'ai-active'
+/** Filtro da lista de Conversations; é o `category` aceito por `GET /conversations`. */
+export type ConversationCategory = 'all' | 'unread' | 'groups' | 'ai' | 'human'
+
+/** Quantas Conversations cada filtro devolve, mais o total de Messages não lidas. */
+export interface ChatCounts {
+  all: number
+  unread: number
+  groups: number
+  ai: number
+  human: number
+  unreadMessages: number
+}
+
 export interface AgentListItem {
   id: string
   name: string
