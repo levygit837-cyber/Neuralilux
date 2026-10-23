@@ -11,6 +11,8 @@ from typing import Any, Optional
 
 import structlog
 
+from app.services.menu.availability import item_is_available
+
 
 logger = structlog.get_logger()
 
@@ -124,7 +126,7 @@ def build_menu_snapshot_from_json(json_path: Path = DEFAULT_MENU_JSON_PATH) -> M
                     description=(item.get("description") or "").strip() or None,
                     price=parse_price(item.get("price") or item.get("numeric_price") or item.get("base_price")),
                     image_url=(item.get("image_url") or item.get("cover_photo") or "").strip() or None,
-                    is_available=bool(item.get("is_available_if_active", item.get("is_available", True))),
+                    is_available=item_is_available(item),
                     sort_order=int(item.get("view_order") or item_index),
                 )
             )

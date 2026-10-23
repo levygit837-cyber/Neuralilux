@@ -8,6 +8,7 @@ import structlog
 from sqlalchemy.orm import Session
 
 from app.models import BusinessType, Company, MenuCatalog, MenuCategory, MenuItem
+from app.services.menu.availability import item_is_available
 from app.services.menu.snapshot import (
     DEFAULT_MENU_JSON_PATH,
     MACEDOS_CATALOG_NAME,
@@ -110,7 +111,7 @@ def sync_macedos_menu_from_json(
                     description=(item.get("description") or "").strip() or None,
                     price=parse_price(item.get("price") or item.get("numeric_price") or item.get("base_price")),
                     image_url=(item.get("image_url") or item.get("cover_photo") or "").strip() or None,
-                    is_available=bool(item.get("is_available_if_active", item.get("is_available", True))),
+                    is_available=item_is_available(item),
                     sort_order=int(item.get("view_order") or item_index),
                     raw_payload=item,
                 )

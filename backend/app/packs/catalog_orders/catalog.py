@@ -14,8 +14,11 @@ import re
 import unicodedata
 from typing import Any
 
+from app.agent import clock
+from app.agent.clock import company_zone
 from app.agent.contracts import Tool, ToolContext, ToolResult
-from app.models import MenuCatalog, MenuCategory, MenuItem
+from app.models import Company, MenuCatalog, MenuCategory, MenuItem
+from app.services.menu.availability import schedule_note
 
 MAX_RESULTS = 15
 MAX_DESCRIPTION = 120
@@ -136,6 +139,8 @@ async def _buscar_cardapio(ctx: ToolContext, args: dict[str, Any]) -> ToolResult
         data["aviso"] = "Sem consulta nem categoria só voltam as categorias. Busque por uma palavra ou por uma categoria."
         return ToolResult(content=json.dumps(data, ensure_ascii=False))
 
+    company = ctx.db.get(Company, ctx.company_id)
+    now_local = clock.utc_now().astimezone(company_zone(company)) if company else None
     found = _rank(rows, query_tokens, category_tokens)
     data.update(
         {
@@ -147,6 +152,7 @@ async def _buscar_cardapio(ctx: ToolContext, args: dict[str, Any]) -> ToolResult
                     "preco": float(item.price),
                     "descricao": _short(item.description),
                     "categoria": category.name,
+                    **({"disponibilidade": note} if now_local and (note := schedule_note(item.raw_payload, now_local)) else {}),
                 }
                 for item, category in found[:MAX_RESULTS]
             ],
@@ -163,7 +169,7 @@ def buscar_cardapio_tool() -> Tool:
             "Basta uma palavra da consulta aparecer no nome, na descrição ou na categoria: quem casa mais palavras "
             "vem primeiro. Nomes genéricos como 'refrigerante' ou 'massa' encontram a categoria. Sem consulta nem "
             "categoria, devolve só as categorias com a quantidade de itens. Devolve até 15 itens com id, nome, "
-            "preço e descrição."
+            "preço e descrição; item com horário próprio que está fora dele agora traz também `disponibilidade`."
         ),
         input_schema={
             "type": "object",

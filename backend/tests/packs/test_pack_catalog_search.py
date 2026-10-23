@@ -189,3 +189,57 @@ async def test_empty_search_lists_categories_with_counts_and_no_items(world, bus
 
 async def test_query_of_only_filler_words_is_an_empty_search(world, buscar):
     assert payload(await call(buscar, world.ctx, consulta="de uma"))["itens"] == []
+
+
+NIGHT_ONLY = [{"weekday": d, "period_start": "18:00", "period_end": "22:59"} for d in range(1, 8)]
+
+
+def _night_pizza(world):
+    item = world.items["Pizza Toscana"]
+    item.raw_payload = {"items_availability": NIGHT_ONLY}
+    world.db.commit()
+    return item
+
+
+def _at(monkeypatch, hour):
+    from datetime import datetime, timezone
+
+    from app.agent import clock
+
+    # 2026-10-22 é quinta; America/Sao_Paulo = UTC-3
+    monkeypatch.setattr(clock, "utc_now", lambda: datetime(2026, 10, 22, hour + 3, 0, tzinfo=timezone.utc))
+
+
+async def test_item_com_horario_proprio_aparece_com_aviso_fora_da_janela(world, buscar, monkeypatch):
+    _night_pizza(world)
+    _at(monkeypatch, 14)
+    item = next(i for i in payload(await call(buscar, world.ctx, consulta="pizza toscana"))["itens"])
+    assert "Fora do horário" in item["disponibilidade"]
+    assert "18:00 às 22:59" in item["disponibilidade"]
+
+
+async def test_item_com_horario_proprio_sem_aviso_dentro_da_janela(world, buscar, monkeypatch):
+    _night_pizza(world)
+    _at(monkeypatch, 20)
+    item = payload(await call(buscar, world.ctx, consulta="pizza toscana"))["itens"][0]
+    assert "disponibilidade" not in item
+
+
+async def test_sync_nao_grava_indisponivel_o_item_so_fora_do_horario():
+    from app.services.menu.availability import item_is_available
+
+    scheduled = {"is_available": False, "status": "UNAVAILABLE", "items_availability": NIGHT_ONLY}
+    assert item_is_available(scheduled) is True
+    assert item_is_available({"is_available": False}) is False
+    assert item_is_available({"is_available": True}) is True
+
+
+async def test_janela_que_cruza_a_meia_noite_vale_na_madrugada_seguinte():
+    from datetime import datetime
+
+    from app.services.menu.availability import schedule_note
+
+    # weekday 4 = quarta (1 = domingo); 2026-10-22 é quinta
+    late_wednesday = {"items_availability": [{"weekday": 4, "period_start": "18:00", "period_end": "02:00"}]}
+    assert schedule_note(late_wednesday, datetime(2026, 10, 22, 1, 0)) is None
+    assert schedule_note(late_wednesday, datetime(2026, 10, 22, 3, 0)) == "Não é vendido hoje."
