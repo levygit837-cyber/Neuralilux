@@ -61,6 +61,7 @@ class MessageResponse(BaseModel):
     direction: str
     status: str
     is_from_me: bool
+    sender_name: Optional[str] = None
     timestamp: datetime
     created_at: datetime
 

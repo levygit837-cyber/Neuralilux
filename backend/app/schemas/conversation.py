@@ -37,6 +37,7 @@ class ConversationResponse(BaseModel):
     remote_jid: str
     is_active: bool
     is_archived: bool
+    is_group: bool = False
     unread_count: int
     human_in_loop: bool = False
     handoff_assigned_to: Optional[str] = None

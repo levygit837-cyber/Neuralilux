@@ -1,5 +1,12 @@
 import { create } from 'zustand'
-import type { Message, Conversation, TypingIndicator, ThinkingEvent, ThinkingState, ContactFilter } from '@/types/chat'
+import type {
+  ChatCounts,
+  Conversation,
+  ConversationCategory,
+  Message,
+  ThinkingEvent,
+  ThinkingState,
+} from '@/types/chat'
 import { formatTimestamp } from '@/lib/utils'
 
 interface ChatStore {
@@ -8,20 +15,39 @@ interface ChatStore {
   activeConversationId: string | null
   typingIndicators: Record<string, boolean>
   thinkingEvents: Record<string, ThinkingEvent>
-  contactFilter: ContactFilter
+  /** Filtro e busca da lista; o backend aplica os dois. */
+  category: ConversationCategory
+  search: string
+  /** Total de Conversations do filtro no servidor; a lista pode ter só as primeiras páginas. */
+  totalConversations: number
+  isLoadingMore: boolean
+  /** A Conversation aberta foi escolhida pelo usuário (e não pela seleção automática da primeira). */
+  isActiveExplicit: boolean
+  /** Null até a primeira resposta de `/conversations/counts`. */
+  counts: ChatCounts | null
+  /**
+   * A Conversation aberta quando um filtro ou a busca a tira da lista: sem isto o chat fecharia
+   * sozinho. Só existe enquanto ela estiver aberta e fora da lista.
+   */
+  pinnedConversation: Conversation | null
+  isSyncing: boolean
   isLoadingConversations: boolean
   isLoadingMessages: boolean
   isSending: boolean
   error: string | null
   
   // Actions
-  setConversations: (conversations: Conversation[]) => void
+  setConversations: (conversations: Conversation[], total: number) => void
+  appendConversations: (conversations: Conversation[], total: number) => void
   upsertConversation: (conversation: Conversation) => void
   setMessages: (conversationId: string, messages: Message[]) => void
   addMessage: (message: Message) => void
   updateMessage: (tempId: string, message: Message) => void
   updateMessageStatus: (messageId: string, status: Message['status']) => void
+  /** Escolha do usuário: a Conversation passa a contar como lida ao ser aberta. */
   setActiveConversation: (conversationId: string | null) => void
+  /** Seleção automática da primeira da lista: não conta como leitura. */
+  autoSelectConversation: (conversationId: string | null) => void
   setTyping: (conversationId: string, isTyping: boolean) => void
   setLoadingConversations: (loading: boolean) => void
   setLoadingMessages: (loading: boolean) => void
@@ -30,7 +56,11 @@ interface ChatStore {
   updateConversationLastMessage: (conversationId: string, message: string, at: Date) => void
   setConversationHandoff: (conversationId: string, humanHandoff: boolean, assignedTo?: string | null) => void
   resetUnreadCount: (conversationId: string) => void
-  setContactFilter: (filter: ContactFilter) => void
+  setCategory: (category: ConversationCategory) => void
+  setSearch: (search: string) => void
+  setCounts: (counts: ChatCounts) => void
+  setSyncing: (syncing: boolean) => void
+  setLoadingMore: (loading: boolean) => void
   // Thinking actions
   setThinkingState: (conversationId: string, state: ThinkingState, summary?: string) => void
   appendThinkingToken: (conversationId: string, token: string) => void
@@ -49,6 +79,23 @@ function sortConversations(conversations: Conversation[]): Conversation[] {
   return [...conversations].sort((a, b) => time(b) - time(a))
 }
 
+/** A Conversation pelo UUID ou pelo `remote_jid`, na lista ou, se saiu dela por um filtro, a aberta. */
+export function findConversation(state: ChatStore, ref: string | null | undefined): Conversation | undefined {
+  if (!ref) return undefined
+  const match = (item: Conversation) => item.id === ref || item.remoteJid === ref
+  const listed = state.conversations.find(match)
+  if (listed) return listed
+  return state.pinnedConversation && match(state.pinnedConversation) ? state.pinnedConversation : undefined
+}
+
+export const selectActiveConversation = (state: ChatStore) => findConversation(state, state.activeConversationId)
+
+/** A aberta que o filtro tirou da lista fica fixada; se voltou, a da lista vale. */
+function pinnedAfter(state: ChatStore, conversations: Conversation[]): Conversation | null {
+  const stillListed = conversations.some((item) => item.id === state.activeConversationId)
+  return stillListed ? null : (selectActiveConversation(state) ?? null)
+}
+
 export const useChatStore = create<ChatStore>((set, get) => ({
   conversations: [],
   messages: {},
@@ -56,17 +103,42 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   typingIndicators: {},
   thinkingEvents: {},
   thinkingClearTimers: {},
-  contactFilter: 'all',
+  category: 'all',
+  search: '',
+  counts: null,
+  totalConversations: 0,
+  isLoadingMore: false,
+  isActiveExplicit: false,
+  pinnedConversation: null,
+  isSyncing: false,
   isLoadingConversations: false,
   isLoadingMessages: false,
   isSending: false,
   error: null,
 
-  setConversations: (conversations) => set({ conversations: sortConversations(conversations) }),
+  setConversations: (conversations, total) =>
+    set((state) => ({
+      conversations: sortConversations(conversations),
+      totalConversations: total,
+      pinnedConversation: pinnedAfter(state, conversations),
+    })),
+
+  appendConversations: (conversations, total) =>
+    set((state) => {
+      const known = new Set(state.conversations.map((item) => item.id))
+      const merged = [...state.conversations, ...conversations.filter((item) => !known.has(item.id))]
+      return {
+        conversations: sortConversations(merged),
+        totalConversations: total,
+        pinnedConversation: pinnedAfter(state, merged),
+      }
+    }),
 
   upsertConversation: (conversation) =>
     set((state) => {
       const exists = state.conversations.some((item) => item.id === conversation.id)
+      // A fixada está fora da lista filtrada de propósito: atualiza só a cópia fixada.
+      if (!exists && state.pinnedConversation?.id === conversation.id) return { pinnedConversation: conversation }
       const next = exists
         ? state.conversations.map((item) => (item.id === conversation.id ? conversation : item))
         : [...state.conversations, conversation]
@@ -116,7 +188,18 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }),
 
   setActiveConversation: (conversationId) =>
-    set({ activeConversationId: conversationId }),
+    set((state) => ({
+      activeConversationId: conversationId,
+      isActiveExplicit: conversationId !== null,
+      pinnedConversation: state.pinnedConversation?.id === conversationId ? state.pinnedConversation : null,
+    })),
+
+  autoSelectConversation: (conversationId) =>
+    set((state) => ({
+      activeConversationId: conversationId,
+      isActiveExplicit: false,
+      pinnedConversation: state.pinnedConversation?.id === conversationId ? state.pinnedConversation : null,
+    })),
 
   setTyping: (conversationId, isTyping) =>
     set((state) => ({
@@ -142,23 +225,30 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       ),
     })),
 
-  setConversationHandoff: (conversationId, humanHandoff, assignedTo = null) =>
+  setConversationHandoff: (conversationId, humanHandoff, assignedTo = null) => {
+    const patch = (conv: Conversation) =>
+      conv.id === conversationId
+        ? { ...conv, humanHandoff, handoffAssignedTo: humanHandoff ? assignedTo : null }
+        : conv
     set((state) => ({
-      conversations: state.conversations.map((conv) =>
-        conv.id === conversationId
-          ? { ...conv, humanHandoff, handoffAssignedTo: humanHandoff ? assignedTo : null }
-          : conv
-      ),
-    })),
+      conversations: state.conversations.map(patch),
+      pinnedConversation: state.pinnedConversation && patch(state.pinnedConversation),
+    }))
+  },
 
-  resetUnreadCount: (conversationId) =>
+  resetUnreadCount: (conversationId) => {
+    const patch = (conv: Conversation) => (conv.id === conversationId ? { ...conv, unreadCount: 0 } : conv)
     set((state) => ({
-      conversations: state.conversations.map((conv) =>
-        conv.id === conversationId ? { ...conv, unreadCount: 0 } : conv
-      ),
-    })),
+      conversations: state.conversations.map(patch),
+      pinnedConversation: state.pinnedConversation && patch(state.pinnedConversation),
+    }))
+  },
 
-  setContactFilter: (filter) => set({ contactFilter: filter }),
+  setCategory: (category) => set({ category }),
+  setSearch: (search) => set({ search }),
+  setCounts: (counts) => set({ counts }),
+  setSyncing: (syncing) => set({ isSyncing: syncing }),
+  setLoadingMore: (loading) => set({ isLoadingMore: loading }),
 
   setThinkingState: (conversationId, state, summary) =>
     set((prev) => ({
@@ -240,6 +330,14 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       typingIndicators: {},
       thinkingEvents: {},
       thinkingClearTimers: {},
+      category: 'all',
+      search: '',
+      counts: null,
+      totalConversations: 0,
+      isLoadingMore: false,
+      isActiveExplicit: false,
+      pinnedConversation: null,
+      isSyncing: false,
       isLoadingConversations: false,
       isLoadingMessages: false,
       isSending: false,

@@ -5,8 +5,14 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict
 
-# Chaves de `message` que só embrulham outra mensagem.
-_WRAPPERS = ("ephemeralMessage", "viewOnceMessage", "viewOnceMessageV2", "documentWithCaptionMessage")
+# Chaves de `message` que só embrulham outra mensagem. `associatedChildMessage` é cada foto/vídeo de um álbum.
+_WRAPPERS = (
+    "ephemeralMessage",
+    "viewOnceMessage",
+    "viewOnceMessageV2",
+    "documentWithCaptionMessage",
+    "associatedChildMessage",
+)
 _MEDIA = {
     "imageMessage": ("image", "[Imagem]"),
     "videoMessage": ("video", "[Vídeo]"),
@@ -14,6 +20,21 @@ _MEDIA = {
     "documentMessage": ("document", "[Documento]"),
     "stickerMessage": ("sticker", "[Sticker]"),
 }
+# Chaves que só carregam metadados: sozinhas, a mensagem não tem conteúdo.
+_CONTEXT_ONLY = ("messageContextInfo", "messageSecret")
+# Tipos que o WhatsApp não mostra como balão de conversa.
+_INVISIBLE = frozenset(
+    {
+        "protocolMessage",
+        "reactionMessage",
+        "albumMessage",  # só o cabeçalho do álbum; as fotos chegam como `associatedChildMessage`
+        "senderKeyDistributionMessage",
+        "pollUpdateMessage",
+        "editedMessage",
+        "keepInChatMessage",
+        "pinInChatMessage",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -24,15 +45,19 @@ class ParsedContent:
     is_media: bool = False
 
 
-def parse_content(message_data: Dict[str, Any]) -> ParsedContent:
-    """Extrai tipo, conteúdo e texto de um `message` da Evolution."""
-    message_data = message_data or {}
+def _unwrap(message_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Desembrulha `ephemeralMessage`, `viewOnce*` etc. até a mensagem de verdade."""
     for _ in range(len(_WRAPPERS)):
         wrapper = next((key for key in _WRAPPERS if isinstance(message_data.get(key), dict)), None)
         if wrapper is None:
             break
         message_data = message_data[wrapper].get("message") or {}
+    return message_data
 
+
+def parse_content(message_data: Dict[str, Any]) -> ParsedContent:
+    """Extrai tipo, conteúdo e texto de um `message` da Evolution."""
+    message_data = _unwrap(message_data or {})
     if "conversation" in message_data:
         text = message_data["conversation"] or ""
         return ParsedContent("text", text, text)
@@ -57,8 +82,24 @@ def resolve_remote_jid(key: Dict[str, Any], payload: Dict[str, Any]) -> str:
 
 
 def is_ignored_chat(remote_jid: str) -> bool:
-    """Grupos e broadcast (inclui `status@broadcast`) nunca passam pelo Agent."""
-    return remote_jid.endswith("@g.us") or remote_jid.endswith("@broadcast")
+    """Broadcast (inclui `status@broadcast`) nunca é gravado. Grupos são gravados, mas não passam pelo Agent."""
+    return remote_jid.endswith("@broadcast")
+
+
+def is_group_chat(remote_jid: str) -> bool:
+    return remote_jid.endswith("@g.us")
+
+
+def is_invisible_message(message_data: Dict[str, Any]) -> bool:
+    """Mensagem que o WhatsApp não mostra como balão (protocolo, reação, enquete, edição, chaves de grupo)
+    ou sem conteúdo nenhum: nunca vira linha de Message."""
+    message_data = _unwrap(message_data or {})
+    keys = {key for key in message_data if key not in _CONTEXT_ONLY}
+    if not keys:
+        return True
+    if "conversation" in keys or "extendedTextMessage" in keys or keys & _MEDIA.keys():
+        return False
+    return bool(keys & _INVISIBLE)
 
 
 def unwrap_event_payload(data: Dict[str, Any]) -> Dict[str, Any]:

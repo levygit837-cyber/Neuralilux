@@ -35,8 +35,8 @@ async def test_connection_update_for_unknown_instance_does_not_create_one(db, wo
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("jid", ["553388773141-1562969789@g.us", "status@broadcast", "5511999@broadcast"])
-async def test_group_and_broadcast_messages_never_reach_the_agent_or_the_database(db, world, jid):
+@pytest.mark.parametrize("jid", ["status@broadcast", "5511999@broadcast"])
+async def test_broadcast_messages_never_reach_the_agent_or_the_database(db, world, jid):
     await process(WhatsAppMessageConsumer(), upsert(remote_jid=jid))
 
     assert world["turns"] == [] and world["sent"] == []

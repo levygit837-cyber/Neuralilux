@@ -7,10 +7,12 @@ import { AvatarImage } from '@/components/ui/AvatarImage'
 
 interface MessageBubbleProps {
   message: Message
+  /** Conversation de grupo: mostra quem falou acima das mensagens recebidas. */
+  showSender?: boolean
   onRetry?: (messageId: string) => void
 }
 
-export function MessageBubble({ message, onRetry }: MessageBubbleProps) {
+export function MessageBubble({ message, showSender = false, onRetry }: MessageBubbleProps) {
   const time = new Date(message.timestamp).toLocaleTimeString('pt-BR', {
     hour: '2-digit',
     minute: '2-digit',
@@ -59,6 +61,9 @@ export function MessageBubble({ message, onRetry }: MessageBubbleProps) {
         </div>
       )}
       <div className={cn('flex flex-col gap-1', message.isOutgoing ? 'items-end' : 'items-start')}>
+        {showSender && !message.isOutgoing && message.sender && (
+          <span className="ml-1 text-xs font-semibold text-primary">{message.sender.name}</span>
+        )}
         <div
           className={cn(
             'px-4 py-3 rounded-2xl text-[15px] leading-relaxed relative shadow-sm',

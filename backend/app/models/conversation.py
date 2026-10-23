@@ -2,6 +2,7 @@ from sqlalchemy import Column, String, DateTime, Boolean, Text, Integer, Foreign
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
+from sqlalchemy.sql import expression
 from app.core.database import Base
 from app.models.base import generate_uuid
 
@@ -15,6 +16,7 @@ class Conversation(Base):
     remote_jid = Column(String, nullable=False, index=True)
     is_active = Column(Boolean, default=True)
     is_archived = Column(Boolean, default=False)
+    is_group = Column(Boolean, default=False, server_default=expression.false(), nullable=False)  # chat de grupo (@g.us)
     unread_count = Column(Integer, default=0)
     last_message_at = Column(DateTime(timezone=True))
     # Início da Session de atendimento atual (ADR 0007). NULL: Conversation anterior às Sessions, janela inteira.

@@ -15,6 +15,7 @@ import {
 } from '@phosphor-icons/react'
 import { ROUTES } from '@/lib/constants'
 import { cn } from '@/lib/utils'
+import { useChatStore } from '@/stores/useChatStore'
 
 const NAV_ITEMS = [
   {
@@ -27,7 +28,7 @@ const NAV_ITEMS = [
     href: ROUTES.CHAT,
     label: 'Chat',
     icon: ChatCircleDots,
-    badge: '14',
+    badge: null,
   },
   {
     href: ROUTES.INSTANCES,
@@ -57,6 +58,8 @@ const SETTINGS_ITEM = {
 
 export function Sidebar() {
   const pathname = usePathname()
+  // Só se conhece depois que o chat carregou; antes disso não há selo.
+  const unreadMessages = useChatStore((state) => state.counts?.unreadMessages ?? 0)
 
   return (
     <aside className="hidden w-72 flex-col border-r border-brand-border bg-brand-card/50 lg:flex relative z-20 shadow-panel backdrop-blur-sm">
@@ -82,6 +85,7 @@ export function Sidebar() {
         {NAV_ITEMS.map((item) => {
           const Icon = item.icon
           const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`)
+          const badge = item.href === ROUTES.CHAT && unreadMessages > 0 ? String(unreadMessages) : item.badge
 
           return (
             <Link
@@ -102,9 +106,10 @@ export function Sidebar() {
                 )}
               />
               <span className="font-medium">{item.label}</span>
-              {item.badge && (
+              {badge && (
                 <span className="bg-primary text-[10px] font-bold px-2 py-0.5 rounded-full ml-auto">
-                  {item.badge}
+                  <span aria-hidden={item.href === ROUTES.CHAT ? 'true' : undefined}>{badge}</span>
+                  {item.href === ROUTES.CHAT && <span className="sr-only">{badge} mensagens não lidas</span>}
                 </span>
               )}
             </Link>
