@@ -22,7 +22,7 @@ def names(result) -> list[str]:
 
 async def test_multi_word_query_finds_item(world, buscar):
     result = await call(buscar, world.ctx, consulta="pizza toscana")
-    assert names(result) == ["Pizza Toscana"]
+    assert names(result)[0] == "Pizza Toscana"
     item = payload(result)["itens"][0]
     assert item["id"] == world.items["Pizza Toscana"].id
     assert item["preco"] == 45.0
@@ -31,14 +31,14 @@ async def test_multi_word_query_finds_item(world, buscar):
 
 async def test_scope_is_the_context_company_not_a_hardcoded_name(world, buscar):
     result = await call(buscar, world.ctx, consulta="pizza toscana")
-    assert [i["id"] for i in payload(result)["itens"]] == [world.items["Pizza Toscana"].id]
+    assert [i["id"] for i in payload(result)["itens"]][0] == world.items["Pizza Toscana"].id
     assert world.other_company_item.id not in result.content
 
 
 async def test_accent_and_case_insensitive(world, buscar):
-    assert names(await call(buscar, world.ctx, consulta="REFRIGERANTE cola")) == ["Refrigerante Cola 2L"]
-    assert names(await call(buscar, world.ctx, consulta="suco laranja")) == ["Suco de Laranja"]
-    assert names(await call(buscar, world.ctx, consulta="Súco de Láranja")) == ["Suco de Laranja"]
+    assert names(await call(buscar, world.ctx, consulta="REFRIGERANTE cola"))[0] == "Refrigerante Cola 2L"
+    assert names(await call(buscar, world.ctx, consulta="suco laranja"))[0] == "Suco de Laranja"
+    assert names(await call(buscar, world.ctx, consulta="Súco de Láranja"))[0] == "Suco de Laranja"
 
 
 async def test_whole_word_match_pizza_does_not_hit_pizzaiolo(world, buscar):
@@ -52,8 +52,76 @@ async def test_simple_plural(world, buscar):
     assert names(await call(buscar, world.ctx, consulta="sucos")) == ["Suco de Laranja"]
 
 
-async def test_all_tokens_must_match(world, buscar):
-    assert names(await call(buscar, world.ctx, consulta="pizza suco")) == []
+async def test_unknown_word_does_not_hide_the_word_that_matches(world, buscar):
+    assert names(await call(buscar, world.ctx, consulta="xyzzy toscana")) == ["Pizza Toscana"]
+    assert names(await call(buscar, world.ctx, consulta="toscana xyzzy")) == ["Pizza Toscana"]
+
+
+async def test_item_matching_more_words_comes_before_one_matching_fewer(world, buscar):
+    found = names(await call(buscar, world.ctx, consulta="pizza toscana"))
+    assert found[0] == "Pizza Toscana"
+    assert set(found) == {"Pizza Toscana", "Pizza Calabresa"}
+
+
+async def test_nothing_matches_when_no_word_exists(world, buscar):
+    assert names(await call(buscar, world.ctx, consulta="xyzzy plugh")) == []
+
+
+async def test_filler_words_do_not_count(world, buscar):
+    # "uma", "de" não casam nada: só "pizza" e "calabresa" pontuam.
+    assert names(await call(buscar, world.ctx, consulta="uma pizza de calabresa"))[0] == "Pizza Calabresa"
+
+
+async def test_pizza_de_calabresa_finds_the_calabresa_pizza_first(world, buscar):
+    found = names(await call(buscar, world.ctx, consulta="pizza de calabresa"))
+    assert found[0] == "Pizza Calabresa"
+    # Toscana leva calabresa na descrição: entra, mas atrás da que tem a palavra no nome.
+    assert found.index("Pizza Toscana") > 0
+
+
+async def test_more_matched_words_rank_first(world, buscar):
+    found = names(await call(buscar, world.ctx, consulta="suco de bebida"))
+    assert found == ["Suco de Laranja", "Refrigerante Cola 2L"]
+
+
+async def test_coca_2_litros_brings_the_cocas(db):
+    from decimal import Decimal
+
+    from app.models import MenuCategory, MenuItem
+
+    world = make_world(db)
+    catalog_id = world.items["Pizza Toscana"].catalog_id
+    drinks = db.query(MenuCategory).filter_by(catalog_id=catalog_id, name="Bebidas").one()
+    for name, description in [("COCA COLA", "1,5 LT"), ("COCA COLA ZERO", "1,5 LT"), ("GUARANÁ ANTARTICA", "LATA 350 ML")]:
+        db.add(MenuItem(catalog_id=catalog_id, category_id=drinks.id, name=name, price=Decimal("19.00"), description=description))
+    db.commit()
+
+    found = names(await call(tool_named(CatalogOrdersPack().tools(), "buscar_cardapio"), world.ctx, consulta="coca 2 litros"))
+    assert found[:2] == ["COCA COLA", "COCA COLA ZERO"]
+    assert "Pizza Toscana" not in found
+
+
+async def test_generic_category_name_finds_the_category(world, buscar):
+    assert set(names(await call(buscar, world.ctx, consulta="refrigerante"))) >= {"Refrigerante Cola 2L", "Suco de Laranja"}
+    assert set(names(await call(buscar, world.ctx, consulta="bebida"))) == {"Refrigerante Cola 2L", "Suco de Laranja"}
+
+
+async def test_category_synonym_massa_finds_pastas(db):
+    from decimal import Decimal
+
+    from app.models import MenuCategory, MenuItem
+
+    world = make_world(db)
+    catalog_id = world.items["Pizza Toscana"].catalog_id
+    pastas = MenuCategory(catalog_id=catalog_id, name="Pastas", sort_order=5)
+    db.add(pastas)
+    db.flush()
+    db.add(MenuItem(catalog_id=catalog_id, category_id=pastas.id, name="Rondelli", price=Decimal("98.00")))
+    db.commit()
+
+    buscar = tool_named(CatalogOrdersPack().tools(), "buscar_cardapio")
+    assert names(await call(buscar, world.ctx, consulta="massa")) == ["Rondelli"]
+    assert names(await call(buscar, world.ctx, categoria="massas")) == ["Rondelli"]
 
 
 async def test_query_matches_category_name(world, buscar):
@@ -108,7 +176,16 @@ async def test_inactive_catalog_is_ignored(world, buscar):
     assert names(await call(buscar, world.ctx, consulta="pizza")) == []
 
 
-async def test_empty_search_lists_categories_and_first_items(world, buscar):
+async def test_empty_search_lists_categories_with_counts_and_no_items(world, buscar):
     data = payload(await call(buscar, world.ctx))
-    assert data["categorias"] == ["Pizzas", "Bebidas", "Brindes"]
-    assert data["itens"][0]["nome"] in {"Pizza Toscana", "Pizza Calabresa"}
+    # Pizza Portuguesa está indisponível e não entra na contagem.
+    assert data["categorias"] == [
+        {"nome": "Pizzas", "itens": 2},
+        {"nome": "Bebidas", "itens": 2},
+        {"nome": "Brindes", "itens": 1},
+    ]
+    assert data["itens"] == []
+
+
+async def test_query_of_only_filler_words_is_an_empty_search(world, buscar):
+    assert payload(await call(buscar, world.ctx, consulta="de uma"))["itens"] == []

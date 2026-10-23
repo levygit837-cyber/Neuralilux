@@ -1,6 +1,9 @@
 """`buscar_cardapio`: busca de Catalog Items da Company do contexto.
 
-Normalização sem acento, tokens que casam palavra inteira (com plural simples) no nome ou na categoria.
+Normalização sem acento e palavras inteiras (com plural simples). Palavras vazias não contam. Cada item é
+pontuado pelas palavras da consulta que aparecem no nome, na descrição curta ou na categoria (com os sinônimos
+de categoria do Pack); item que casa mais vem primeiro, e basta casar uma palavra para entrar. Sem consulta nem
+categoria, devolve só as categorias com a contagem de itens.
 Só entram itens disponíveis de catálogos ativos da `ctx.company_id`.
 """
 
@@ -19,6 +22,24 @@ MAX_DESCRIPTION = 120
 
 _WORD = re.compile(r"[a-z0-9]+")
 
+# Palavras que o cliente usa para ligar a frase e que nunca identificam um item ("pizza de calabresa").
+STOPWORDS = frozenset(
+    "a as o os um uma uns umas de da do das dos com e em no na nos nas pra para por quero queria".split()
+)
+
+# Nome genérico que o cliente usa -> categoria do cardápio. Chave: palavra da categoria no singular, sem acento.
+# É vocabulário do ramo restaurante, por isso mora no Pack e não no núcleo (ADR 0004).
+CATEGORY_SYNONYMS: dict[str, tuple[str, ...]] = {
+    "bebida": ("refrigerante", "refri", "drink"),
+    "pasta": ("massa", "macarrao"),
+    "sobremesa": ("doce",),
+    "porcao": ("petisco",),
+    "acompanhamento": ("guarnicao",),
+    "entrada": ("aperitivo",),
+    "sopa": ("caldo",),
+    "ave": ("frango", "galinha"),
+}
+
 
 def normalize(text: str | None) -> str:
     decomposed = unicodedata.normalize("NFKD", text or "")
@@ -31,12 +52,25 @@ def words(text: str | None) -> list[str]:
 
 def singular(word: str) -> str:
     """Plural simples do português: 'pizzas' -> 'pizza'. Palavras curtas ('gas', '2l') ficam como estão."""
+    if len(word) > 4 and word.endswith("oes"):
+        return word[:-3] + "ao"
     return word[:-1] if len(word) > 3 and word.endswith("s") else word
 
 
-def _matches_all(tokens: list[str], candidate_words: list[str]) -> bool:
-    singulars = {singular(w) for w in candidate_words}
-    return all(singular(token) in singulars for token in tokens)
+def search_tokens(text: str | None) -> list[str]:
+    """Palavras da consulta no singular, sem palavras vazias e sem repetição, na ordem em que foram escritas."""
+    return list(dict.fromkeys(singular(w) for w in words(text) if w not in STOPWORDS))
+
+
+def _terms(text: str | None) -> set[str]:
+    return {singular(w) for w in words(text)}
+
+
+def _category_terms(category_name: str) -> set[str]:
+    terms = _terms(category_name)
+    for term in list(terms):
+        terms.update(CATEGORY_SYNONYMS.get(term, ()))
+    return terms
 
 
 def _short(description: str | None) -> str | None:
@@ -62,39 +96,62 @@ def _available_rows(ctx: ToolContext) -> list[tuple[MenuItem, MenuCategory]]:
     )
 
 
+def _category_counts(rows: list[tuple[MenuItem, MenuCategory]]) -> list[dict[str, Any]]:
+    counts: dict[str, int] = {}
+    for _, category in rows:
+        counts[category.name] = counts.get(category.name, 0) + 1
+    return [{"nome": name, "itens": count} for name, count in counts.items()]
+
+
+def _rank(
+    rows: list[tuple[MenuItem, MenuCategory]], query_tokens: list[str], category_tokens: list[str]
+) -> list[tuple[MenuItem, MenuCategory]]:
+    """Itens que casam ao menos uma palavra da consulta. Mais palavras casadas vêm primeiro; no empate, quem casa
+    no nome vem antes de quem casa na categoria, e esse antes de quem só casa na descrição."""
+    ranked: list[tuple[tuple[int, int, int], MenuItem, MenuCategory]] = []
+    for item, category in rows:
+        category_terms = _category_terms(category.name)
+        if category_tokens and not all(token in category_terms for token in category_tokens):
+            continue
+        name_terms = _terms(item.name)
+        searchable = name_terms | _terms(_short(item.description)) | category_terms
+        matched = sum(token in searchable for token in query_tokens)
+        if query_tokens and not matched:
+            continue
+        in_name = sum(token in name_terms for token in query_tokens)
+        in_category = sum(token in category_terms for token in query_tokens)
+        ranked.append(((-matched, -in_name, -in_category), item, category))
+    ranked.sort(key=lambda entry: entry[0])  # estável: empates seguem a ordem do cardápio
+    return [(item, category) for _, item, category in ranked]
+
+
 async def _buscar_cardapio(ctx: ToolContext, args: dict[str, Any]) -> ToolResult:
-    query_tokens = words(args.get("consulta"))
-    category_tokens = words(args.get("categoria"))
+    query_tokens = search_tokens(args.get("consulta"))
+    category_tokens = search_tokens(args.get("categoria"))
 
     rows = _available_rows(ctx)
-    categories: list[str] = []
-    for _, category in rows:
-        if category.name not in categories:
-            categories.append(category.name)
+    data: dict[str, Any] = {"categorias": _category_counts(rows)}
+    if not query_tokens and not category_tokens:
+        data["itens"] = []
+        data["aviso"] = "Sem consulta nem categoria só voltam as categorias. Busque por uma palavra ou por uma categoria."
+        return ToolResult(content=json.dumps(data, ensure_ascii=False))
 
-    found = []
-    for item, category in rows:
-        category_words = words(category.name)
-        if category_tokens and not _matches_all(category_tokens, category_words):
-            continue
-        if query_tokens and not _matches_all(query_tokens, words(item.name) + category_words):
-            continue
-        found.append((item, category))
-
-    data = {
-        "categorias": categories,
-        "total_encontrado": len(found),
-        "itens": [
-            {
-                "id": item.id,
-                "nome": item.name,
-                "preco": float(item.price),
-                "descricao": _short(item.description),
-                "categoria": category.name,
-            }
-            for item, category in found[:MAX_RESULTS]
-        ],
-    }
+    found = _rank(rows, query_tokens, category_tokens)
+    data.update(
+        {
+            "total_encontrado": len(found),
+            "itens": [
+                {
+                    "id": item.id,
+                    "nome": item.name,
+                    "preco": float(item.price),
+                    "descricao": _short(item.description),
+                    "categoria": category.name,
+                }
+                for item, category in found[:MAX_RESULTS]
+            ],
+        }
+    )
     return ToolResult(content=json.dumps(data, ensure_ascii=False))
 
 
@@ -103,8 +160,10 @@ def buscar_cardapio_tool() -> Tool:
         name="buscar_cardapio",
         description=(
             "Busca itens disponíveis no cardápio da empresa. Chame SEMPRE antes de citar preço ou item. "
-            "Todas as palavras da consulta têm de aparecer no nome ou na categoria. Sem argumentos, lista as "
-            "categorias e os primeiros itens. Devolve até 15 itens com id, nome, preço e descrição."
+            "Basta uma palavra da consulta aparecer no nome, na descrição ou na categoria: quem casa mais palavras "
+            "vem primeiro. Nomes genéricos como 'refrigerante' ou 'massa' encontram a categoria. Sem consulta nem "
+            "categoria, devolve só as categorias com a quantidade de itens. Devolve até 15 itens com id, nome, "
+            "preço e descrição."
         ),
         input_schema={
             "type": "object",
