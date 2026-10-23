@@ -96,10 +96,6 @@ def test_limit_is_configurable_per_company(db, conversation_factory, company):
     assert sessions.roll_session(db, conversation, company, [], T0 + timedelta(minutes=31)) is True
 
 
-def test_new_company_defaults_to_three_hours(db, company):
-    assert company.session_timeout_minutes == 180
-
-
 def test_naive_datetimes_from_the_database_are_compared_as_utc(db, conversation_factory, company):
     conversation = conversation_factory("conv-naive")
     conversation.last_message_at = T0.replace(tzinfo=None)

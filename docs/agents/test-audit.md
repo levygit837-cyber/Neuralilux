@@ -31,7 +31,7 @@ Contagem por linha de tabela (uma linha por função; parametrizado conta uma ve
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | api / core / models | 21 | 214 | 191 | 13 | 0 | 9 | 1 | 0 | 0 |
 | whatsapp / realtime (após #54) | 21 | 152 | 152 | 0 | 0 | 0 | 0 | 0 | 0 |
-| agent / packs / handoff / llm / scripts | 28 | 348 | 323 | 14 | 0 | 2 | 9 | 0 | 0 |
+| agent / packs / handoff / llm / scripts (após #55) | 28 | 327 | 327 | 0 | 0 | 0 | 0 | 0 | 0 |
 | **Total** | 70 | 745 | **665** | **37** | **13** | **17** | **13** | **0** | **0** |
 
 - Candidatos a remoção: 80 de 745 funções.
@@ -153,33 +153,12 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 
 ### Área 3: agent / packs / handoff / llm / scripts
 
-| Arquivo | Teste | Categoria | Motivo / equivalente |
-|---|---|---|---|
-| `agent/test_agent_events.py` | `test_handoff_publica_um_dict` | `redundant` | Mesmo caminho e campos (type, conversation_id, ticket_id, reason) de `tests/realtime/test_socket_thinking_events.py::test_handoff_request_reaches_both_rooms_with_ticket_and_reason`, que passa pelo mesmo `publish_handoff_requested` até o socket; obs.: `publish_handoff_requested` só é chamado por testes, a Tool monta o dict inline |
-| `agent/test_agent_formatting.py` | `test_nunca_adiciona_sufixo_de_debug` | `redundant` | `to_whatsapp` não tem como emitir "[Debug"; o caminho real é coberto por `tests/agent/test_agent_executor.py::test_falha_do_gateway_devolve_mensagem_generica_sem_debug` |
-| `agent/test_clock.py` | `test_valid_company_timezone_is_used` | `redundant` | Mesma asserção "20:30 (fuso America/Fortaleza)" coberta de ponta a ponta por `tests/agent/test_agent_executor.py::test_prompt_traz_data_e_hora_no_fuso_da_company` |
-| `agent/test_conversation_memory.py` | `test_fts_index_is_declared_on_the_model_for_postgres_only` | `wording` | Fixa o DDL literal ("USING gin", to_tsvector('portuguese'...)) do índice, detalhe de implementação |
-| `agent/test_conversation_memory.py` | `test_memory_parameters_come_from_settings` | `wording` | Fixa defaults incidentais `(20, 20, 8)` de settings sem exercitar comportamento |
-| `agent/test_conversation_memory.py` | `test_search_history_snippet_uses_the_earliest_of_any_term` | `redundant` | Consulta de um único termo além de 300 caracteres: mesmo caminho de `tests/agent/test_conversation_memory.py::test_search_history_snippet_is_centered_on_the_first_match`; nome promete multi-termo mas não exercita |
-| `agent/test_core_tools.py` | `test_core_exposes_exactly_three_tools` | `wording` | Fixa lista exata de nomes e `required` dos schemas; quebra ao adicionar Tool e o `required` de motivo/frase já é exercitado em `tests/handoff/test_handoff_reply.py` |
-| `agent/test_core_tools.py` | `test_six_tools_in_total` | `wording` | Fixa contagem incidental "6"; colisão de nomes já recusada por `ToolRegistry.from_packs` |
-| `agent/test_core_tools.py` | `test_transfer_description_lists_triggers_instead_of_keywords` | `wording` | Fixa palavras na descrição da Tool ("humano", "reclama", "pedido"), texto de prompt |
-| `agent/test_handoff_socket.py` | `test_handoff_event_without_instance_is_dropped_like_other_events` | `redundant` | Mesmo early-return por falta de instance_name e mesma asserção de `tests/realtime/test_socket_thinking_events.py::test_event_without_instance_is_dropped` |
-| `agent/test_sessions.py` | `test_new_company_defaults_to_three_hours` | `wording` | Fixa default incidental 180; o limite de 3h já é exercitado em `test_message_exactly_at_the_limit_continues_and_one_second_later_opens_a_new_session` |
-| `handoff/test_handoff_api.py` | `test_attendant_can_take_an_unassigned_agent_handoff` | `redundant` | Mesmo caminho (Handoff aberto sem responsável, assumir, 1 Ticket) e asserção subconjunto de `tests/handoff/test_handoff_api.py::test_take_control_on_agent_requested_handoff_assigns_the_same_ticket` |
-| `handoff/test_handoff_reply.py` | `test_company_with_empty_hours_uses_the_fixed_phrase` | `redundant` | `business_hours={}` cai no mesmo `not business_hours` de `tests/handoff/test_handoff_reply.py::test_company_without_hours_always_uses_the_fixed_phrase` (None) |
-| `handoff/test_handoff_reply.py` | `test_repeated_transfer_still_ends_the_turn_without_a_second_ticket` | `redundant` | Mesma asserção (ends_turn no 2º, 1 Ticket) que `tests/agent/test_core_tools.py::test_transfer_is_idempotent_per_conversation`, que ainda confere 1 evento |
-| `llm/test_gateway_inference.py` | `test_list_models_non_json_body_is_a_provider_error` | `redundant` | `list_models` e `create` passam por `_request/_send_once`, que já levanta o erro para não-JSON; equivalente: `tests/llm/test_gateway_inference.py::test_non_json_body_is_a_provider_error` |
-| `llm/test_gateway_inference.py` | `test_non_json_success_body_is_a_provider_error` | `redundant` | Mesmo caminho (200 com corpo HTML não-JSON → `LLMProviderError`); equivalente que permanece: `tests/llm/test_gateway_inference.py::test_non_json_body_is_a_provider_error` (caso `"<html>502</html>"`) |
-| `llm/test_gateway_inference.py` | `test_secret_key_is_derived_with_hkdf_not_plain_sha256` | `wording` | Fixa detalhe de implementação (HKDF vs SHA-256); o efeito visível (token legado migra) já é exercido em `test_llm_registry.py::test_reencrypt_migrates_legacy_sha256_tokens_and_is_idempotent` |
-| `llm/test_llm_registry.py` | `test_resolve_builds_client_with_the_gateway_timeout_and_default_retry` | `wiring` | Spy no construtor: só confere repasse `timeout=45.0` e ausência de `max_attempts` nos kwargs |
-| `packs/test_pack_changes.py` | `test_alter_abandoned_midway_keeps_no_valid_pix_for_the_reopened_order` | `redundant` | Só repete `valid_pix == []` e status reaberto, sem abandonar nada; já em `tests/packs/test_pack_changes.py::test_alter_with_pix_supersedes_the_old_record_and_issues_a_new_one_with_the_new_amount` e `::test_alter_reopens_the_order_and_requires_a_new_confirmed_recap` |
-| `packs/test_pack_checkout.py` | `test_minimum_is_checked_on_items_not_on_fee` | `redundant` | Mesmo caminho e asserção (`finalizar` com itens abaixo de 30 → erro); nem discrimina a taxa (21,50 e 26,50 < 30); equivalente `tests/packs/test_pack_checkout.py::test_minimum_order_blocks_finalize_and_counts_items_only` |
-| `packs/test_pack_closing.py` | `test_adding_the_same_item_in_a_later_turn_adds_more` | `redundant` | Mesmo caminho (add, novo Turn, add → quantidade soma) e asserção mais fraca que `tests/packs/test_pack_items.py::test_same_item_and_note_accumulates_quantity` |
-| `packs/test_pack_closing.py` | `test_finalize_after_a_delivered_recap_in_a_previous_turn_closes_the_order` | `redundant` | Só confirma `status == closed` após `confirm_and_finalize`; mesmo caminho em `tests/packs/test_pack_checkout.py::test_finalize_cash_closes_order_with_total` |
-| `packs/test_pack_items.py` | `test_action_enum_is_exactly_the_set_of_handlers` | `wiring` | Compara duas constantes internas (`ACTIONS` vs `_ACTION_HANDLERS` privado); cada ação já é exercitada pelos demais testes |
-| `packs/test_pack_items.py` | `test_pack_exposes_exactly_three_tools_with_json_schema` | `wording` | Fixa nome/ordem das 3 tools e `t.description` truthy; `tool_named` nos demais testes já quebra se renomear |
-| `packs/test_pack_items.py` | `test_system_prompt_section_describes_the_order_flow` | `wording` | Só checa 5 palavras literais (`needle in text`) no prompt |
+Issue #55: 21 testes removidos nesta área. Quatro candidatos foram relidos e mantidos porque o equivalente citado não cobre o mesmo comportamento (ou aponta de volta para o próprio teste):
+
+- `test_handoff_publica_um_dict`: `publish_handoff_requested` só tem este teste de pé; o equivalente em `tests/realtime/test_socket_thinking_events.py` é candidato da Área 2 e aponta para cá.
+- `test_handoff_event_without_instance_is_dropped_like_other_events`: o equivalente em `tests/realtime/test_socket_thinking_events.py` é candidato da Área 2 e aponta para cá; sobra só este para o descarte sem `instance_name`.
+- `test_six_tools_in_total`: nenhum outro teste monta um `ToolRegistry` com as Tools reais do núcleo e do Pack; `from_packs` só recusa duplicata nos testes com Packs falsos.
+- `test_secret_key_is_derived_with_hkdf_not_plain_sha256`: único teste que prova que `decrypt_secret` recusa token SHA-256 legado; `test_llm_registry.py::test_reencrypt_*` só prova a migração.
 
 ## Inventário por arquivo
 
@@ -830,7 +809,7 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 ### Área 3: agent / packs / handoff / llm / scripts
 
 #### `tests/agent/test_agent_events.py`
-5 testes: 4 keep, 1 redundant.
+5 testes: 5 keep.
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
@@ -838,7 +817,7 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_tool_concluida_emite_started_e_completed_com_o_mesmo_trace`|`keep`|Fases started/completed, previews e trace_id único|
 |`test_tool_com_erro_emite_failed`|`keep`|Tool com is_error vira fase failed com o erro|
 |`test_falha_do_bus_nao_derruba_o_turn`|`keep`|Bus fora não pode quebrar o Turn (try/except real)|
-|`test_handoff_publica_um_dict`|`redundant`|Mesmo caminho e campos (type, conversation_id, ticket_id, reason) de `tests/realtime/test_socket_thinking_events.py::test_handoff_request_reaches_both_rooms_with_ticket_and_reason`, que passa pelo mesmo `publish_handoff_requested` até o socket; obs.: `publish_handoff_requested` só é chamado por testes, a Tool monta o dict inline|
+|`test_handoff_publica_um_dict`|`keep`|Mantido (#55): `publish_handoff_requested` só tem este teste de pé; o equivalente em `tests/realtime/test_socket_thinking_events.py` é candidato da Área 2 e aponta para cá.|
 
 #### `tests/agent/test_agent_executor.py`
 16 testes: 16 keep.
@@ -863,7 +842,7 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_company_sem_agent_cadastrado_usa_os_padroes`|`keep`|Sem Agent cadastrado cai no fallback de tokens|
 
 #### `tests/agent/test_agent_formatting.py`
-10 testes: 9 keep, 1 redundant.
+9 testes: 9 keep.
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
@@ -876,7 +855,6 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_lista_numerada_preservada`|`keep`|Lista numerada não é alterada|
 |`test_link_markdown_vira_texto_e_url`|`keep`|Link markdown vira texto + URL|
 |`test_espacos_e_linhas_em_branco_excedentes`|`keep`|Limpa espaços e linhas em branco extras|
-|`test_nunca_adiciona_sufixo_de_debug`|`redundant`|`to_whatsapp` não tem como emitir "[Debug"; o caminho real é coberto por `tests/agent/test_agent_executor.py::test_falha_do_gateway_devolve_mensagem_generica_sem_debug`|
 
 #### `tests/agent/test_agent_loop.py`
 11 testes: 11 keep.
@@ -928,15 +906,14 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_describe_opening_uses_today_tomorrow_and_weekday_names`|`keep`|Quatro ramos da frase de abertura mostrada ao cliente|
 
 #### `tests/agent/test_clock.py`
-2 testes: 1 keep, 1 redundant.
+1 teste: 1 keep.
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
 |`test_invalid_company_timezone_falls_back_to_the_default_zone` (×5 casos)|`keep`|Fuso inválido/malicioso não derruba o Turn|
-|`test_valid_company_timezone_is_used`|`redundant`|Mesma asserção "20:30 (fuso America/Fortaleza)" coberta de ponta a ponta por `tests/agent/test_agent_executor.py::test_prompt_traz_data_e_hora_no_fuso_da_company`|
 
 #### `tests/agent/test_conversation_memory.py`
-21 testes: 18 keep, 1 redundant, 2 wording.
+18 testes: 18 keep.
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
@@ -956,14 +933,11 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_search_history_limits_results_and_truncates_snippets`|`keep`|Limite de resultados, snippet e ordem recente primeiro|
 |`test_search_history_with_blank_query_returns_nothing`|`keep`|Consulta em branco não varre o histórico|
 |`test_search_history_snippet_is_centered_on_the_first_match`|`keep`|Snippet em volta do termo, não só o início|
-|`test_search_history_snippet_uses_the_earliest_of_any_term`|`redundant`|Consulta de um único termo além de 300 caracteres: mesmo caminho de `tests/agent/test_conversation_memory.py::test_search_history_snippet_is_centered_on_the_first_match`; nome promete multi-termo mas não exercita|
 |`test_summary_batch_is_capped_at_the_100_oldest_pending_messages`|`keep`|Lote de 100 e continuação no próximo resumo|
 |`test_summary_refresh_follows_the_window_it_is_given`|`keep`|Resumo respeita a janela informada|
-|`test_memory_parameters_come_from_settings`|`wording`|Fixa defaults incidentais `(20, 20, 8)` de settings sem exercitar comportamento|
-|`test_fts_index_is_declared_on_the_model_for_postgres_only`|`wording`|Fixa o DDL literal ("USING gin", to_tsvector('portuguese'...)) do índice, detalhe de implementação|
 
 #### `tests/agent/test_core_tools.py`
-16 testes: 13 keep, 3 wording.
+14 testes: 14 keep.
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
@@ -977,31 +951,28 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_transfer_is_idempotent_per_conversation`|`keep`|Um só Ticket e um só evento por Conversation|
 |`test_transfer_requires_reason`|`keep`|Motivo em branco é erro sem Ticket|
 |`test_transfer_survives_event_bus_failure`|`keep`|Bus fora não impede a transferência|
-|`test_transfer_description_lists_triggers_instead_of_keywords`|`wording`|Fixa palavras na descrição da Tool ("humano", "reclama", "pedido"), texto de prompt|
 |`test_buscar_historico_with_no_match_returns_empty_list`|`keep`|Sem resultado devolve lista vazia, não erro|
 |`test_buscar_historico_blank_query_is_error`|`keep`|Consulta em branco é erro da Tool|
-|`test_core_exposes_exactly_three_tools`|`wording`|Fixa lista exata de nomes e `required` dos schemas; quebra ao adicionar Tool e o `required` de motivo/frase já é exercitado em `tests/handoff/test_handoff_reply.py`|
-|`test_six_tools_in_total`|`wording`|Fixa contagem incidental "6"; colisão de nomes já recusada por `ToolRegistry.from_packs`|
+|`test_six_tools_in_total`|`keep`|Mantido (#55): nenhum outro teste monta um `ToolRegistry` com as Tools reais do núcleo e do Pack; `from_packs` só recusa duplicata nos testes com Packs falsos.|
 |`test_buscar_historico_uses_memory_search_scoped_to_contact`|`keep`|Tool filtra pelo Contact do ctx|
 
 #### `tests/agent/test_handoff_socket.py`
-3 testes: 2 keep, 1 redundant.
+3 testes: 3 keep.
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
 |`test_handoff_event_from_the_tool_reaches_instance_and_conversation_rooms`|`keep`|Evento montado pela Tool chega às duas salas|
 |`test_handoff_event_without_conversation_is_not_emitted`|`keep`|Sem conversation_id não emite para sala inválida|
-|`test_handoff_event_without_instance_is_dropped_like_other_events`|`redundant`|Mesmo early-return por falta de instance_name e mesma asserção de `tests/realtime/test_socket_thinking_events.py::test_event_without_instance_is_dropped`|
+|`test_handoff_event_without_instance_is_dropped_like_other_events`|`keep`|Mantido (#55): o equivalente em `tests/realtime/test_socket_thinking_events.py` é candidato da Área 2 e aponta para cá; sobra só este para o descarte sem `instance_name`.|
 
 #### `tests/agent/test_sessions.py`
-16 testes: 15 keep, 1 wording.
+15 testes: 15 keep.
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
 |`test_first_message_of_a_conversation_opens_its_session`|`keep`|Primeira mensagem registra início da Session|
 |`test_message_exactly_at_the_limit_continues_and_one_second_later_opens_a_new_session`|`keep`|Fronteira exata do timeout de Session|
 |`test_limit_is_configurable_per_company`|`keep`|Timeout lido da Company|
-|`test_new_company_defaults_to_three_hours`|`wording`|Fixa default incidental 180; o limite de 3h já é exercitado em `test_message_exactly_at_the_limit_continues_and_one_second_later_opens_a_new_session`|
 |`test_naive_datetimes_from_the_database_are_compared_as_utc`|`keep`|Datetime naive do banco tratado como UTC|
 |`test_expired_session_notifies_every_pack_and_a_continued_one_does_not`|`keep`|Hook de Session só quando expira|
 |`test_pack_without_the_session_hook_does_not_break_a_new_session`|`keep`|Pack sem hook não quebra a Session nova|
@@ -1016,7 +987,7 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_previous_message_is_none_when_the_whole_conversation_is_the_turn`|`keep`|Sem mensagem anterior devolve None|
 
 #### `tests/handoff/test_handoff_api.py`
-13 testes: 12 keep, 1 redundant.
+12 testes: 12 keep.
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
@@ -1029,13 +1000,12 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_second_attendant_cannot_take_a_conversation_already_held`|`keep`|Segundo Attendant recebe 409 sem evento|
 |`test_same_attendant_taking_again_is_idempotent`|`keep`|Assumir de novo é idempotente|
 |`test_another_attendant_can_take_after_the_conversation_was_released`|`keep`|Após devolver, outro Attendant pode assumir|
-|`test_attendant_can_take_an_unassigned_agent_handoff`|`redundant`|Mesmo caminho (Handoff aberto sem responsável, assumir, 1 Ticket) e asserção subconjunto de `tests/handoff/test_handoff_api.py::test_take_control_on_agent_requested_handoff_assigns_the_same_ticket`|
 |`test_release_after_timeout_already_returned_it_changes_and_announces_nothing`|`keep`|Devolver após expiração não altera nem anuncia|
 |`test_status_endpoint_is_read_only_even_when_the_timeout_is_due`|`keep`|GET de status não muda estado mesmo vencido|
 |`test_status_endpoint_reports_not_due_inside_the_timeout`|`keep`|timeout_due falso dentro do prazo|
 
 #### `tests/handoff/test_handoff_reply.py`
-13 testes: 11 keep, 2 redundant.
+11 testes: 11 keep.
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
@@ -1046,11 +1016,9 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_company_without_hours_always_uses_the_fixed_phrase`|`keep`|Sem horários usa a frase fixa|
 |`test_blank_empathy_falls_back_to_the_fixed_phrase_alone`|`keep`|Empatia em branco cai só na frase fixa|
 |`test_multiline_empathy_is_collapsed_to_one_line`|`keep`|Empatia multilinha vira uma linha|
-|`test_repeated_transfer_still_ends_the_turn_without_a_second_ticket`|`redundant`|Mesma asserção (ends_turn no 2º, 1 Ticket) que `tests/agent/test_core_tools.py::test_transfer_is_idempotent_per_conversation`, que ainda confere 1 evento|
 |`test_transfer_without_empathy_goes_through_the_registry_and_still_hands_off`|`keep`|Registry não barra transferência sem frase empática|
 |`test_registry_still_rejects_a_transfer_without_reason`|`keep`|Registry rejeita transferência sem motivo|
 |`test_overnight_window_is_open_after_midnight_and_closed_before_it_opens`|`keep`|Janela noturna na frase de Handoff|
-|`test_company_with_empty_hours_uses_the_fixed_phrase`|`redundant`|`business_hours={}` cai no mesmo `not business_hours` de `tests/handoff/test_handoff_reply.py::test_company_without_hours_always_uses_the_fixed_phrase` (None)|
 |`test_company_with_hours_but_no_open_day_says_to_wait_without_a_time`|`keep`|Horários sem dia aberto: espera sem horário|
 
 #### `tests/handoff/test_handoff_timeout.py`
@@ -1070,7 +1038,7 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_new_handoff_after_the_judged_one_ended_is_not_expired`|`keep`|Ticket novo não é expirado por julgamento stale|
 
 #### `tests/llm/test_gateway_inference.py`
-23 testes: 20 keep, 2 redundant, 1 wording.
+21 testes: 21 keep.
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
@@ -1079,7 +1047,6 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_optional_fields_are_omitted_when_unset`|`keep`|Campos opcionais e `x-api-key` ausentes quando não configurados|
 |`test_text_response_is_mapped`|`keep`|Resposta Messages vira contrato do agente|
 |`test_tool_use_response_is_mapped_and_thinking_is_dropped`|`keep`|Bloco `thinking` descartado, `tool_use` preservado|
-|`test_non_json_success_body_is_a_provider_error`|`redundant`|Mesmo caminho (200 com corpo HTML não-JSON → `LLMProviderError`); equivalente que permanece: `tests/llm/test_gateway_inference.py::test_non_json_body_is_a_provider_error` (caso `"<html>502</html>"`)|
 |`test_retries_rate_limit_then_succeeds`|`keep`|Retry de 429/503 até sucesso (3 requests)|
 |`test_rate_limit_gives_up_after_three_attempts`|`keep`|Limite de 3 tentativas e tipo `LLMRateLimitError`|
 |`test_server_error_gives_up_after_three_attempts_with_status`|`keep`|5xx esgota retries e expõe `status_code`|
@@ -1090,16 +1057,15 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_non_json_body_is_a_provider_error (×3 casos)`|`keep`|Corpo vazio/HTML/truncado vira `LLMProviderError`|
 |`test_missing_usage_and_stop_reason_use_safe_defaults`|`keep`|Defaults tolerantes quando faltam `usage`/`stop_reason`|
 |`test_list_models_malformed_body_is_a_provider_error (×5 casos)`|`keep`|`list_models` com `data` ausente/inválido → erro tipado|
-|`test_list_models_non_json_body_is_a_provider_error`|`redundant`|`list_models` e `create` passam por `_request/_send_once`, que já levanta o erro para não-JSON; equivalente: `tests/llm/test_gateway_inference.py::test_non_json_body_is_a_provider_error`|
 |`test_max_attempts_one_disables_retry`|`keep`|`max_attempts=1` realmente desliga o retry|
 |`test_probe_uses_messages_with_max_tokens_8`|`keep`|Probe barato: `max_tokens` 8, effort e texto/latência|
 |`test_list_models_reads_v1_models`|`keep`|GET `/v1/models` e extração dos ids|
 |`test_list_models_404_carries_status_code`|`keep`|404 expõe `status_code` ao consumidor|
 |`test_secret_roundtrip_and_ciphertext_hides_plaintext`|`keep`|Roundtrip e texto cifrado sem o segredo em claro|
-|`test_secret_key_is_derived_with_hkdf_not_plain_sha256`|`wording`|Fixa detalhe de implementação (HKDF vs SHA-256); o efeito visível (token legado migra) já é exercido em `test_llm_registry.py::test_reencrypt_migrates_legacy_sha256_tokens_and_is_idempotent`|
+|`test_secret_key_is_derived_with_hkdf_not_plain_sha256`|`keep`|Mantido (#55): único teste que prova que `decrypt_secret` recusa token SHA-256 legado; `test_llm_registry.py::test_reencrypt_*` só prova a migração.|
 
 #### `tests/llm/test_llm_registry.py`
-11 testes: 10 keep, 1 wiring.
+10 testes: 10 keep.
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
@@ -1113,7 +1079,6 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_ensure_default_gateway_seeds_kiro_backend_with_messages_model_and_is_idempotent`|`keep`|Seed idempotente que preserva edição do usuário|
 |`test_reencrypt_migrates_legacy_sha256_tokens_and_is_idempotent`|`keep`|Migração de tokens legados sem tocar nos atuais/sem chave|
 |`test_reencrypt_skips_tokens_that_open_with_neither_key`|`keep`|Token irrecuperável é ignorado sem quebrar|
-|`test_resolve_builds_client_with_the_gateway_timeout_and_default_retry`|`wiring`|Spy no construtor: só confere repasse `timeout=45.0` e ausência de `max_attempts` nos kwargs|
 
 #### `tests/packs/test_pack_catalog_search.py`
 13 testes: 13 keep.
@@ -1135,7 +1100,7 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_empty_search_lists_categories_and_first_items`|`keep`|Busca vazia lista categorias na ordem e primeiros itens|
 
 #### `tests/packs/test_pack_changes.py`
-26 testes: 25 keep, 1 redundant.
+25 testes: 25 keep.
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
@@ -1159,7 +1124,6 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_alter_with_pix_supersedes_the_old_record_and_issues_a_new_one_with_the_new_amount`|`keep`|Pix antigo superado e novo emitido com o novo valor|
 |`test_repeated_alterations_never_leave_two_valid_pix_records`|`keep`|Invariante: no máximo um Pix válido por Order|
 |`test_alter_that_moves_payment_from_pix_to_cash_leaves_no_valid_pix`|`keep`|Trocar Pix por dinheiro deixa zero Pix válido|
-|`test_alter_abandoned_midway_keeps_no_valid_pix_for_the_reopened_order`|`redundant`|Só repete `valid_pix == []` e status reaberto, sem abandonar nada; já em `tests/packs/test_pack_changes.py::test_alter_with_pix_supersedes_the_old_record_and_issues_a_new_one_with_the_new_amount` e `::test_alter_reopens_the_order_and_requires_a_new_confirmed_recap`|
 |`test_regenerated_pix_has_a_distinct_valid_txid`|`keep`|Cada Pix regenerado tem txid distinto e válido|
 |`test_cancel_refuses_to_pick_between_a_building_order_and_a_closed_one`|`keep`|Ambiguidade de cancelamento exige escolha do Contact|
 |`test_cancel_with_the_order_number_cancels_exactly_that_order`|`keep`|Cancelar por número atinge só o Order indicado|
@@ -1183,7 +1147,7 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_resume_works_for_a_plain_abandoned_order_even_with_a_restored_one_before`|`keep`|Retomada ignora o restaurado e pega o abandonado|
 
 #### `tests/packs/test_pack_checkout.py`
-20 testes: 19 keep, 1 redundant.
+19 testes: 19 keep.
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
@@ -1200,7 +1164,6 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_zone_of_other_company_or_legacy_is_not_used`|`keep`|Zona de outra Company ou legada não vale|
 |`test_delivery_without_configured_zone_is_unavailable`|`keep`|Sem zona, entrega indisponível e sugere retirada|
 |`test_minimum_order_blocks_finalize_and_counts_items_only`|`keep`|Pedido abaixo do mínimo não fecha; erro cita 30|
-|`test_minimum_is_checked_on_items_not_on_fee`|`redundant`|Mesmo caminho e asserção (`finalizar` com itens abaixo de 30 → erro); nem discrimina a taxa (21,50 e 26,50 < 30); equivalente `tests/packs/test_pack_checkout.py::test_minimum_order_blocks_finalize_and_counts_items_only`|
 |`test_finalize_requires_complete_data`|`keep`|Finalizar lista os campos faltantes|
 |`test_finalize_delivery_requires_address`|`keep`|Entrega sem endereço não finaliza|
 |`test_finalize_without_items_is_error`|`keep`|Pedido vazio não finaliza|
@@ -1209,7 +1172,7 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_after_finalize_a_new_order_starts_empty`|`keep`|Após fechar, novo item abre Order novo|
 
 #### `tests/packs/test_pack_closing.py`
-22 testes: 20 keep, 2 redundant.
+20 testes: 20 keep.
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
@@ -1217,7 +1180,6 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_finalize_in_the_same_turn_as_the_recap_is_refused`|`keep`|Recap e finalizar no mesmo Turn não fecham|
 |`test_recap_whose_reply_never_reached_the_contact_does_not_allow_finalize`|`keep`|Recap não entregue não libera finalizar|
 |`test_delivery_of_another_turns_reply_does_not_validate_the_recap`|`keep`|Entrega de outro Turn não valida a Recap|
-|`test_finalize_after_a_delivered_recap_in_a_previous_turn_closes_the_order`|`redundant`|Só confirma `status == closed` após `confirm_and_finalize`; mesmo caminho em `tests/packs/test_pack_checkout.py::test_finalize_cash_closes_order_with_total`|
 |`test_confirmation_typed_before_the_recap_was_delivered_does_not_close`|`keep`|Fronteira de trigger_at <= entrega não fecha|
 |`test_recap_returns_the_order_with_the_real_total`|`keep`|Recap mostra o total real com taxa|
 |`test_recap_of_an_incomplete_order_is_refused_and_does_not_unlock_finalize`|`keep`|Recap incompleta é recusada e não libera fechamento|
@@ -1228,7 +1190,6 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_adding_the_same_item_twice_in_one_turn_does_not_duplicate`|`keep`|Repetição idêntica no mesmo Turn é ignorada|
 |`test_adding_the_same_item_with_another_quantity_in_one_turn_is_added`|`keep`|Mesma linha com quantidade diferente soma|
 |`test_same_item_with_another_note_in_the_same_turn_is_a_separate_line`|`keep`|Observação diferente vira linha separada|
-|`test_adding_the_same_item_in_a_later_turn_adds_more`|`redundant`|Mesmo caminho (add, novo Turn, add → quantidade soma) e asserção mais fraca que `tests/packs/test_pack_items.py::test_same_item_and_note_accumulates_quantity`|
 |`test_item_removed_and_added_again_in_the_same_turn_is_added`|`keep`|Remover e re-adicionar no mesmo Turn adiciona de fato|
 |`test_finalize_is_refused_when_the_company_is_closed_and_says_when_it_opens`|`keep`|Empresa fechada recusa e informa quando abre|
 |`test_closed_after_the_last_window_points_to_tomorrow`|`keep`|Após a última janela, aponta amanhã|
@@ -1237,7 +1198,7 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_company_without_business_hours_can_always_close`|`keep`|Sem horário configurado, sempre pode fechar|
 
 #### `tests/packs/test_pack_items.py`
-20 testes: 17 keep, 1 wiring, 2 wording.
+17 testes: 17 keep.
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
@@ -1254,13 +1215,10 @@ Resumo de tudo que não é `keep`, por área. O detalhe e o contexto de cada lin
 |`test_remove_without_quantity_clears_every_line_of_the_item`|`keep`|Sem quantidade remove todas as linhas e zera subtotal|
 |`test_remove_item_not_in_order_is_error`|`keep`|Remover item fora do pedido dá erro|
 |`test_ver_without_order_says_empty`|`keep`|`ver` sem pedido devolve pedido None sem erro|
-|`test_action_enum_is_exactly_the_set_of_handlers`|`wiring`|Compara duas constantes internas (`ACTIONS` vs `_ACTION_HANDLERS` privado); cada ação já é exercitada pelos demais testes|
 |`test_unknown_action_is_error`|`keep`|Ação desconhecida retorna erro|
 |`test_status_without_orders`|`keep`|status_pedido sem pedidos devolve None|
 |`test_status_returns_latest_order_of_the_contact`|`keep`|status_pedido devolve o Order mais recente|
 |`test_status_never_shows_orders_of_another_contact`|`keep`|Status não vaza pedido de outro Contact|
-|`test_pack_exposes_exactly_three_tools_with_json_schema`|`wording`|Fixa nome/ordem das 3 tools e `t.description` truthy; `tool_named` nos demais testes já quebra se renomear|
-|`test_system_prompt_section_describes_the_order_flow`|`wording`|Só checa 5 palavras literais (`needle in text`) no prompt|
 
 #### `tests/packs/test_pack_pix.py`
 11 testes: 11 keep.

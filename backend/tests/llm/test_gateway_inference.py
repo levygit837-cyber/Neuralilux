@@ -154,13 +154,6 @@ async def test_tool_use_response_is_mapped_and_thinking_is_dropped():
     ]
 
 
-@pytest.mark.asyncio
-async def test_non_json_success_body_is_a_provider_error():
-    gw = Gateway(lambda r: httpx.Response(200, text="<html>proxy</html>"))
-    with pytest.raises(LLMProviderError):
-        await gw.client().create(REQUEST)
-
-
 # --- erros e retry ------------------------------------------------------------ #
 
 @pytest.mark.asyncio
@@ -272,13 +265,6 @@ async def test_missing_usage_and_stop_reason_use_safe_defaults():
 @pytest.mark.parametrize("body", [[], None, {"data": "x"}, {"sem": "data"}, "texto"])
 async def test_list_models_malformed_body_is_a_provider_error(body):
     gw = Gateway(_json_200(body))
-    with pytest.raises(LLMProviderError):
-        await gw.client().list_models()
-
-
-@pytest.mark.asyncio
-async def test_list_models_non_json_body_is_a_provider_error():
-    gw = Gateway(lambda r: httpx.Response(200, text="<html/>"))
     with pytest.raises(LLMProviderError):
         await gw.client().list_models()
 

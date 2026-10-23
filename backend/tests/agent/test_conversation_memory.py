@@ -309,15 +309,6 @@ def test_search_history_snippet_is_centered_on_the_first_match(db, conversation_
     assert snippet.startswith("a") and snippet.endswith("b")  # janela em volta, não só o fim
 
 
-def test_search_history_snippet_uses_the_earliest_of_any_term(db, conversation_factory, add_message):
-    conversation = conversation_factory("conv-search-earliest")
-    add_message(conversation, 1, "user", "x" * 500 + " calabresa e depois queijo")
-
-    hits = memory.search_history(db, conversation.contact_id, conversation.instance_id, "calabresa")
-
-    assert "calabresa" in hits[0]["snippet"]
-
-
 @pytest.mark.asyncio
 async def test_summary_batch_is_capped_at_the_100_oldest_pending_messages(
     db, conversation_factory, add_message
@@ -362,23 +353,3 @@ async def test_summary_refresh_follows_the_window_it_is_given(db, conversation_f
     assert "msg 21" not in client.requests[0].messages[0]["content"]
     _, history = memory.build_context(db, conversation, window=10)
     assert history[0]["content"] == "msg 21"
-
-
-def test_memory_parameters_come_from_settings():
-    from app.core.config import settings
-
-    assert (settings.MEMORY_WINDOW, settings.SUMMARY_EVERY, settings.HISTORY_SEARCH_LIMIT) == (20, 20, 8)
-
-
-def test_fts_index_is_declared_on_the_model_for_postgres_only():
-    from sqlalchemy.dialects import postgresql
-    from sqlalchemy.schema import CreateIndex
-
-    from app.models import Message
-
-    index = next(i for i in Message.__table__.indexes if i.name == "ix_messages_content_fts")
-
-    ddl = str(CreateIndex(index).compile(dialect=postgresql.dialect()))
-    assert "USING gin" in ddl
-    assert "to_tsvector('portuguese', coalesce(content,''))" in ddl
-    assert index.dialect_options["postgresql"]["using"] == "gin"

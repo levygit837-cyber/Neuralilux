@@ -146,18 +146,3 @@ def test_reencrypt_skips_tokens_that_open_with_neither_key(db):
     db.commit()
 
     assert registry.reencrypt_gateway_secrets(db) == 0
-
-
-def test_resolve_builds_client_with_the_gateway_timeout_and_default_retry(db, monkeypatch):
-    _seed(db)  # timeout_seconds=45
-    seen = {}
-    real = registry.GatewayMessagesClient
-
-    def spy(**kwargs):
-        seen.update(kwargs)
-        return real(**kwargs)
-
-    monkeypatch.setattr(registry, "GatewayMessagesClient", spy)
-    registry.resolve("default")
-
-    assert seen["timeout"] == 45.0 and "max_attempts" not in seen

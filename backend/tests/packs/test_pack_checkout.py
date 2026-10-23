@@ -121,16 +121,6 @@ async def test_minimum_order_blocks_finalize_and_counts_items_only(world, pedido
     assert order_of(world).status != "closed"
 
 
-async def test_minimum_is_checked_on_items_not_on_fee(world, pedido):
-    # 21.50 de itens + 5.00 de taxa = 26.50; e 25 de itens + 5 de taxa = 30 não bastaria se contasse a taxa.
-    await add_item(world, pedido, name="Suco de Laranja", quantidade=2)  # 19.00
-    await add_item(world, pedido, name="Refrigerante Cola 2L")  # 12.00 -> 31.00
-    await call(pedido, world.ctx, acao="remover_item", item_id=world.items["Suco de Laranja"].id, quantidade=2)
-    await add_item(world, pedido, name="Suco de Laranja")  # 12.00 + 9.50 = 21.50 de itens
-    await fill_delivery(world, pedido)
-    assert (await call(pedido, world.ctx, acao="finalizar")).is_error
-
-
 # ---------- finalizar ----------
 
 

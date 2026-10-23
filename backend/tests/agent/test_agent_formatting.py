@@ -43,7 +43,3 @@ def test_link_markdown_vira_texto_e_url():
 
 def test_espacos_e_linhas_em_branco_excedentes():
     assert to_whatsapp("  Oi!\n\n\n\nTudo bem?  ") == "Oi!\n\nTudo bem?"
-
-
-def test_nunca_adiciona_sufixo_de_debug():
-    assert "[Debug" not in to_whatsapp("Erro interno")

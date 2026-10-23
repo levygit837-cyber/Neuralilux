@@ -147,14 +147,6 @@ async def test_ver_without_order_says_empty(world, pedido):
     assert payload(result)["pedido"] is None
 
 
-async def test_action_enum_is_exactly_the_set_of_handlers(pedido):
-    from app.packs.catalog_orders.orders import _ACTION_HANDLERS
-
-    enum = pedido.input_schema["properties"]["acao"]["enum"]
-    assert set(enum) == set(_ACTION_HANDLERS)
-    assert "retomar_pedido" in enum
-
-
 async def test_unknown_action_is_error(world, pedido):
     assert (await call(pedido, world.ctx, acao="iniciar_finalizacao")).is_error
 
@@ -211,22 +203,3 @@ async def test_status_never_shows_orders_of_another_contact(world):
     world.db.commit()
     status = tool_named(CatalogOrdersPack().tools(), "status_pedido")
     assert payload(await call(status, world.ctx))["pedido"] is None
-
-
-# ---------- contrato do Pack ----------
-
-
-async def test_pack_exposes_exactly_three_tools_with_json_schema():
-    pack = CatalogOrdersPack()
-    assert pack.name == "catalog_orders"
-    tools = pack.tools()
-    assert [t.name for t in tools] == ["buscar_cardapio", "gerenciar_pedido", "status_pedido"]
-    for t in tools:
-        assert t.input_schema["type"] == "object"
-        assert t.description
-
-
-async def test_system_prompt_section_describes_the_order_flow(world):
-    text = CatalogOrdersPack().system_prompt_section(world.ctx)
-    for needle in ("buscar_cardapio", "gerenciar_pedido", "status_pedido", "finalizar", "transferir_atendente"):
-        assert needle in text

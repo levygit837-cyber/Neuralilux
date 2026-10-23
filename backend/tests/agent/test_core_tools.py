@@ -147,12 +147,6 @@ async def test_transfer_survives_event_bus_failure(world, monkeypatch):
     assert world.db.query(Ticket).count() == 1
 
 
-async def test_transfer_description_lists_triggers_instead_of_keywords():
-    description = tool("transferir_atendente").description.lower()
-    for trigger in ("humano", "reclama", "pedido"):
-        assert trigger in description
-
-
 # ---------- buscar_historico ----------
 
 
@@ -167,14 +161,6 @@ async def test_buscar_historico_blank_query_is_error(world):
 
 
 # ---------- contrato ----------
-
-
-async def test_core_exposes_exactly_three_tools():
-    tools = build_core_tools()
-    assert [t.name for t in tools] == ["info_empresa", "transferir_atendente", "buscar_historico"]
-    assert tools[0].input_schema["properties"] == {}
-    assert tools[1].input_schema["required"] == ["motivo"]  # a frase empática é pedida, mas opcional
-    assert tools[2].input_schema["required"] == ["consulta"]
 
 
 async def test_six_tools_in_total():

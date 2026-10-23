@@ -271,14 +271,6 @@ async def test_alter_that_moves_payment_from_pix_to_cash_leaves_no_valid_pix(wor
     assert [r.status for r in pix_records(world)] == ["superseded"]
 
 
-async def test_alter_abandoned_midway_keeps_no_valid_pix_for_the_reopened_order(world, pedido):
-    await closed_order(world, pedido, payment="pix")
-    await call(pedido, world.ctx, acao="alterar_pedido")
-    # o Contact some sem reconfirmar: o Order segue reaberto, sem cobrança válida
-    assert order_of(world).status == "ready_for_confirmation"
-    assert valid_pix(world) == []
-
-
 # ---------- txid distinto a cada Pix do Order ----------
 
 
