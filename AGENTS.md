@@ -28,6 +28,7 @@ Agente de atendimento por WhatsApp com IA (FastAPI + Next.js + Evolution API). V
 - Nunca commitar `backend/.env`, `docker-compose.yml` ou `design/` (ignorados).
 - Toda mudança entra por PR revisado; nunca push direto em `main`.
 - Testes rodam em SQLite; e2e só com `RUN_E2E=1`.
+- Warning falha a suíte (`filterwarnings = error` em `backend/pytest.ini`): corrija a causa no código. Só biblioteca de terceiros que não dá para corrigir ganha um `ignore` comentado ali.
 - Código do núcleo (`backend/app/agent/`) não conhece nenhum ramo de negócio; o que é de um ramo vive num Pack (ADR 0004).
 
 ## Agent skills

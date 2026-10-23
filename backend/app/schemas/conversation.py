@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional, List
 from datetime import datetime
 from enum import Enum
@@ -52,8 +52,7 @@ class ConversationResponse(BaseModel):
     # Nested relationships (optional)
     contact: Optional[ContactResponse] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ConversationSummary(BaseModel):
@@ -69,8 +68,7 @@ class ConversationSummary(BaseModel):
     priority: str
     is_archived: bool
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ConversationFilter(PaginationParams):

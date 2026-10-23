@@ -8,8 +8,6 @@ from app.models import PaymentRecord
 from app.packs.catalog_orders import pix
 from app.packs.catalog_orders.pack import CatalogOrdersPack
 
-pytestmark = pytest.mark.asyncio
-
 # BR Code gerado com chave, valor, txid, nome e cidade fixos. O CRC (88F4) foi conferido com
 # `binascii.crc_hqx(corpo, 0xFFFF)`, independente da implementação do Pack.
 EMV_FIXTURE = (
@@ -84,6 +82,7 @@ def test_emv_field_over_99_chars_raises_pix_error():
 # ---------- finalizar com Pix ----------
 
 
+@pytest.mark.asyncio
 async def test_pix_uses_real_amount_company_key_and_order_txid(world, pedido):
     result = await finalize_pix(world, pedido)
     assert not result.is_error
@@ -103,6 +102,7 @@ async def test_pix_uses_real_amount_company_key_and_order_txid(world, pedido):
     assert "outra@pix.example" not in result.content
 
 
+@pytest.mark.asyncio
 async def test_pix_without_company_key_does_not_close_order(world, pedido):
     await add_item(world, pedido, quantidade=2)
     await fill_delivery(world, pedido, forma_pagamento="pix")
@@ -115,6 +115,7 @@ async def test_pix_without_company_key_does_not_close_order(world, pedido):
     assert world.db.query(PaymentRecord).count() == 0
 
 
+@pytest.mark.asyncio
 async def test_pix_key_too_long_returns_clear_error_and_keeps_order_open(world, pedido):
     await add_item(world, pedido, quantidade=2)
     await fill_delivery(world, pedido, forma_pagamento="pix")
@@ -133,6 +134,7 @@ async def test_pix_key_too_long_returns_clear_error_and_keeps_order_open(world, 
 # ---------- um Pix por Order ----------
 
 
+@pytest.mark.asyncio
 async def test_pix_payment_record_is_deduplicated(world, pedido):
     first = payload(await finalize_pix(world, pedido))
     order = order_of(world)
@@ -147,6 +149,7 @@ async def test_pix_payment_record_is_deduplicated(world, pedido):
     assert records[0].order_id == order.id and records[0].status == "pending"
 
 
+@pytest.mark.asyncio
 async def test_unique_index_rejects_a_second_pix_for_the_same_order(world, pedido):
     await finalize_pix(world, pedido)
     order = order_of(world)
@@ -166,6 +169,7 @@ async def test_unique_index_rejects_a_second_pix_for_the_same_order(world, pedid
     assert world.db.query(PaymentRecord).count() == 1
 
 
+@pytest.mark.asyncio
 async def test_unique_index_only_covers_pix(world, pedido):
     await finalize_pix(world, pedido)
     order = order_of(world)
@@ -183,6 +187,7 @@ async def test_unique_index_only_covers_pix(world, pedido):
     assert world.db.query(PaymentRecord).count() == 2
 
 
+@pytest.mark.asyncio
 async def test_ensure_payment_record_recovers_when_a_concurrent_insert_wins(world, pedido, monkeypatch):
     await add_item(world, pedido, quantidade=2)
     await fill_delivery(world, pedido, forma_pagamento="pix")

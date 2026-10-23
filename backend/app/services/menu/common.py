@@ -31,7 +31,7 @@ def _normalize_text(value: Optional[str]) -> Optional[str]:
 def _normalize_required_text(value: str, detail: str) -> str:
     normalized = value.strip()
     if not normalized:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail)
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=detail)
     return normalized
 
 

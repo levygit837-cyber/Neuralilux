@@ -239,7 +239,7 @@ def update_gateway(
         # A chave salva seguiria para outra origem: exige informar a chave de novo (ou "" para apagar).
         # Mesmo formato dos erros de validacao do FastAPI: o frontend mostra a mensagem junto ao campo `api_key`.
         raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
             [
                 {
                     "type": "value_error",
