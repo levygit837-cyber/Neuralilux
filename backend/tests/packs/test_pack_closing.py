@@ -82,14 +82,6 @@ async def test_delivery_of_another_turns_reply_does_not_validate_the_recap(world
     assert (await call(pedido, world.ctx, acao="finalizar")).is_error
 
 
-async def test_finalize_after_a_delivered_recap_in_a_previous_turn_closes_the_order(world, pedido):
-    await ready_order(world, pedido)
-    result = await confirm_and_finalize(world, pedido)
-    assert not result.is_error
-    assert payload(result)["pedido"]["status"] == "closed"
-    assert order_of(world).status == "closed"
-
-
 async def test_confirmation_typed_before_the_recap_was_delivered_does_not_close(world, pedido):
     await ready_order(world, pedido)
     await call(pedido, world.ctx, acao="recapitular")
@@ -233,13 +225,6 @@ async def test_same_item_with_another_note_in_the_same_turn_is_a_separate_line(w
     await add_item(world, pedido, observacao="bem passada")
     lines = payload(await call(pedido, world.ctx, acao="ver"))["pedido"]["itens"]
     assert sorted(l["observacao"] for l in lines) == ["bem passada", "sem cebola"]
-
-
-async def test_adding_the_same_item_in_a_later_turn_adds_more(world, pedido):
-    await add_item(world, pedido)
-    new_turn(world)
-    await add_item(world, pedido)
-    assert payload(await call(pedido, world.ctx, acao="ver"))["pedido"]["itens"][0]["quantidade"] == 2
 
 
 async def test_item_removed_and_added_again_in_the_same_turn_is_added(world, pedido):

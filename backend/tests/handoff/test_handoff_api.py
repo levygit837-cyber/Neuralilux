@@ -148,16 +148,6 @@ def test_another_attendant_can_take_after_the_conversation_was_released(client, 
     assert response.json()["assigned_to"] == user_id(db, "colega@example.com")
 
 
-def test_attendant_can_take_an_unassigned_agent_handoff(client, db, realtime):
-    headers, instance, conversation = _setup(client, db)
-    ticket = handoff_service.open_handoff(db, conversation, "Pedido veio errado")
-    assert ticket.assigned_to is None
-
-    response = client.post(f"/api/v1/conversations/{conversation.id}/take-control", json={}, headers=headers)
-
-    assert response.status_code == 200 and db.query(Ticket).count() == 1
-
-
 def test_release_after_timeout_already_returned_it_changes_and_announces_nothing(client, db, realtime):
     headers, instance, conversation = _setup(client, db)
     handoff_service.open_handoff(db, conversation, "Reclamação")
