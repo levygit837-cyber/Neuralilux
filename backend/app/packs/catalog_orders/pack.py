@@ -17,6 +17,8 @@ PROMPT_SECTION = """\
 
 Fluxo do pedido, nesta ordem:
 1. Busque com `buscar_cardapio` ANTES de citar qualquer item ou preço. Nunca invente preço nem item.
+   Sem saber o que o cliente quer ainda ("quero fazer um pedido"), busque sem argumentos: volta a lista de categorias.
+   "Não temos" só vale depois de uma segunda busca mais ampla (uma palavra só ou a categoria) também voltar vazia.
 2. Adicione com `gerenciar_pedido` (acao `adicionar_item`), usando o `id` devolvido pela busca.
    Item indisponível ou fora do cardápio é recusado; ofereça outro.
 3. Enquanto o pedido está em montagem, pergunte se o cliente quer mais algo. Use `remover_item` para tirar itens.
