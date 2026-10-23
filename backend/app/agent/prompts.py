@@ -1,16 +1,18 @@
-"""System prompt do Agent: base genérica e seções dos Packs.
+"""System prompt do Agent: base genérica, seções dos Packs e instruções da Company.
 
 Só conteúdo estável por Company/Pack (prefix cache, issue #42): o que muda por Turn vai em `turn_context.py`.
 A base não conhece nenhum Business Type (ADR 0004): tudo que é do ramo vem de
-`Pack.system_prompt_section`.
+`Pack.system_prompt_section`. As instruções que a Company escreve no painel (`Agent.system_prompt`) vêm por
+último, num trecho delimitado: só mudam quando a Company salva, então o prefixo continua estável entre Turns.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 
 from app.agent.contracts import Pack, ToolContext
-from app.agent.turn_context import CLOSE_TAG, OPEN_TAG
+from app.agent.turn_context import CLOSE_TAG, OPEN_TAG, neutralize
 
 BASE_PROMPT = """\
 Você é o atendente virtual de {company_name} no WhatsApp e fala em português do Brasil.
@@ -53,9 +55,32 @@ Mensagens curtas, como no WhatsApp: 1 a 3 frases, no máximo umas 6 linhas fora 
 """
 
 
-def build_system_prompt(*, company_name: str, packs: Iterable[Pack], ctx: ToolContext) -> str:
+COMPANY_TAG = "instrucoes_da_empresa"
+COMPANY_OPEN_TAG = f"<{COMPANY_TAG}>"
+COMPANY_CLOSE_TAG = f"</{COMPANY_TAG}>"
+
+# Qualquer "<instrucoes_da_empresa" ou "</ instrucoes_da_empresa", em qualquer caixa, mesmo sem o ">".
+_COMPANY_TAG_START = re.compile(rf"<(\s*/?\s*{COMPANY_TAG})", re.IGNORECASE)
+
+
+def company_instructions_section(instructions: str | None) -> str:
+    """O trecho delimitado com o texto da Company; vazio se ela não escreveu nada.
+
+    O texto passa por `neutralize` (bloco do Turn) e pela mesma troca para o delimitador do trecho: a Company
+    não consegue fechar o trecho nem forjar o bloco do Turn.
+    """
+    body = _COMPANY_TAG_START.sub(r"‹\1", neutralize((instructions or "").strip()))
+    return f"{COMPANY_OPEN_TAG}\n{body}\n{COMPANY_CLOSE_TAG}" if body else ""
+
+
+def build_system_prompt(
+    *, company_name: str, packs: Iterable[Pack], ctx: ToolContext, company_instructions: str | None = None
+) -> str:
+    """Núcleo → Pack → instruções da Company; só o que é estável entre Turns (prefix cache)."""
     sections = [
         BASE_PROMPT.format(company_name=company_name or "nossa empresa", open_tag=OPEN_TAG, close_tag=CLOSE_TAG)
     ]
     sections.extend(section.strip() for pack in packs if (section := pack.system_prompt_section(ctx)).strip())
+    if company_section := company_instructions_section(company_instructions):
+        sections.append(company_section)
     return "\n\n".join(sections)

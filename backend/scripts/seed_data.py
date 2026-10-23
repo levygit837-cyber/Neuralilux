@@ -176,8 +176,8 @@ def create_company_agents(db: Session):
     Instance ligada aqui sai com `agent_enabled=True`, para que um seed novo já responda. Quem já tinha Agent
     não é tocado: reexecutar o seed nunca religa uma Instance que o operador desligou.
 
-    O comportamento vem do núcleo e do Pack do Business Type; `system_prompt` é só o registro
-    exigido pela coluna. Instance sem Company e Instance já ligada a outro Agent ficam como estão.
+    O comportamento vem do núcleo e do Pack do Business Type; `system_prompt` (instruções da Company) fica vazio
+    até a Company escrever as dela no painel. Instance sem Company e Instance já ligada a outro Agent ficam como estão.
     """
     created = []
     for company in db.query(Company).order_by(Company.name).all():
@@ -187,7 +187,6 @@ def create_company_agents(db: Session):
             agent = Agent(
                 name=f"Atendente {company.name}",
                 description=f"Agent de atendimento de {company.name}",
-                system_prompt=f"Atendente de {company.name}",
                 company_id=company.id,
                 owner_id=owner.id if owner else None,
                 is_active=True,

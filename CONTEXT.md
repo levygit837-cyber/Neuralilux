@@ -41,6 +41,10 @@ _Também dito_: "atendimento" ("novo atendimento"), só em prosa informal e nos 
 O atendente de IA de uma Company. Existe um por Company.
 _Avoid_: Bot, assistente, super agent, sales agent, SAC agent
 
+**Instruções da Company**:
+O texto que a Company escreve no painel para o seu Agent (nome do atendente, tom, avisos fixos). Entra no system depois do núcleo e do Pack e nunca anula as regras deles.
+_Avoid_: Prompt da Company, system prompt (é o nome da coluna, não do conceito)
+
 **Turn**:
 O ciclo em que o Agent recebe as Messages que o Contact mandou numa rajada (agrupadas por uma pausa curta), pensa, chama Tools e produz no máximo uma resposta.
 _Avoid_: Execução, run, invocação

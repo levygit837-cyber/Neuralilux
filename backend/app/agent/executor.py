@@ -114,12 +114,17 @@ async def handle_incoming(
         client, model, effort = resolve_gateway(AGENT_TYPE)
         now = utc_now()
         when = time_context(company, now, previous_message_at(db, conversation.id, message_ids, deferred_ids), conversation.session_started_at)
-        system = build_system_prompt(company_name=company.name, packs=packs, ctx=ctx)
+        agent = company_agent(db, company.id)
+        system = build_system_prompt(
+            company_name=company.name,
+            packs=packs,
+            ctx=ctx,
+            company_instructions=agent.system_prompt if agent else None,
+        )
         block = build_turn_context(
             time_context=when, opening=opening_notice(company, now), packs=packs, ctx=ctx, summary=summary
         )
         history = attach_turn_context(history, block)
-        agent = company_agent(db, company.id)
         result = await run_turn(
             client,
             model,

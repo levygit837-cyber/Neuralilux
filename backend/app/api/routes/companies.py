@@ -37,7 +37,9 @@ def _agent_for_user(db: Session, company_id: str, user: User) -> Agent:
 
 
 def _agent_settings(agent: Agent) -> AgentSettings:
-    return AgentSettings(temperature=agent.temperature, max_tokens=agent.max_tokens or 1000)
+    return AgentSettings(
+        temperature=agent.temperature, max_tokens=agent.max_tokens or 1000, system_prompt=agent.system_prompt
+    )
 
 
 @router.post("/", response_model=CompanyResponse, status_code=status.HTTP_201_CREATED)
@@ -124,7 +126,7 @@ async def update_company_agent(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Atualiza temperatura e limite de tokens do Agent (só campos enviados); o modelo vem do Gateway."""
+    """Atualiza temperatura, limite de tokens e instruções do Agent (só campos enviados); o modelo vem do Gateway."""
     agent = _agent_for_user(db, company_id, current_user)
     for field in update.model_fields_set:
         setattr(agent, field, getattr(update, field))

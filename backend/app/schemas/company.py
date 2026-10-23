@@ -146,16 +146,24 @@ class CompanyResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+# Cerca de 500 tokens: cabe nome, tom e uns avisos fixos sem inflar o system (e o prefix cache) de toda Company.
+AGENT_INSTRUCTIONS_MAX_LENGTH = 2000
+
+
 class AgentSettings(BaseModel):
     """Ajustes de resposta do Agent da Company; o modelo vem do Gateway atribuído."""
 
     temperature: Optional[float] = Field(None, ge=0, le=1)  # None: usa a do Gateway
     max_tokens: int = Field(1000, ge=100, le=4000)
+    system_prompt: Optional[str] = None  # instruções da Company; None: sem trecho no system
 
 
 class AgentSettingsUpdate(BaseModel):
     temperature: Optional[float] = Field(None, ge=0, le=1)
     max_tokens: Optional[int] = Field(None, ge=100, le=4000)
+    system_prompt: Optional[str] = Field(None, max_length=AGENT_INSTRUCTIONS_MAX_LENGTH)  # vazio limpa
+
+    _blank_instructions = field_validator("system_prompt", mode="before")(blank_to_none)
 
     @field_validator("max_tokens", mode="before")
     @classmethod

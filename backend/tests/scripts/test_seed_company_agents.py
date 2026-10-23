@@ -109,3 +109,12 @@ def test_agent_is_owned_by_a_user_of_the_company_when_there_is_one(db, seed):
     seed.create_company_agents(db)
 
     assert db.query(Agent).filter(Agent.company_id == company.id).one().owner_id == user.id
+
+
+def test_seeded_agent_has_no_company_instructions(db, seed):
+    company = _company(db, "Empresa G")
+    _instance(db, "evo-g1", company)
+
+    seed.create_company_agents(db)
+
+    assert db.query(Agent).filter(Agent.company_id == company.id).one().system_prompt is None

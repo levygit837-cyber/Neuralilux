@@ -314,3 +314,61 @@ def test_agent_of_another_company_is_403(client, db, world, who):
 def test_company_without_agent_is_404(client, db, world):
     bare = make_company(db, "Sem Agent")
     assert client.get(agent_url(bare), headers=world["admin"]).status_code == 404
+
+
+# ---------- Instruções da Company (Agent.system_prompt) ----------
+
+
+def _instructions(client, world, who="owner"):
+    return client.get(agent_url(world["mine"]), headers=world[who]).json()["system_prompt"]
+
+
+def test_owner_saves_and_reloads_company_instructions(client, db, world):
+    saved = client.put(agent_url(world["mine"]), json={"system_prompt": "  Seu nome é Ana.  "}, headers=world["owner"])
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["system_prompt"] == "Seu nome é Ana."
+    assert _instructions(client, world) == "Seu nome é Ana."
+    db.expire_all()
+    assert db.query(Agent).filter(Agent.company_id == world["mine"].id).one().system_prompt == "Seu nome é Ana."
+
+
+def test_superuser_can_read_and_write_company_instructions(client, world):
+    client.put(agent_url(world["mine"]), json={"system_prompt": "Tom formal."}, headers=world["admin"])
+    assert _instructions(client, world, "admin") == "Tom formal."
+
+
+@pytest.mark.parametrize("blank", ["", "   ", None])
+def test_blank_company_instructions_clear_the_field(client, world, blank):
+    client.put(agent_url(world["mine"]), json={"system_prompt": "Seu nome é Ana."}, headers=world["owner"])
+    assert client.put(agent_url(world["mine"]), json={"system_prompt": blank}, headers=world["owner"]).status_code == 200
+    assert _instructions(client, world) is None
+
+
+def test_company_instructions_are_kept_when_the_put_omits_them(client, world):
+    client.put(agent_url(world["mine"]), json={"system_prompt": "Seu nome é Ana."}, headers=world["owner"])
+    client.put(agent_url(world["mine"]), json={"max_tokens": 600}, headers=world["owner"])
+    assert _instructions(client, world) == "Seu nome é Ana."
+
+
+def test_company_instructions_above_the_limit_are_422_and_at_the_limit_are_saved(client, world):
+    from app.schemas.company import AGENT_INSTRUCTIONS_MAX_LENGTH
+
+    before = _instructions(client, world)
+    over = client.put(
+        agent_url(world["mine"]), json={"system_prompt": "a" * (AGENT_INSTRUCTIONS_MAX_LENGTH + 1)}, headers=world["owner"]
+    )
+    assert over.status_code == 422
+    assert _instructions(client, world) == before
+    exact = client.put(
+        agent_url(world["mine"]), json={"system_prompt": "a" * AGENT_INSTRUCTIONS_MAX_LENGTH}, headers=world["owner"]
+    )
+    assert exact.status_code == 200
+
+
+@pytest.mark.parametrize("who", ["stranger", "loner"])
+def test_company_instructions_of_another_company_are_403(client, db, world, who):
+    assert client.get(agent_url(world["mine"]), headers=world[who]).status_code == 403
+    response = client.put(agent_url(world["mine"]), json={"system_prompt": "golpe"}, headers=world[who])
+    assert response.status_code == 403
+    db.expire_all()
+    assert db.query(Agent).filter(Agent.company_id == world["mine"].id).one().system_prompt != "golpe"
