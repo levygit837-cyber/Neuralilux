@@ -49,8 +49,9 @@ class Settings(BaseSettings):
     ]
 
     # Memória por Conversation (ADR 0003)
-    MEMORY_WINDOW: int = 20  # Messages na Recent Window
-    SUMMARY_EVERY: int = 20  # Messages fora da janela e não resumidas que disparam um novo Summary
+    MEMORY_WINDOW: int = 20  # máximo de Messages na Recent Window
+    MEMORY_WINDOW_BLOCK: int = 10  # a janela descarta as mais antigas em blocos deste tamanho (1 a MEMORY_WINDOW)
+    SUMMARY_EVERY: int = 20  # Messages de Sessions anteriores, não resumidas, que disparam um novo Summary
     HISTORY_SEARCH_LIMIT: int = 8  # resultados da History Search
 
     # Agrupamento de Messages picadas (ticket #36)
@@ -68,6 +69,12 @@ class Settings(BaseSettings):
             raise ValueError(
                 "SECRET_KEY de exemplo nao pode ser usada com ENVIRONMENT != development; defina uma chave forte"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _window_block_fits_the_window(self) -> "Settings":
+        if not 1 <= self.MEMORY_WINDOW_BLOCK <= self.MEMORY_WINDOW:
+            raise ValueError("MEMORY_WINDOW_BLOCK deve ficar entre 1 e MEMORY_WINDOW")
         return self
 
     @model_validator(mode="after")

@@ -166,11 +166,11 @@ def test_conversation_without_a_recorded_session_keeps_the_whole_window(db, conv
 
 def test_history_search_and_summary_still_reach_previous_sessions(db, conversation_factory, add_message):
     conversation = conversation_factory("conv-memory")
-    add_message(conversation, T0, content="quero a pizza toscana de sempre")
+    old = add_message(conversation, T0, content="quero a pizza toscana de sempre")
     conversation.session_started_at = T0 + timedelta(hours=7)
     add_message(conversation, T0 + timedelta(hours=7), content="boa noite")
     db.add(ConversationMemorySummary(conversation_id=conversation.id, summary="Pediu toscana.",
-                                     covered_until_message_id=db.query(Message.id).first()[0], message_count=1))
+                                     covered_until_message_id=old.id, message_count=1))
     db.commit()
 
     summary, history = memory.build_context(db, conversation)

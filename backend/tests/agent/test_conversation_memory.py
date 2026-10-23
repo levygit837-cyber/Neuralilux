@@ -6,7 +6,7 @@ import pytest
 
 from app.agent import memory
 from app.agent.contracts import MessagesResponse
-from app.models import Message
+from app.models import ConversationMemorySummary, Message
 
 T0 = datetime(2026, 10, 1, 12, 0, tzinfo=timezone.utc)
 
@@ -32,15 +32,23 @@ def add_message(db):
     return _add
 
 
-def test_build_context_returns_only_the_last_window_in_order(db, conversation_factory, add_message):
+def test_build_context_starts_where_the_summary_ends(db, conversation_factory, add_message):
     conversation = conversation_factory("conv-window")
-    for n in range(1, 31):
-        add_message(conversation, n, role="user" if n % 2 else "assistant", content=f"msg {n}")
+    messages = _fill(conversation, add_message, 30)
+    db.add(
+        ConversationMemorySummary(
+            conversation_id=conversation.id,
+            summary="Pediu pizza.",
+            covered_until_message_id=messages[9].id,
+            message_count=10,
+        )
+    )
+    db.commit()
 
-    summary, history = memory.build_context(db, conversation, window=20)
+    summary, history = memory.build_context(db, conversation)
 
-    assert summary is None
-    # 30 mensagens alternadas; a janela de 20 começa em msg 11 (user).
+    assert summary == "Pediu pizza."
+    # O Summary cobre até msg 10; a janela é todo o resto, em ordem, começando em user.
     assert history[0] == {"role": "user", "content": "msg 11"}
     assert history[-1] == {"role": "assistant", "content": "msg 30"}
     assert len(history) == 20
@@ -117,25 +125,25 @@ def _fill(conversation, add_message, count):
 
 
 @pytest.mark.asyncio
-async def test_summary_is_not_generated_below_twenty_messages_outside_the_window(
-    db, conversation_factory, add_message
-):
-    conversation = conversation_factory("conv-sum-below")
-    _fill(conversation, add_message, 39)  # 19 fora da janela de 20
+async def test_window_that_fits_is_not_cut_and_nothing_is_summarized(db, conversation_factory, add_message):
+    conversation = conversation_factory("conv-sum-fits")
+    _fill(conversation, add_message, 20)
     client = FakeClient()
 
     await memory.maybe_refresh_summary(db, client, "modelo-x", conversation)
 
     assert client.requests == []
-    assert memory.build_context(db, conversation)[0] is None
+    summary, history = memory.build_context(db, conversation)
+    assert summary is None
+    assert len(history) == 20
 
 
 @pytest.mark.asyncio
-async def test_summary_is_generated_with_twenty_messages_outside_the_window(
+async def test_overflow_cuts_one_block_and_the_summary_covers_exactly_what_left(
     db, conversation_factory, add_message
 ):
-    conversation = conversation_factory("conv-sum-at")
-    _fill(conversation, add_message, 40)
+    conversation = conversation_factory("conv-sum-cut")
+    _fill(conversation, add_message, 21)
     client = FakeClient()
 
     await memory.maybe_refresh_summary(db, client, "modelo-x", conversation)
@@ -144,40 +152,40 @@ async def test_summary_is_generated_with_twenty_messages_outside_the_window(
     request = client.requests[0]
     assert request.model == "modelo-x"
     assert request.effort == "low"
-    prompt = request.messages[0]["content"]
-    assert "Cliente: msg 1" in prompt.splitlines()
-    assert "msg 20" in prompt
-    assert "msg 21" not in prompt  # msg 21 em diante é a Recent Window
+    summarized = [
+        line.split(": ", 1)[1]
+        for line in request.messages[0]["content"].splitlines()
+        if line.startswith(("Cliente: ", "Agent: "))
+    ]
     summary, history = memory.build_context(db, conversation)
     assert summary == "Cliente pediu pizza toscana."
-    assert history[0] == {"role": "user", "content": "msg 21"}
+    assert history[0] == {"role": "user", "content": "msg 11"}
+    # Nada fora dos dois: o que o Summary leu mais a janela são as 21 Messages, sem lacuna nem repetição.
+    assert summarized + [m["content"] for m in history] == [f"msg {n}" for n in range(1, 22)]
 
 
 @pytest.mark.asyncio
-async def test_summary_is_not_regenerated_until_twenty_new_messages_leave_the_window(
+async def test_history_of_a_turn_is_an_exact_prefix_of_the_next_one_until_the_next_cut(
     db, conversation_factory, add_message
 ):
-    conversation = conversation_factory("conv-sum-again")
-    _fill(conversation, add_message, 40)
-    client = FakeClient(text="Primeiro resumo.")
-    await memory.maybe_refresh_summary(db, client, "modelo-x", conversation)
+    conversation = conversation_factory("conv-sum-prefix")
+    client = FakeClient()
+    seen = []
+    for turn in range(15):
+        incoming = add_message(conversation, 2 * turn + 1, "user")
+        seen.append(memory.build_context(db, conversation, exclude_ids=[incoming.id]))
+        add_message(conversation, 2 * turn + 2, "assistant")
+        client.text = f"Resumo {turn}"
+        await memory.maybe_refresh_summary(db, client, "modelo-x", conversation)
 
-    for n in range(41, 60):  # 19 novas saem da janela: ainda não dispara
-        add_message(conversation, n, "user" if n % 2 else "assistant", f"msg {n}")
-    await memory.maybe_refresh_summary(db, client, "modelo-x", conversation)
+    pairs = list(zip(seen, seen[1:]))
+    without_cut = [(a, b) for a, b in pairs if a[0] == b[0]]
+    with_cut = [(a, b) for a, b in pairs if a[0] != b[0]]
+    assert len(with_cut) == 1  # 30 Messages, janela de 20, bloco de 10
+    assert len(without_cut) == 13
+    for (_, before), (_, after) in without_cut:
+        assert after[: len(before)] == before
     assert len(client.requests) == 1
-
-    add_message(conversation, 60, "assistant", "msg 60")  # a 20ª nova
-    client.text = "Segundo resumo."
-    await memory.maybe_refresh_summary(db, client, "modelo-x", conversation)
-
-    assert len(client.requests) == 2
-    second_prompt = client.requests[1].messages[0]["content"]
-    assert "Primeiro resumo." in second_prompt
-    assert "msg 21" in second_prompt and "msg 40" in second_prompt
-    assert "Cliente: msg 1" not in second_prompt.splitlines()  # já estava no primeiro resumo
-    assert "msg 20" not in second_prompt
-    assert memory.build_context(db, conversation)[0] == "Segundo resumo."
 
 
 @pytest.mark.asyncio
@@ -341,15 +349,47 @@ async def test_summary_batch_is_capped_at_the_100_oldest_pending_messages(
 
 
 @pytest.mark.asyncio
-async def test_summary_refresh_follows_the_window_it_is_given(db, conversation_factory, add_message):
-    conversation = conversation_factory("conv-sum-window")
-    _fill(conversation, add_message, 30)  # com janela 10, 20 ficam fora
+async def test_block_size_sets_how_many_messages_leave_the_window_at_once(
+    db, conversation_factory, add_message, monkeypatch
+):
+    monkeypatch.setattr(memory.settings, "MEMORY_WINDOW_BLOCK", 4)
+    conversation = conversation_factory("conv-sum-block")
+    _fill(conversation, add_message, 21)
+
+    await memory.maybe_refresh_summary(db, FakeClient(), "modelo-x", conversation)
+
+    _, history = memory.build_context(db, conversation)
+    assert history[0] == {"role": "user", "content": "msg 5"}
+    assert len(history) == 17
+
+
+@pytest.mark.asyncio
+async def test_cut_goes_on_to_the_next_user_message_so_the_window_starts_on_user(
+    db, conversation_factory, add_message, monkeypatch
+):
+    monkeypatch.setattr(memory.settings, "MEMORY_WINDOW_BLOCK", 5)
+    conversation = conversation_factory("conv-sum-user-start")
+    _fill(conversation, add_message, 21)  # um bloco de 5 pararia em msg 6, do Agent
     client = FakeClient()
 
-    await memory.maybe_refresh_summary(db, client, "modelo-x", conversation, window=10)
+    await memory.maybe_refresh_summary(db, client, "modelo-x", conversation)
 
-    assert len(client.requests) == 1
-    assert "msg 20" in client.requests[0].messages[0]["content"]
-    assert "msg 21" not in client.requests[0].messages[0]["content"]
-    _, history = memory.build_context(db, conversation, window=10)
-    assert history[0]["content"] == "msg 21"
+    assert "Agent: msg 6" in client.requests[0].messages[0]["content"].splitlines()
+    _, history = memory.build_context(db, conversation)
+    assert history[0] == {"role": "user", "content": "msg 7"}
+
+
+@pytest.mark.asyncio
+async def test_summary_failure_after_overflow_keeps_every_message_in_the_window(
+    db, conversation_factory, add_message
+):
+    conversation = conversation_factory("conv-sum-fail-window")
+    _fill(conversation, add_message, 30)
+
+    await memory.maybe_refresh_summary(
+        db, FakeClient(error=RuntimeError("gateway fora do ar")), "modelo-x", conversation
+    )
+
+    summary, history = memory.build_context(db, conversation)
+    assert summary is None
+    assert [m["content"] for m in history] == [f"msg {n}" for n in range(1, 31)]
