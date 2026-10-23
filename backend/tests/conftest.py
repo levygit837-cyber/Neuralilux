@@ -34,6 +34,11 @@ if not hasattr(sqlalchemy.dialects.sqlite.base.SQLiteTypeCompiler, 'visit_JSONB'
 from app.main import app
 from app.api.deps import get_db
 from app.core.database import Base
+from app.core import security
+
+# Custo mínimo do bcrypt (4) só nos testes: cada usuário de teste registra e faz login,
+# e com o custo de produção (12) isso somava ~0,6 s por hash. Produção segue em 12.
+security.BCRYPT_ROUNDS = 4
 
 # Test database (o mesmo arquivo do `DATABASE_URL` forçado acima)
 SQLALCHEMY_DATABASE_URL = f"sqlite:///{TEST_DB_PATH}"

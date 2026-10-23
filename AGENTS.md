@@ -11,7 +11,7 @@ Agente de atendimento por WhatsApp com IA (FastAPI + Next.js + Evolution API). V
 
 ## Comandos
 
-- Testes backend: `cd backend && rm -f test.db && env -u DATABASE_URL ./venv/bin/python -m pytest tests --ignore=tests/e2e -q; rm -f test.db`
+- Testes backend: `cd backend && rm -f test.db && env -u DATABASE_URL ./venv/bin/python -m pytest tests --ignore=tests/e2e -q -n auto; rm -f test.db` (paralelo com pytest-xdist; ~25 s. O bcrypt usa custo 4 só nos testes, em `tests/conftest.py`; produção segue em 12)
 - Infra local: `cp docker-compose.example.yml docker-compose.yml && docker compose --env-file backend/.env up -d` (precisa de `EVOLUTION_API_KEY` e `EVOLUTION_WEBHOOK_TOKEN` no `backend/.env`).
 - Migrações: `cd backend && ./venv/bin/alembic upgrade head` (cadeia fixa em `docs/agents/migrations.md`).
 - Seed de dev: `cd backend && SEED_DEV_SUPERUSER=1 ./venv/bin/python scripts/seed_data.py`.

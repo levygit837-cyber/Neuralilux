@@ -4,11 +4,15 @@ from datetime import datetime, timedelta
 from typing import Optional
 from app.core.config import settings
 
+# Custo do bcrypt (2**rounds iterações). 12 é o padrão da biblioteca e o valor de produção.
+# A suíte de testes baixa este valor no conftest raiz; nada em produção o altera.
+BCRYPT_ROUNDS = 12
+
 
 def get_password_hash(password: str) -> str:
     """Hash a password using bcrypt"""
     password_bytes = password.encode('utf-8')
-    salt = bcrypt.gensalt()
+    salt = bcrypt.gensalt(rounds=BCRYPT_ROUNDS)
     hashed = bcrypt.hashpw(password_bytes, salt)
     return hashed.decode('utf-8')
 
