@@ -155,6 +155,6 @@ A Message que abre uma rajada (a líder) segura a entrega do RabbitMQ durante a 
 
 ### Memória
 
-- **O Agent esqueceu algo antigo**: só a Recent Window (de 11 a 20 Messages da Session atual, cortada em blocos de `MEMORY_WINDOW_BLOCK`) entra literal; depois de uma pausa maior que `session_timeout_minutes` da Company (padrão 3 h) a Session é nova e o anterior só chega pelo Summary e pela History Search. O resto está no Summary ou na History Search ([agent.md](agent.md#memória)).
-- **O Summary não atualiza**: procure `Summary refresh failed` ou `Falha ao atualizar o Summary` no worker. Falha aqui nunca bloqueia a resposta; o próximo Turn tenta de novo. Só roda após 20 Messages fora da janela ainda não resumidas.
+- **O Agent esqueceu algo antigo**: só a Recent Window (cerca de 11 a 22 Messages da Session atual, cortada em blocos de `MEMORY_WINDOW_BLOCK`) entra literal; depois de uma pausa maior que `session_timeout_minutes` da Company (padrão 3 h) a Session é nova e o anterior só chega pelo Summary e pela History Search. O resto está no Summary ou na History Search ([agent.md](agent.md#memória)).
+- **O Summary não atualiza**: procure `Summary refresh failed` ou `Falha ao atualizar o Summary` no worker. Falha aqui nunca bloqueia a resposta; o próximo Turn tenta de novo. Ele roda quando a janela da Session atual passa de `MEMORY_WINDOW` (20) Messages, ou quando há 20 Messages de Sessions anteriores ainda não resumidas.
 - **`buscar_historico` volta vazio em dev**: em SQLite (testes) a busca é por `ILIKE` de todas as palavras; em Postgres é full-text em português.
