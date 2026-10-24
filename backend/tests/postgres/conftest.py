@@ -6,17 +6,14 @@ Alembic e o apaga no fim. Assim, mesmo apontada por engano para o banco de dev, 
 banco com nome aleatório.
 """
 import os
-import subprocess
-import sys
 import uuid
-from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.engine import URL, make_url
 from sqlalchemy.orm import Session
 
-BACKEND_DIR = Path(__file__).resolve().parents[2]
+from tests.postgres.alembic_runner import run_alembic
 
 
 def _driver_url(url: str) -> URL:
@@ -44,24 +41,18 @@ def make_database(server_url):
 
     yield _make
 
-    with admin.connect() as conn:
-        for name in created:
-            conn.exec_driver_sql(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+    # Um DROP por banco, cada um no seu `try`: uma falha não deixa os outros para trás. As falhas sobem no fim.
+    failures: list[Exception] = []
+    for name in created:
+        try:
+            with admin.connect() as conn:
+                conn.exec_driver_sql(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+        except Exception as exc:  # noqa: BLE001 - segue para o próximo banco e relança no fim
+            exc.add_note(f"ao apagar o banco {name}")
+            failures.append(exc)
     admin.dispose()
-
-
-def run_alembic(url: URL, *args: str) -> None:
-    """Roda `alembic <args>` contra `url`, como o CI e o deploy fazem (o `env.py` lê `DATABASE_URL`)."""
-    env = {**os.environ, "DATABASE_URL": url.render_as_string(hide_password=False)}
-    result = subprocess.run(
-        [sys.executable, "-m", "alembic", *args],
-        cwd=BACKEND_DIR,
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    assert result.returncode == 0, f"alembic {' '.join(args)} falhou:\n{result.stdout}\n{result.stderr}"
+    if failures:
+        raise ExceptionGroup("falha ao apagar bancos de teste", failures)
 
 
 @pytest.fixture(scope="session")

@@ -1,9 +1,9 @@
 """Migrações do Alembic no Postgres: ida, volta, ida de novo, e models iguais ao schema migrado."""
 import pytest
-from sqlalchemy import Column, Integer, MetaData, inspect
+from sqlalchemy import Column, Integer, MetaData, create_engine, inspect
 
 from app.core.database import Base
-from tests.postgres.conftest import run_alembic
+from tests.postgres.alembic_runner import run_alembic
 from tests.postgres.schema_drift import schema_diff
 
 pytestmark = pytest.mark.postgres
@@ -14,8 +14,6 @@ def _tables(engine) -> set[str]:
 
 
 def test_upgrade_downgrade_upgrade_from_an_empty_database(make_database):
-    from sqlalchemy import create_engine
-
     url = make_database()
     engine = create_engine(url)
     try:
