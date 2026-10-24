@@ -70,7 +70,6 @@ Arquivos de `app/` abaixo de 60% (os tickets de remoção não devem derrubar ma
 |---|---:|---:|---:|
 | `app/schemas/instance.py` | 44 | 44 | 0% |
 | `app/services/delivery_zone_service.py` | 76 | 76 | 0% |
-| `app/services/menu/lookup.py` | 79 | 79 | 0% |
 | `app/api/routes/dashboard.py` | 111 | 89 | 20% |
 | `app/services/menu/sync.py` | 50 | 39 | 22% |
 | `app/whatsapp/evolution_history.py` | 28 | 19 | 32% |
@@ -728,7 +727,7 @@ Arquivo novo da #53. 2 testes: 2 keep.
 |`test_presence_failure_ends_the_loop_without_raising`|`keep`|Falha de presença não derruba o Turn nem insiste|
 
 #### `tests/whatsapp/test_whatsapp_actions.py`
-24 testes (o grep `def test_` contava 25 porque casava também a fixture `test_instance`): 10 keep, 12 stub, 2 wiring. Decisão de #54: **mantido como e2e documentado e funcionando**, só leitura. Os 14 `stub`/`wiring` foram removidos; restam os 10 `keep`. O arquivo não cria nem apaga instância (o fixture que criava `integration-test-instance` saiu), não envia mensagem (o único `send_text_message` vai a uma instância inexistente e tem de falhar) e lê a instância real `Macedos` (sobrescrevível por `E2E_EVOLUTION_INSTANCE`). Rodado com `RUN_E2E=1` contra a Evolution local: 10 passed. Como rodar: docstring do arquivo e `docs/setup.md`.
+24 testes (o grep `def test_` contava 25 porque casava também a fixture `test_instance`): 10 keep, 12 stub, 2 wiring. Decisão de #54: **mantido como e2e documentado e funcionando**, só leitura. Os 14 `stub`/`wiring` foram removidos; restam os 10 `keep`. O arquivo não cria nem apaga instância (o fixture que criava `integration-test-instance` saiu), não envia mensagem (o único `send_text_message` vai a uma instância inexistente e tem de falhar) e lê a instância real `Loja Exemplo` (sobrescrevível por `E2E_EVOLUTION_INSTANCE`). Rodado com `RUN_E2E=1` contra a Evolution local: 10 passed. Como rodar: docstring do arquivo e `docs/setup.md`.
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|

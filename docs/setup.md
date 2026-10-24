@@ -6,7 +6,7 @@ Do zero até um Agent respondendo no WhatsApp, em desenvolvimento. Os termos seg
 
 - Docker com Compose v2.
 - Python 3.11 ou 3.12.
-- Node 20.9+ (exigência do Next 16).
+- Node 24 (o `engines` do frontend, a imagem Docker e a CI usam 24).
 - Um Gateway que fale o protocolo Anthropic Messages ([ADR 0002](adr/0002-anthropic-messages-via-gateways.md)). O seed cadastra o `Kiro-backend` apontando para `KIRO_GATEWAY_URL` (default `http://localhost:5580`).
 - Um celular com WhatsApp para ler o QR code.
 
@@ -31,13 +31,13 @@ Edite `backend/.env`:
 - `KIRO_GATEWAY_URL` (e `KIRO_GATEWAY_API_KEY`, opcional): onde o seed aponta o Gateway inicial.
 - `ALLOW_PUBLIC_REGISTRATION`: padrão `false`. Com ele desligado, `POST /auth/register` só aceita um superusuário autenticado (os demais recebem 403). O primeiro usuário vem do seed ou de `scripts/create_superuser.py` (passo 3). Ligue só se o produto tiver auto-cadastro.
 - `LOGIN_RATE_LIMIT_*`, `REGISTER_RATE_LIMIT_*` e `TRUSTED_PROXIES` (opcionais): rate limit por IP em login e cadastro, no Redis. Atrás de proxy reverso, preencha `TRUSTED_PROXIES`, senão todos os clientes dividem o mesmo contador. Redis fora do ar: login e cadastro respondem 503 (falha fechada). Veja [operations.md](operations.md#login-ou-cadastro-respondem-429-ou-503).
-- `EVOLUTION_DB_PASSWORD` (opcional): senha do usuário `evolution` no PostgreSQL. Entra na URI do banco da Evolution, então use só letras, dígitos, `-` e `_` (`@ : / ? # %` quebram a URI). Vazio, vale o default de desenvolvimento do compose e do script de init.
+- `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `RABBITMQ_PASSWORD` e `EVOLUTION_DB_PASSWORD`: senhas da infra do compose. **Não têm valor padrão**: o compose recusa subir sem elas (e o init do Postgres sem `EVOLUTION_DB_PASSWORD`). O `.env.example` traz valores de desenvolvimento que casam com `DATABASE_URL`, `REDIS_URL` e `RABBITMQ_URL`; fora do seu computador gere senhas novas e ajuste as três URLs. Entram em URIs, então use só letras, dígitos, `-` e `_` (`@ : / ? # %` quebram a URI). `EVOLUTION_DB_PASSWORD` é a senha do usuário `evolution` no PostgreSQL.
 
 As demais variáveis do `.env.example` já batem com a infra do passo 2.
 
 ## 2. Infra (PostgreSQL, Redis, RabbitMQ, Evolution)
 
-O `docker-compose.yml` é **local e ignorado pelo git**, porque pode conter credenciais suas. O repositório traz o modelo [`docker-compose.example.yml`](../docker-compose.example.yml), sem segredos: as senhas são defaults de desenvolvimento e `EVOLUTION_API_KEY` e `EVOLUTION_WEBHOOK_TOKEN` vêm do `backend/.env`.
+O `docker-compose.yml` é **local e ignorado pelo git**, porque pode conter credenciais suas. O repositório traz o modelo [`docker-compose.example.yml`](../docker-compose.example.yml), sem segredos: nenhuma senha tem valor padrão, tudo vem do `backend/.env` (passo 1). Todas as portas publicadas escutam só em `127.0.0.1` e as imagens têm tag fixa.
 
 ```bash
 cp docker-compose.example.yml docker-compose.yml
@@ -45,7 +45,11 @@ docker compose --env-file backend/.env up -d
 docker compose --env-file backend/.env ps    # postgres, redis e rabbitmq "healthy"; a Evolution leva alguns segundos para subir
 ```
 
+Sem o perfil `app`, o compose sobe só a infra e você roda API e worker no host (passo 3). Para rodar também a aplicação em containers, veja [API, worker e painel em containers](#api-worker-e-painel-em-containers).
+
 O PostgreSQL cria o banco `neuralilux` e, pelo script [`scripts/init-multiple-databases.sh`](../scripts/init-multiple-databases.sh), o banco e o usuário da Evolution. O script só roda na **primeira** criação do volume `postgres_data`.
+
+A Evolution usa uma camada fina sobre a imagem oficial ([`docker/evolution/Dockerfile`](../docker/evolution/Dockerfile)), construída no primeiro `up`: a imagem oficial roda como root, e a camada a troca para o usuário `node` (uid 1000). Ao atualizar a Evolution, troque a tag no Dockerfile e no compose.
 
 Com Colima (ou qualquer Docker em VM), o repositório precisa estar num caminho que a VM enxerga, como dentro do seu `$HOME`. Num clone em `/tmp`, o arquivo é montado como diretório vazio, o script não roda e a Evolution reinicia em loop com `P1000 Authentication failed`. Veja o [troubleshooting](operations.md#a-evolution-reinicia-em-loop).
 
@@ -97,7 +101,7 @@ python scripts/reencrypt_gateway_secrets.py
 SEED_DEV_SUPERUSER=1 python scripts/seed_data.py
 ```
 
-O seed cria os Business Types, a Company "Empresa Teste" e a Company "Macedos" (restaurante) com cardápio, horários, fuso, pedido mínimo e uma Delivery Zone, o usuário de desenvolvimento `usuario@teste.com` (vinculado à Macedos, senha `teste123`, só para dev), um Agent por Company e o Gateway `Kiro-backend`, atribuído ao tipo `default`. É idempotente.
+O seed cria os Business Types, a Company "Empresa Teste" e a Company "Loja Exemplo" (restaurante fictício) com um cardápio de exemplo neutro ([`backend/scripts/sample_menu.json`](../backend/scripts/sample_menu.json)), horários, fuso, pedido mínimo e uma Delivery Zone, o usuário de desenvolvimento `usuario@teste.com` (vinculado à Loja Exemplo, senha `teste123`, só para dev), um Agent por Company e o Gateway `Kiro-backend`, atribuído ao tipo `default`. É idempotente.
 
 `SEED_DEV_SUPERUSER=1` promove o usuário de dev a superuser, requisito para criar e editar Gateways. Sem a variável, ele fica como usuário comum. Para um usuário real:
 
@@ -125,6 +129,41 @@ curl -s http://localhost:8000/health
 ```
 
 Documentação interativa da API: `http://localhost:8000/docs`. Ela só existe com `ENVIRONMENT=development`; fora disso `/docs` e `/redoc` respondem 404 (o `/openapi.json` continua disponível).
+
+### API, worker e painel em containers
+
+Alternativa ao `uvicorn`, ao `run_worker.py` e ao `npm run dev` no host: o perfil `app` do compose roda tudo em containers, a partir de duas imagens ([`backend/Dockerfile`](../backend/Dockerfile) e [`frontend/Dockerfile`](../frontend/Dockerfile)). API, worker, migração, painel e Evolution rodam sem root (backend uid 10001, painel e Evolution uid 1000), sem compilador e com `HEALTHCHECK` nas imagens do backend e do painel. PostgreSQL, Redis e RabbitMQ usam as imagens oficiais, que começam como root só para ajustar permissões e depois largam o privilégio para o processo do servidor.
+
+```bash
+docker compose --env-file backend/.env --profile app up -d --build
+docker compose --env-file backend/.env --profile app ps
+```
+
+O que o perfil sobe, em ordem:
+
+1. `migrate`: a mesma imagem do backend, com `alembic upgrade head`. Roda e sai. `api` e `worker` só iniciam depois que ele termina com sucesso (`service_completed_successfully`); se a migração falhar, nada sobe e o erro está em `docker compose logs migrate`.
+2. `api`: `uvicorn app.main:socket_app` na porta 8000 do host (`API_PORT`).
+3. `worker`: `python scripts/run_worker.py`. Ao parar, recebe SIGTERM e tem `stop_grace_period: 30s`. Se subir `SHUTDOWN_TIMEOUT_SECONDS` (padrão 20), mantenha o prazo em pelo menos esse valor + 10 s.
+4. `frontend`: o painel (Next `standalone`) na porta 3000 (`FRONTEND_PORT`).
+
+Diferenças em relação ao modo host:
+
+- **As URLs de infra são sobrescritas pelo compose.** `DATABASE_URL`, `REDIS_URL`, `RABBITMQ_URL` e `EVOLUTION_API_URL` apontam para os serviços da rede do compose (`postgres`, `redis`, `rabbitmq`, `evolution-api`), não para `localhost`; as senhas vêm das mesmas variáveis do `backend/.env`. As demais chaves do `backend/.env` não entram no container: só as que o compose lista.
+- **`ENVIRONMENT`**: sem ele vale `production`. Então a app exige `SECRET_KEY` e `GATEWAY_ENCRYPTION_KEY` reais (32+ caracteres, distintas) e o cookie de sessão leva `Secure`, que o navegador só aceita em HTTPS ou em `localhost`. Para testar por HTTP puro num host que não seja `localhost`, use `ENVIRONMENT=development`; para produção, ponha um proxy com TLS na frente.
+- **`CORS_ORIGINS`** (JSON) precisa listar a origem **real** do painel. O padrão é `["http://localhost:3000","http://127.0.0.1:3000"]`. Origem fora da lista: toda mutação responde 403.
+- **`NEXT_PUBLIC_API_URL`** (e `NEXT_PUBLIC_WS_URL`, opcional) é a URL pública da API que o **navegador** usa, gravada no bundle no build: ao trocá-la, reconstrua (`up -d --build frontend`). Já `API_INTERNAL_URL` (`http://api:8000`, fixo no compose) é a URL que o **servidor** do Next usa para validar a sessão, lida na hora, sem rebuild. A CSP do painel é montada por requisição com essas URLs.
+- **Webhook da Evolution**: com a API em container, defina `EVOLUTION_WEBHOOK_BASE_URL=http://api:8000` no `backend/.env` (o padrão aponta para a API no host, `host.docker.internal:8000`). Depois, recrie a Evolution.
+- **Gateway no host**: o seed aponta o `Kiro-backend` para `KIRO_GATEWAY_URL`; de dentro do container o padrão é `http://host.docker.internal:5580`.
+
+Seed num banco vazio, dentro do container (a migração já rodou no `up`):
+
+```bash
+docker compose --env-file backend/.env --profile app run --rm -e SEED_DEV_SUPERUSER=1 api python scripts/seed_data.py
+```
+
+Superusuário real: `docker compose --env-file backend/.env --profile app run --rm -e SUPERUSER_EMAIL=... -e SUPERUSER_PASSWORD=... api python scripts/create_superuser.py`.
+
+Migrar uma versão nova: reconstrua as imagens e rode `up -d --build`; o `migrate` roda de novo. Se a versão traz a migração `0015`, ou outra com lock pesado, **pare API e worker antes**: veja a [janela de manutenção](operations.md#migrações-em-banco-já-em-uso-janela-de-manutenção).
 
 ## 4. Frontend
 
@@ -232,11 +271,11 @@ cd ../frontend && npx eslint . && npx tsc --noEmit && npx next build
 
 Os testes do backend rodam em SQLite; `env -u DATABASE_URL` impede que a suíte use o banco de desenvolvimento. Os e2e só rodam com `RUN_E2E=1`. A suíte roda em paralelo (`-n auto`, pytest-xdist): cada processo usa o próprio arquivo SQLite, e o bcrypt tem custo 4 só nos testes (produção usa 12). Para depurar um teste isolado, tire o `-n auto`.
 
-O e2e `tests/whatsapp/test_whatsapp_actions.py` fala com a Evolution real, só em leitura (chats, contatos, mensagens e estado da instância `Macedos`; não cria instância nem envia mensagem). Rode de `backend/` com um SQLite descartável, porque `RUN_E2E=1` deixa de forçar o banco de teste:
+O e2e `tests/whatsapp/test_whatsapp_actions.py` fala com a Evolution real, só em leitura (chats, contatos, mensagens e estado da instância `Loja Exemplo`; não cria instância nem envia mensagem). Rode de `backend/` com um SQLite descartável, porque `RUN_E2E=1` deixa de forçar o banco de teste:
 
 ```bash
 RUN_E2E=1 DATABASE_URL=sqlite:////tmp/e2e-actions.db EVOLUTION_API_KEY=<chave> \
   ./venv/bin/python -m pytest tests/whatsapp/test_whatsapp_actions.py -v -p no:cacheprovider
 ```
 
-`E2E_EVOLUTION_INSTANCE` troca a instância lida (padrão `Macedos`).
+`E2E_EVOLUTION_INSTANCE` troca a instância lida (padrão `Loja Exemplo`).

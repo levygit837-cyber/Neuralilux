@@ -26,13 +26,13 @@ Hoje existe um Pack, "catálogo & pedidos" (restaurantes): cardápio, pedido com
 
 ## Quickstart
 
-Pré-requisitos: Docker (Compose v2), Python 3.11 ou 3.12, Node 20.9+ e um Gateway que fale o protocolo Anthropic Messages ([ADR 0002](docs/adr/0002-anthropic-messages-via-gateways.md)).
+Pré-requisitos: Docker (Compose v2), Python 3.11 ou 3.12, Node 24 e um Gateway que fale o protocolo Anthropic Messages ([ADR 0002](docs/adr/0002-anthropic-messages-via-gateways.md)).
 
 ```bash
-# 1. Variáveis do backend (defina EVOLUTION_API_KEY e EVOLUTION_WEBHOOK_TOKEN; o ENVIRONMENT=development do exemplo precisa ficar)
+# 1. Variáveis do backend (defina EVOLUTION_API_KEY e EVOLUTION_WEBHOOK_TOKEN; o ENVIRONMENT=development e as senhas de dev do exemplo podem ficar)
 cp backend/.env.example backend/.env
 
-# 2. Infra: PostgreSQL, Redis, RabbitMQ e Evolution API
+# 2. Infra: PostgreSQL, Redis, RabbitMQ e Evolution API (a primeira subida constrói a camada sem root da Evolution)
 cp docker-compose.example.yml docker-compose.yml
 docker compose --env-file backend/.env up -d
 
@@ -49,7 +49,9 @@ python scripts/run_worker.py                                       # worker, out
 cd frontend && cp .env.example .env.local && npm install && npm run dev
 ```
 
-O `docker-compose.yml` é **local e ignorado pelo git**: ele pode ter credenciais suas. O repositório versiona o [`docker-compose.example.yml`](docker-compose.example.yml), sem segredos; é dele que o passo 2 parte. Entre em `http://localhost:3000` com `usuario@teste.com` / `teste123` (usuário de dev criado pelo seed).
+O `docker-compose.yml` é **local e ignorado pelo git**: ele pode ter credenciais suas. O repositório versiona o [`docker-compose.example.yml`](docker-compose.example.yml), sem segredos nem senhas padrão (tudo vem do `backend/.env`); é dele que o passo 2 parte. Entre em `http://localhost:3000` com `usuario@teste.com` / `teste123` (usuário de dev criado pelo seed).
+
+Em vez dos passos 3 e 4, o perfil `app` do mesmo compose roda migração, API, worker e painel em containers sem root (imagens em [`backend/Dockerfile`](backend/Dockerfile) e [`frontend/Dockerfile`](frontend/Dockerfile)): `docker compose --env-file backend/.env --profile app up -d --build`. Variáveis, seed e atualização de um banco em uso estão em [docs/setup.md](docs/setup.md#api-worker-e-painel-em-containers) e [docs/operations.md](docs/operations.md#containers-perfil-app).
 
 Conectar o WhatsApp por QR code, ligar a Instance à Company e conferir a primeira resposta estão no [guia de setup](docs/setup.md).
 
@@ -71,7 +73,7 @@ Conectar o WhatsApp por QR code, ligar a Instance à Company e conferir a primei
 
 ## Limites atuais
 
-- Os defaults de desenvolvimento (senhas do compose, `usuario@teste.com`) não servem para produção; sem `ENVIRONMENT=development` explícito a app recusa `SECRET_KEY`, `EVOLUTION_WEBHOOK_TOKEN` e `GATEWAY_ENCRYPTION_KEY` de exemplo e esconde `/docs`.
+- Os defaults de desenvolvimento (senhas de exemplo do `backend/.env.example`, `usuario@teste.com`) não servem para produção; sem `ENVIRONMENT=development` explícito a app recusa `SECRET_KEY`, `EVOLUTION_WEBHOOK_TOKEN` e `GATEWAY_ENCRYPTION_KEY` de exemplo e esconde `/docs`.
 - Só existe o Pack de catálogo & pedidos.
 - A navegação móvel e a acessibilidade do dashboard não passaram por validação completa.
 - Nenhuma métrica de clientes, disponibilidade ou uso comercial é comprovada pelo repositório.

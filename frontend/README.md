@@ -37,7 +37,7 @@ npm run dev
 ```bash
 npm run dev          # Desenvolvimento
 npm run build        # Build de produção
-npm start            # Iniciar produção
+npm start            # Iniciar produção (no container: `node server.js` do build standalone)
 npm run lint         # Lint
 npm run type-check   # Verificar tipos
 ```

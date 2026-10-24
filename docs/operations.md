@@ -154,7 +154,7 @@ O `finalizar` recusa em código, e o Agent repassa o motivo ao Contact. Os erros
 
 - **429**: passou do limite. `Retry-After` traz os segundos até a janela virar. Toda tentativa conta, acertando ou errando, e a senha de quem está bloqueado não é conferida. No cadastro, a tentativa recusada com 403 (cadastro fechado) também conta.
 - **Redis fora do ar ou travado: falha fechada, 503.** Sem Redis não há como contar tentativas, e deixar o login passar sem contar abriria a força bruta justamente quando o contador cai. O preço é o login (e o cadastro público) indisponível enquanto o Redis cai, o que já derruba o resto do atendimento (eventos de UI, debounce). Um Redis que não responde não prende a requisição: o cliente usa `REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS` e `REDIS_SOCKET_TIMEOUT_SECONDS` e a chamada tem teto igual à soma dos dois. Quem já tem token segue usando a API; só login e cadastro param. O superusuário autenticado cadastra mesmo com o Redis fora, porque não passa pelo limite. O log traz `Rate limit failed closed: Redis unavailable or too slow; refusing the request` (com `error_type` e `error`); o cliente descartado é fechado em background e o novo reconecta sozinho na tentativa seguinte.
-- **Redis 7.0 ou mais novo.** O contador usa `EXPIRE ... NX`, que só existe a partir do Redis 7.0 (o `docker-compose.example.yml` usa `redis:7-alpine`). Num Redis 6 ou anterior o comando é recusado e login e cadastro público respondem 503 sempre; o log então traz `Redis rejected the rate limit command (EXPIRE NX needs Redis >= 7.0)`. Atualize o Redis, não o limite.
+- **Redis 7.0 ou mais novo.** O contador usa `EXPIRE ... NX`, que só existe a partir do Redis 7.0 (o `docker-compose.example.yml` usa `redis:7.4`). Num Redis 6 ou anterior o comando é recusado e login e cadastro público respondem 503 sempre; o log então traz `Redis rejected the rate limit command (EXPIRE NX needs Redis >= 7.0)`. Atualize o Redis, não o limite.
 - **Atrás de proxy reverso**: o IP do peer TCP é o do proxy, e sem configuração todos os clientes dividem um contador (o primeiro a abusar bloqueia todos). Liste os proxies em `TRUSTED_PROXIES`; só de um peer listado o `X-Forwarded-For` é lido (todas as linhas do cabeçalho, em ordem, da direita para a esquerda), pulando os proxies listados, e o primeiro endereço fora da lista vira o IP do cliente. O proxy precisa **anexar** o IP real ao cabeçalho (nginx: `proxy_add_x_forwarded_for`) e nunca repassar o valor do cliente. Valor que não é IP no cabeçalho é ignorado e vale o IP do peer. Sem `TRUSTED_PROXIES`, o cabeçalho é ignorado por inteiro, então um cliente não escolhe a própria chave.
 - **`FORWARDED_ALLOW_IPS` nunca `*`.** O uvicorn também lê o `X-Forwarded-For` (`--proxy-headers`, ligado por padrão) e reescreve o IP do peer para quem estiver em `FORWARDED_ALLOW_IPS` (padrão `127.0.0.1`). Com `*`, qualquer cliente forja o próprio IP e escapa do limite. Com o proxy em loopback e o uvicorn no padrão, o uvicorn já consome o cabeçalho e entrega o IP real como peer: nesse caso deixe `TRUSTED_PROXIES` vazio, porque o peer que a app enxerga já é o cliente. Preencha `TRUSTED_PROXIES` quando o uvicorn não reescreve o peer (proxy em outro host ou `--no-proxy-headers`).
 - **IPv6 conta por /64.** Um cliente IPv6 recebe pelo menos um /64; trocar o sufixo do endereço não zera o contador. IPv4 mapeado em IPv6 (`::ffff:a.b.c.d`) conta como o IPv4.
@@ -173,6 +173,7 @@ Antes do #85, `POST /instances/{nome}` criava a Instance na Evolution com a `EVO
 - `Configuração recusada com ENVIRONMENT='production' (sem ENVIRONMENT definido vale 'production')…`: sem `ENVIRONMENT=development` explícito a app recusa `SECRET_KEY`, `EVOLUTION_WEBHOOK_TOKEN` e `GATEWAY_ENCRYPTION_KEY` vazios ou de exemplo (e exige `GATEWAY_ENCRYPTION_KEY` diferente da `SECRET_KEY`, as duas com 32+ caracteres). Em dev local, ponha `ENVIRONMENT=development` no `backend/.env`. Fora dele, defina valores fortes e distintos (`python3 -c "import secrets; print(secrets.token_urlsafe(48))"`).
 - Erro de migração com mais de uma head: veja [agents/migrations.md](agents/migrations.md).
 - O worker sai com `Failed to connect to RabbitMQ`: confira `RABBITMQ_URL`, o vhost `neuralilux` e `docker compose --env-file backend/.env ps`.
+- Em containers (perfil `app`): `api` e `worker` ficam em `Created` e nunca iniciam quando o `migrate` falhou. Veja `docker compose --env-file backend/.env --profile app logs migrate`.
 
 ### Atualizar um banco existente: chaves de Gateway
 
@@ -183,6 +184,28 @@ Passo único e obrigatório ao atualizar um banco que já tem Gateways com chave
 3. `cd backend && python scripts/reencrypt_gateway_secrets.py`. Imprime quantas chaves converteu.
 
 O script abre cada chave com a `SECRET_KEY` (HKDF ou SHA-256 antigo) e regrava com a `GATEWAY_ENCRYPTION_KEY`. Idempotente: a segunda execução imprime 0 e não altera nada. Chaves que nenhuma das duas abre ficam intactas (regrave-as pela API). Depois disso a `SECRET_KEY` pode ser rotacionada sem tocar nos Gateways; já trocar a `GATEWAY_ENCRYPTION_KEY` invalida as chaves salvas. Só o script re-criptografa; seed, API e worker nunca mexem nos tokens.
+
+### Containers (perfil `app`)
+
+Como subir e o que cada serviço faz: [setup.md](setup.md#api-worker-e-painel-em-containers). Aqui, a operação.
+
+- **Quem roda como quê.** `api`, `worker` e `migrate` usam a mesma imagem (`neuralilux/backend`, uid 10001); o painel e a Evolution rodam como uid 1000. Confira com `docker compose --env-file backend/.env --profile app top`. PostgreSQL, Redis e RabbitMQ usam as imagens oficiais, que largam o root depois de ajustar permissões.
+- **Logs.** `docker compose --env-file backend/.env --profile app logs -f api worker`. API e worker são processos separados, como no modo host.
+- **Parar o worker.** `docker compose ... stop worker` manda SIGTERM e espera até 30 s (`stop_grace_period`): o worker para de consumir, termina os Turns em voo e desconecta. Quem não terminar fica `pending` e é retomado no próximo start. Se subir `SHUTDOWN_TIMEOUT_SECONDS` (padrão 20), suba junto o `stop_grace_period` do compose (valor + 10 s).
+- **Healthcheck.** `api` e painel têm `HEALTHCHECK` na imagem (`/health` e `/login`). O worker não escuta porta e o `migrate` sai ao terminar; os dois têm o healthcheck desligado no compose.
+- **Login não "gruda" no painel.** `ENVIRONMENT` ausente vale `production`, e o cookie `nlx_auth` leva `Secure`: o navegador o descarta em HTTP puro fora de `localhost`. Acesse por `localhost`, ponha TLS na frente ou use `ENVIRONMENT=development` só em ambiente local. Mutação com 403: a origem do painel não está em `CORS_ORIGINS`.
+- **Painel chama a API errada.** `NEXT_PUBLIC_API_URL` é gravada no bundle no build. Troque no `.env` e reconstrua: `docker compose ... --profile app up -d --build frontend`. `API_INTERNAL_URL` não precisa de rebuild.
+- **Scripts de manutenção** rodam no container da API, com o mesmo ambiente: `docker compose --env-file backend/.env --profile app run --rm api python scripts/<script>.py`. Para variáveis extras, `-e NOME=valor`.
+
+### Migrações em banco já em uso: janela de manutenção
+
+No perfil `app`, o serviço `migrate` roda `alembic upgrade head` a cada `up`, e `api` e `worker` só iniciam depois dele. Num banco **novo** isso basta. Num banco **em uso**, a migração `0015` (fusão de Contacts e Conversations duplicados, índices em `messages` e `UNIQUE` em `contacts`/`conversations`) pede janela de manutenção ([agents/migrations.md](agents/migrations.md#0015-fusão-de-duplicatas-e-janela-de-manutenção)): os `ADD CONSTRAINT UNIQUE` seguram `ACCESS EXCLUSIVE` até o commit, e uma API no ar pode recriar uma duplicata e derrubar a migração. O tempo cresce com o tamanho de `messages`.
+
+1. Pare quem escreve no banco: `docker compose --env-file backend/.env --profile app stop api worker` (no modo host, pare o `uvicorn` e o `run_worker.py`).
+2. Faça backup do banco: `docker compose --env-file backend/.env exec postgres pg_dump -U neuralilux neuralilux > backup.sql`.
+3. Migre: `docker compose --env-file backend/.env --profile app run --rm migrate` (ou `alembic upgrade head` no host).
+4. Se o banco ainda tem Gateways com chave criptografada pela `SECRET_KEY`, rode o passo [Atualizar um banco existente](#atualizar-um-banco-existente-chaves-de-gateway) **antes de subir a app**. No container: `docker compose --env-file backend/.env --profile app run --rm api python scripts/reencrypt_gateway_secrets.py`, com o backup de `inference_gateways` feito antes (o script regrava os tokens e não tem volta). `SECRET_KEY` e `GATEWAY_ENCRYPTION_KEY` precisam estar no `backend/.env`.
+5. Suba de novo: `docker compose --env-file backend/.env --profile app up -d`.
 
 ### Agrupamento, concorrência e prefetch
 
