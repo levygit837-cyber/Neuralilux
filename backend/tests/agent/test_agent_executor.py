@@ -113,10 +113,10 @@ async def test_devolver_pela_rota_de_controle_humano_fecha_o_ticket_e_o_agent_vo
     agent["client"].script = [reply(text("Voltei!"))]
 
     client.post(f"/api/v1/conversations/{conversation.id}/take-control", json={}, headers=headers)
-    mudo = await executor.handle_incoming(db, conversation, contact, instance, "Alguém aí?")
+    mudo = await _handle(db, conversation, contact, instance, "Alguém aí?")
     released = client.post(f"/api/v1/conversations/{conversation.id}/release-control", headers=headers)
     db.expire_all()
-    result = await executor.handle_incoming(db, conversation, contact, instance, "Voltou?")
+    result = await _handle(db, conversation, contact, instance, "Voltou?")
 
     assert mudo.reply_text is None
     assert released.status_code == 200
