@@ -93,11 +93,13 @@ Siga a ordem; o primeiro que bater é a causa. Mensagens em `código` aparecem n
 | `Turn failed` e o Contact recebe "Desculpe, tive um problema…" | Exceção dentro do Turn; o stack trace vem logo antes. | Causas comuns abaixo. |
 | `Unexpected error processing message with agent` com `EvolutionAPIError` logo depois de `Turn finished` | O Turn rodou, mas o envio pela Evolution falhou: Instance não conectada ao WhatsApp, Evolution fora do ar ou `EVOLUTION_API_URL`/`EVOLUTION_API_KEY` errados. A Message do Contact fica gravada; a resposta não. | Conecte a Instance (QR code) e confira `GET {EVOLUTION_API_URL}/instance/fetchInstances` com o header `apikey`. |
 
+Um Turn que passa de `TURN_TIMEOUT_SECONDS` (padrão 90 s) sai do loop com `Turn timed out` no log (sem stack trace) e o Contact recebe a mesma resposta de erro. A Tool que passa de `TOOL_TIMEOUT_SECONDS` aparece como `Tool handler timed out` e o Turn continua sem ela. Veja [Prazos e retries](agent.md#prazos-e-retries).
+
 Causas comuns de `Turn failed`:
 
 - `LLMNotConfiguredError: Nenhum Gateway atribuido…`: nenhum modelo atribuído a `whatsapp_agent` nem a `default`. Atribua em **Configurações > Gateways**.
 - `LLMNotConfiguredError` com a chave do Gateway: a chave não abre. A `GATEWAY_ENCRYPTION_KEY` mudou, ou o banco ainda tem chaves criptografadas com a `SECRET_KEY` (antes da chave própria); rode `python scripts/reencrypt_gateway_secrets.py` (passo único, veja [Atualizar um banco existente](#atualizar-um-banco-existente-chaves-de-gateway)) ou regrave a chave do Gateway.
-- `LLMProviderError`: o Gateway respondeu fora do formato, deu 5xx ou estourou o timeout (60 s por padrão, 3 tentativas). Teste com `POST /gateways/models/{id}/test`.
+- `LLMProviderError`: o Gateway respondeu fora do formato, deu 5xx ou estourou o timeout (60 s por padrão por chamada). Os retries (timeout, 429, 5xx) saem de um orçamento por Turn (`TURN_RETRY_BUDGET`, `TURN_RETRY_WAIT_SECONDS`) e respeitam `Retry-After`; acabou o orçamento, o erro sobe. Teste com `POST /gateways/models/{id}/test`.
 - Gateway em `localhost` com a API em container: dentro do container use `http://host.docker.internal:<porta>`.
 
 ### O pedido não fecha

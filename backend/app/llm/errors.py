@@ -14,12 +14,17 @@ class LLMTimeoutError(LLMError):
 
 
 class LLMRateLimitError(LLMError):
-    """O Gateway respondeu 429."""
+    """O Gateway respondeu 429. `retry_after`: segundos pedidos no cabeçalho `Retry-After`, se veio."""
+
+    def __init__(self, message: str, retry_after: float | None = None):
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 class LLMProviderError(LLMError):
     """O Gateway respondeu erro (4xx/5xx), falhou no transporte ou devolveu corpo invalido."""
 
-    def __init__(self, message: str, status_code: int | None = None):
+    def __init__(self, message: str, status_code: int | None = None, retry_after: float | None = None):
         super().__init__(message)
         self.status_code = status_code
+        self.retry_after = retry_after  # `Retry-After` do 503/529, em segundos

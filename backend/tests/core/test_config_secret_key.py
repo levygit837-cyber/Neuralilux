@@ -58,3 +58,23 @@ def test_real_secrets_are_accepted_in_production():
 def test_example_secrets_and_empty_webhook_token_are_allowed_in_explicit_development():
     settings = _settings(ENVIRONMENT="development", SECRET_KEY=DEFAULT_KEY, EVOLUTION_WEBHOOK_TOKEN="")
     assert settings.SECRET_KEY == DEFAULT_KEY and settings.EVOLUTION_WEBHOOK_TOKEN == ""
+
+
+def test_debounce_max_wait_shorter_than_the_window_is_refused():
+    with pytest.raises(ValidationError, match="DEBOUNCE_MAX_WAIT_SECONDS"):
+        _settings(ENVIRONMENT="development", DEBOUNCE_SECONDS=3, DEBOUNCE_MAX_WAIT_SECONDS=1)
+
+
+@pytest.mark.parametrize("name", ["TURN_TIMEOUT_SECONDS", "TOOL_TIMEOUT_SECONDS"])
+def test_non_positive_deadlines_are_refused(name):
+    with pytest.raises(ValidationError, match="maiores que zero"):
+        _settings(ENVIRONMENT="development", **{name: 0})
+
+
+def test_tool_timeout_longer_than_the_turn_timeout_is_refused():
+    with pytest.raises(ValidationError, match="TOOL_TIMEOUT_SECONDS deve ser menor ou igual"):
+        _settings(ENVIRONMENT="development", TURN_TIMEOUT_SECONDS=10, TOOL_TIMEOUT_SECONDS=20)
+
+
+def test_tool_timeout_equal_to_the_turn_timeout_is_accepted():
+    assert _settings(ENVIRONMENT="development", TURN_TIMEOUT_SECONDS=10, TOOL_TIMEOUT_SECONDS=10).TOOL_TIMEOUT_SECONDS == 10

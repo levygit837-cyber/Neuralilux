@@ -3,11 +3,13 @@
 Junta as Tools de todos os Packs, expõe os schemas no formato Messages e executa
 um `tool_use`: valida o input com JSON Schema, chama o handler e devolve o
 `tool_result`. Nenhuma exceção de handler sai daqui: vira `is_error` com mensagem
-genérica e o erro real vai para o log.
+genérica e o erro real vai para o log. Cada handler tem o prazo `TOOL_TIMEOUT_SECONDS`: estourou, o handler é
+cancelado, a Session faz rollback e o resultado é `is_error`, como qualquer outra falha.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -18,10 +20,12 @@ from jsonschema import Draft202012Validator
 
 from app.agent.contracts import Pack, Tool, ToolContext, ToolResultBlock, ToolUseBlock
 from app.agent.turn_context import neutralize
+from app.core.config import settings
 
 logger = structlog.get_logger()
 
 GENERIC_TOOL_ERROR = "A ferramenta falhou ao executar. Não repita a mesma chamada; siga sem ela ou ofereça um atendente."
+TOOL_TIMEOUT_ERROR = "A ferramenta demorou demais e foi interrompida. Não repita a mesma chamada; siga sem ela ou ofereça um atendente."
 
 
 @dataclass(frozen=True)
@@ -71,11 +75,23 @@ class ToolRegistry:
             detail = "; ".join(_describe(problem) for problem in problems)
             return _error(block, f"Argumentos inválidos para {name}: {detail}")
 
+        deadline = asyncio.timeout(settings.TOOL_TIMEOUT_SECONDS)
         try:
-            outcome = await tool.handler(ctx, args)
+            async with deadline:
+                outcome = await tool.handler(ctx, args)
         except Exception:
-            # Um flush que falhou deixa a Session inválida; sem rollback a próxima Tool do Turn quebra também.
+            # Um flush que falhou (ou um handler cancelado pelo prazo) deixa a Session com transação aberta ou inválida;
+            # sem rollback a próxima Tool do Turn quebra também.
             ctx.db.rollback()
+            if deadline.expired():
+                logger.error(
+                    "Tool handler timed out",
+                    tool_name=name,
+                    timeout_seconds=settings.TOOL_TIMEOUT_SECONDS,
+                    conversation_id=ctx.conversation_id,
+                    tool_use_id=block["id"],
+                )
+                return _error(block, TOOL_TIMEOUT_ERROR)
             logger.exception(
                 "Tool handler failed",
                 tool_name=name,

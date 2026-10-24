@@ -1,22 +1,35 @@
 """Cliente httpx do protocolo Anthropic Messages para um Gateway (ADR 0002).
 
 `POST {base_url}/v1/messages`. Sem streaming: a resposta chega inteira ou falha, entao o retry
-(429, 5xx, timeout) nunca reexecuta uma resposta parcial.
+(429, 5xx, timeout) nunca reexecuta uma resposta parcial. Cada chamada tenta ate `max_attempts` vezes, mas
+os retries saem do `RetryBudget` do Turn (`MessagesRequest.retry_budget`), compartilhado por todas as chamadas
+dele. A espera e jitter exponencial; `Retry-After` do 429/503/529 manda no lugar dela. 4xx nunca tem retry.
 """
 
+import asyncio
+import math
+import random
 import re
 import time
+from collections.abc import Awaitable, Callable
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from typing import Any
 
 import httpx
-from tenacity import AsyncRetrying, retry_if_exception, stop_after_attempt, wait_exponential
+import structlog
 
 from app.agent.contracts import ContentBlock, MessagesRequest, MessagesResponse
 from app.llm.errors import LLMProviderError, LLMRateLimitError, LLMTimeoutError
+from app.llm.retry import RetryBudget
+
+logger = structlog.get_logger()
 
 ANTHROPIC_VERSION = "2023-06-01"
 DEFAULT_TIMEOUT_SECONDS = 60.0
 MAX_ATTEMPTS = 3
+MAX_BACKOFF_SECONDS = 10.0
+_RETRY_AFTER_STATUSES = frozenset({429, 503, 529})
 _ERROR_BODY_LIMIT = 300
 # Linhas antigas guardam a raiz com o sufixo `/v1` (formato do cliente OpenAI); o path `/v1/...` e do cliente.
 _LEGACY_V1_SUFFIX = re.compile(r"/v1/?$")
@@ -26,6 +39,28 @@ def _is_transient(exc: BaseException) -> bool:
     if isinstance(exc, (LLMTimeoutError, LLMRateLimitError)):
         return True
     return isinstance(exc, LLMProviderError) and exc.status_code is not None and exc.status_code >= 500
+
+
+def _retry_after(response: httpx.Response) -> float | None:
+    """Segundos pedidos em `Retry-After` (numero ou data HTTP) nos status que o respeitam; None se ausente ou ilegivel."""
+    if response.status_code not in _RETRY_AFTER_STATUSES:
+        return None
+    raw = response.headers.get("retry-after", "").strip()
+    if not raw:
+        return None
+    try:
+        seconds = float(raw)
+    except ValueError:
+        try:
+            when = parsedate_to_datetime(raw)
+        except (TypeError, ValueError):
+            return None
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=timezone.utc)
+        seconds = (when - datetime.now(timezone.utc)).total_seconds()
+    if not math.isfinite(seconds):
+        return None
+    return max(0.0, seconds)
 
 
 class GatewayMessagesClient:
@@ -41,6 +76,8 @@ class GatewayMessagesClient:
         backoff_seconds: float = 1.0,
         max_attempts: int = MAX_ATTEMPTS,
         transport: httpx.AsyncBaseTransport | None = None,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        uniform: Callable[[float, float], float] = random.uniform,
     ):
         self._root = _LEGACY_V1_SUFFIX.sub("", base_url.rstrip("/"))
         self._api_key = api_key
@@ -49,11 +86,13 @@ class GatewayMessagesClient:
         self._backoff = backoff_seconds
         self._max_attempts = max_attempts
         self._transport = transport
+        self._sleep = sleep
+        self._uniform = uniform
 
     # --- API publica -------------------------------------------------------- #
 
     async def create(self, request: MessagesRequest) -> MessagesResponse:
-        data = await self._request("POST", "/v1/messages", self._payload(request))
+        data = await self._request("POST", "/v1/messages", self._payload(request), request.retry_budget)
         return self._parse(data, request.model)
 
     async def probe(self, model: str, effort: str | None = None) -> dict[str, Any]:
@@ -161,16 +200,32 @@ class GatewayMessagesClient:
             text = text.replace(self._api_key, "***")
         return text[:_ERROR_BODY_LIMIT]
 
-    async def _request(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
-        retrying = AsyncRetrying(
-            retry=retry_if_exception(_is_transient),
-            stop=stop_after_attempt(self._max_attempts),
-            wait=wait_exponential(multiplier=self._backoff, max=10),
-            reraise=True,
-        )
-        async for attempt in retrying:
-            with attempt:
+    async def _request(
+        self, method: str, path: str, body: dict[str, Any] | None = None, budget: RetryBudget | None = None
+    ) -> Any:
+        """Uma chamada com retry. Sem `budget` (probe, listagem, Summary) a chamada tem um orcamento so dela."""
+        if budget is None:
+            budget = RetryBudget.for_turn()
+        attempt = 1
+        while True:
+            try:
                 return await self._send_once(method, path, body)
+            except (LLMTimeoutError, LLMRateLimitError, LLMProviderError) as exc:
+                if attempt >= self._max_attempts or not _is_transient(exc):
+                    raise
+                delay = self._retry_delay(attempt, getattr(exc, "retry_after", None))
+                if not budget.reserve(delay):
+                    logger.warning("Gateway retry budget exhausted", gateway=self._name, attempt=attempt, wait=delay)
+                    raise
+                logger.warning("Gateway call failed, retrying", gateway=self._name, attempt=attempt, wait=delay)
+                await self._sleep(delay)
+                attempt += 1
+
+    def _retry_delay(self, attempt: int, retry_after: float | None) -> float:
+        """`Retry-After` (mais um jitter ate `backoff_seconds`, para os clientes nao voltarem juntos) ou jitter total."""
+        if retry_after is not None:
+            return retry_after + self._uniform(0.0, self._backoff)
+        return self._uniform(0.0, min(self._backoff * 2 ** (attempt - 1), MAX_BACKOFF_SECONDS))
 
     async def _send_once(self, method: str, path: str, body: dict[str, Any] | None) -> Any:
         try:
@@ -182,11 +237,14 @@ class GatewayMessagesClient:
             raise LLMProviderError(f"{self._name}: falha de transporte ({type(exc).__name__})") from exc
 
         if response.status_code == 429:
-            raise LLMRateLimitError(f"{self._name}: HTTP 429: {self._redact(response.text)}")
+            raise LLMRateLimitError(
+                f"{self._name}: HTTP 429: {self._redact(response.text)}", retry_after=_retry_after(response)
+            )
         if response.status_code >= 400:
             raise LLMProviderError(
                 f"{self._name}: HTTP {response.status_code}: {self._redact(response.text)}",
                 status_code=response.status_code,
+                retry_after=_retry_after(response),
             )
         try:
             return response.json()

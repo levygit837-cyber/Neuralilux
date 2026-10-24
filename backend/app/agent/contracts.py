@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict
 
 from sqlalchemy.orm import Session
 
+from app.llm.retry import RetryBudget
+
 if TYPE_CHECKING:
     from app.models import Conversation
 
@@ -60,6 +62,8 @@ class MessagesRequest:
     max_tokens: int = DEFAULT_MAX_TOKENS
     effort: str | None = None
     temperature: float | None = None
+    # Orçamento de retry do Turn, compartilhado por todas as chamadas dele; None: a chamada tem o próprio.
+    retry_budget: RetryBudget | None = None
 
 
 @dataclass(frozen=True)

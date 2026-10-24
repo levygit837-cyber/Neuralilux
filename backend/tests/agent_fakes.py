@@ -48,6 +48,7 @@ class FakeMessagesClient:
                 max_tokens=request.max_tokens,
                 effort=request.effort,
                 temperature=request.temperature,
+                retry_budget=request.retry_budget,
             )
         )
         if not self.script:

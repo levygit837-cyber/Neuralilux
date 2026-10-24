@@ -16,7 +16,7 @@ Como o Agent de uma Company executa um Turn. Termos conforme o [glossário](../C
 8. Emite `thinking_end` e relê o Handoff. Se um Attendant assumiu enquanto o modelo respondia, a resposta é descartada, exceto quando foi a própria Tool de Handoff que encerrou o Turn.
 9. Converte o markdown para WhatsApp (`formatting.to_whatsapp`) e devolve o `TurnResult`.
 
-Qualquer exceção no Turn faz `rollback` e devolve a resposta fixa `FALLBACK_REPLY`; o Contact nunca fica sem retorno por uma falha interna.
+Qualquer exceção no Turn faz `rollback` e devolve a resposta fixa `FALLBACK_REPLY`; o Contact nunca fica sem retorno por uma falha interna. O mesmo vale quando o Turn estoura o prazo ([Prazos](#prazos-e-retries)).
 
 ## Qual Agent roda o Turn
 
@@ -94,8 +94,28 @@ Pontos que importam:
 - **`ends_turn`**: a Tool para o loop sem nova chamada ao modelo. O `content` do `ToolResult` vira a resposta ao Contact. É assim que `transferir_atendente` encerra o Turn.
 - **`max_tokens` e `temperature`**: `run_turn(..., max_tokens=DEFAULT_MAX_TOKENS, temperature=None)` repassa os dois a cada chamada ao modelo, inclusive à final de `max_steps`. O executor lê os valores do Agent da Company, editáveis em `PUT /companies/{id}/agent`; `temperature=None` deixa o Gateway decidir.
 - **`max_steps`** (padrão 6): ao atingi-lo, o loop faz uma chamada final com uma instrução para responder sem Tools. Essa chamada ainda leva os schemas (o histórico tem `tool_use`/`tool_result`), mas qualquer `tool_use` nela é ignorado. Sem texto, sai `MAX_STEPS_FALLBACK_REPLY`.
-- **Erros de Tool**: `ToolRegistry.execute` (`tools.py`) nunca propaga exceção. Tool desconhecida, input inválido e falha de handler viram `tool_result` com `is_error`, e o erro real vai para o log. O handler que falha dispara `rollback` da Session.
+- **Erros de Tool**: `ToolRegistry.execute` (`tools.py`) nunca propaga exceção. Tool desconhecida, input inválido, falha de handler e prazo estourado viram `tool_result` com `is_error`, e o erro real vai para o log. O handler que falha ou estoura o prazo dispara `rollback` da Session.
 - **Nomes únicos**: duas Tools com o mesmo nome entre Packs levantam `ValueError` na montagem do registry.
+
+## Prazos e retries
+
+Sem prazo, um Turn podia fazer até 7 chamadas ao modelo, cada uma com 3 tentativas de 60 s, e segurar a Conversation por ~20 min. Agora há quatro limites, todos em `app/core/config.py` e trocáveis por variável de ambiente:
+
+| Limite | Variável | Padrão | O que acontece ao estourar |
+|---|---|---|---|
+| Turn inteiro | `TURN_TIMEOUT_SECONDS` | 90 | O loop é cancelado (a chamada ao Gateway e a Tool em voo recebem `CancelledError`), a Session do Turn faz `rollback` e o Contact recebe `FALLBACK_REPLY`. O Turn sai sem `turn_id`: nenhum Pack valida nada dele. |
+| Cada Tool | `TOOL_TIMEOUT_SECONDS` | 15 | O handler é cancelado, a Session faz `rollback` e o `tool_result` volta com `is_error`, como qualquer falha de Tool. O Turn segue. |
+| Retries ao Gateway | `TURN_RETRY_BUDGET` | 2 | Gasto por **Turn**, não por chamada: as chamadas do loop dividem o mesmo `RetryBudget` (`app/llm/retry.py`). Acabou, o erro da chamada sobe e o Turn falha. |
+| Espera dos retries | `TURN_RETRY_WAIT_SECONDS` | 20 | Soma do que o Turn pode esperar entre tentativas. Uma espera que não cabe no que resta não é feita: o erro sobe na hora. |
+
+- **Quem manda no prazo.** O `TURN_TIMEOUT_SECONDS` é um `asyncio.timeout` em volta do `loop.run_turn` (`executor.handle_incoming`); ele vale mesmo se o timeout HTTP (`timeout_seconds` do Gateway, 60 s) ou o orçamento de retry fossem maiores. A Tool tem o seu `asyncio.timeout` em `ToolRegistry.execute`, e `TOOL_TIMEOUT_SECONDS` não pode passar de `TURN_TIMEOUT_SECONDS` (a config recusa). O `rollback` roda antes de a Session voltar ao consumer, então ela não fica numa transação aberta.
+- **Só corta em `await`.** O prazo cancela a task, e o cancelamento só chega onde o código cede o controle ao loop: I/O assíncrono, como a chamada ao Gateway, o `publish` de eventos e o `httpx` de uma Tool. Uma Tool que roda SQLAlchemy síncrono ou outro código bloqueante não é cortada no meio: o prazo vale quando ela terminar ou chegar ao próximo `await`, e nesse intervalo o worker inteiro fica parado, não só o Turn. Handler novo deve usar I/O assíncrono ou ser curto.
+- **Tool cancelada pode ter efetivado.** O cancelamento interrompe o lado de cá, não o de lá: uma chamada HTTP já enviada pode ter sido processada pelo serviço externo. O `rollback` só desfaz a Session do Turn. Tool futura que escreve fora do banco (HTTP, fila) precisa ser idempotente ou conferir o efeito antes de repetir; o `tool_result` de erro manda o modelo não repetir a chamada, mas não prova que nada aconteceu.
+- **O que tem retry.** Timeout, 429 e 5xx (`GatewayMessagesClient`, até `max_attempts` por chamada, 3). 4xx (400, 401, 404, 422…) nunca tem.
+- **Quanto espera.** Jitter total: um sorteio entre 0 e `1 s × 2^(tentativa-1)` (teto 10 s), para os Turns não baterem juntos no Gateway. Com `Retry-After` em 429, 503 ou 529 (segundos ou data HTTP), a espera é o valor indicado (mais um jitter de até 1 s), no lugar do backoff. Se o orçamento do Turn não cobre o `Retry-After`, o cliente desiste sem esperar.
+- **Fora de Turn.** Chamadas sem Turn (teste do Gateway, Summary) usam um orçamento só delas, com os mesmos valores.
+- **Recap.** Turn que estoura o prazo é um Turn que falhou antes do envio: o `TurnResult` não traz `turn_id`, então `reply_delivered` nunca chama `on_reply_delivered` e a Recap que ele montou não vale ([Session](#session), glossário).
+- **Debounce.** O agrupamento tem o próprio teto, `DEBOUNCE_MAX_WAIT_SECONDS` ([abaixo](#agrupamento-de-messages-picadas-e-digitando)).
 
 ## Tools
 
@@ -181,6 +201,7 @@ O painel (Configurações > Geral) lê e grava a Company no backend; nada fica e
 O Contact costuma mandar a frase em pedaços ("oi", "quero", "uma calabresa"). Responder a cada pedaço geraria três respostas. O consumer grava cada Message na hora e entrega ao `TurnBatcher` (`app/whatsapp/turn_batcher.py`) uma `Entry` (id da Message gravada, texto, instante), por Conversation:
 
 - **Janela.** `DEBOUNCE_SECONDS` (padrão 3). A primeira Message da rajada espera a Conversation ficar essa pausa sem Message nova; então roda **um** Turn com o `Group` das Messages, os textos juntos, um por linha. Mídia sem legenda não entra no grupo: recebe a resposta fixa na hora.
+- **Teto da janela.** `DEBOUNCE_MAX_WAIT_SECONDS` (padrão 15, nunca menor que `DEBOUNCE_SECONDS`). Quem manda Messages a cada menos de 3 s não adia o Turn para sempre: 15 s depois da primeira Message ainda sem Turn, a líder roda com o que já chegou. O que chegar depois cai no Turn seguinte, com o teto contado de novo a partir da sua chegada. `DEBOUNCE_SECONDS=0` não usa o teto.
 - **Sem duplicar nem reordenar.** O Turn tira da Recent Window exatamente os ids do `Group` (`build_context(exclude_ids=...)`) e os põe de volta, juntos e na ordem de chegada, como o fim do histórico. Mídia respondida ou Session nova no meio da rajada não mudam isso.
 - **Message gravada a caminho.** Logo depois do commit o consumer pega um `Hold` do batcher; ele é solto no `submit` (ou quando a Message não vai ao Agent). A líder não fecha o grupo com `Hold` aberto, então uma Message já gravada entra no grupo em curso ou no Turn seguinte, nunca nos dois.
 - **Message durante um Turn.** Fica na fila e é tratada no Turn seguinte, depois de outra pausa. Nunca há dois Turns da mesma Conversation ao mesmo tempo, e nenhuma Message é descartada. O Turn seguinte vê a resposta anterior na Recent Window.

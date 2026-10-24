@@ -2,6 +2,7 @@
 
 Executor, Pack `catalog_orders` e consumer reais; só o Gateway (roteirizado) e o envio da Evolution são falsos.
 """
+import asyncio
 from datetime import datetime, timezone
 
 import pytest
@@ -11,6 +12,7 @@ from pack_helpers import add_item, fill_delivery, make_world, order_of, tool_nam
 
 from app.agent import executor
 from app.agent.contracts import MessagesRequest
+from app.core.config import settings
 from app.models import Agent, BusinessType, Conversation
 from app.packs.catalog_orders import checkout
 from app.packs.catalog_orders.pack import CatalogOrdersPack
@@ -35,6 +37,18 @@ class FailingAfter:
     async def create(self, request: MessagesRequest):
         if not self.inner.script:
             raise RuntimeError("Gateway timeout")
+        return await self.inner.create(request)
+
+
+class HangingAfter:
+    """Gateway que responde `script` e depois trava, como um modelo que nunca termina."""
+
+    def __init__(self, script):
+        self.inner = FakeMessagesClient(script)
+
+    async def create(self, request: MessagesRequest):
+        if not self.inner.script:
+            await asyncio.Event().wait()
         return await self.inner.create(request)
 
 
@@ -122,6 +136,17 @@ async def test_turn_that_fails_after_recapitular_does_not_leave_a_valid_recap(sh
     shop.state["client"] = FailingAfter([reply(RECAP)])  # timeout do Gateway depois da Tool
     await process(consumer, _inbound(shop, "in-1", "pode fechar"))
     assert shop.sent == [executor.FALLBACK_REPLY]  # o Contact só viu a resposta fixa de erro, nunca a recapitulação
+
+    assert await _confirm_and_get_status(shop, consumer) != "closed"
+
+
+async def test_turn_that_times_out_after_recapitular_does_not_leave_a_valid_recap(shop, monkeypatch):
+    monkeypatch.setattr(settings, "TURN_TIMEOUT_SECONDS", 0.3)
+    await _ready_order(shop)
+    consumer = WhatsAppMessageConsumer()
+    shop.state["client"] = HangingAfter([reply(RECAP)])  # a Recap foi montada, mas o modelo não termina a resposta
+    await process(consumer, _inbound(shop, "in-1", "pode fechar"))
+    assert shop.sent == [executor.FALLBACK_REPLY]  # só o fallback saiu; a Recap nunca chegou ao Contact
 
     assert await _confirm_and_get_status(shop, consumer) != "closed"
 

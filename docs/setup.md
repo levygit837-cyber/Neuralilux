@@ -189,7 +189,11 @@ O comportamento do Agent vem de duas fontes: variáveis do `backend/.env` (valem
 | O que | Onde | Padrão | Efeito |
 |---|---|---|---|
 | Pausa para agrupar Messages picadas | `DEBOUNCE_SECONDS` | 3 | O Agent espera esse silêncio do Contact e responde uma vez só. `0` desliga. |
+| Teto da pausa de agrupamento | `DEBOUNCE_MAX_WAIT_SECONDS` | 15 | Contact que escreve sem parar não adia o Turn para sempre: passado esse tempo, o Agent responde com o que já chegou. |
 | Renovação do "digitando…" | `TYPING_REFRESH_SECONDS` | 20 | Só cosmético. |
+| Prazo do Turn | `TURN_TIMEOUT_SECONDS` | 90 | Passado esse tempo o Turn é cancelado e o Contact recebe a resposta de erro fixa. |
+| Prazo de cada Tool | `TOOL_TIMEOUT_SECONDS` | 15 | A Tool que estoura volta ao modelo como erro e o Turn segue. |
+| Retries ao Gateway por Turn | `TURN_RETRY_BUDGET`, `TURN_RETRY_WAIT_SECONDS` | 2, 20 | Orçamento do Turn inteiro (não por chamada), com jitter e `Retry-After`. Ver [agent.md](agent.md#prazos-e-retries). |
 | Intervalo do sweeper de Handoff | `HANDOFF_SWEEP_INTERVAL_SECONDS` | 60 | De quanto em quanto o worker devolve ao Agent os Handoffs vencidos. |
 | Limite da Session | `session_timeout_minutes` (painel) | 180 | Sem Messages por esse tempo, começa um novo atendimento e o Order aberto vira `abandoned`. |
 | Timeout do Handoff | `handoff_timeout_hours` (painel) | 4 | Sem Attendant agir por esse tempo, o Agent volta a responder. |
