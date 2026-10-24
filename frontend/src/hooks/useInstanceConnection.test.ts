@@ -107,6 +107,24 @@ describe('useInstanceConnection: lista de Instances em cache', () => {
     await waitFor(() => expect(result.current.list.data?.[0].status).toBe('disconnected'))
   })
 
+  it('desconectar refaz a lista mesmo quando o status local já era desconectado', async () => {
+    // A leitura inicial falha: o hook fica em "desconectado" e nunca recebe um status novo.
+    vi.mocked(instanceService.getStatus).mockRejectedValue(new Error('sem resposta'))
+    vi.mocked(instanceService.logout).mockResolvedValue(undefined)
+    vi.mocked(instanceService.list).mockResolvedValue([instance('connected')])
+    const { result } = setup()
+    await waitFor(() => expect(result.current.connection.error).toBe('sem resposta'))
+    await waitFor(() => expect(result.current.list.data?.[0].status).toBe('connected'))
+    await waitFor(() => expect(result.current.list.isFetching).toBe(false))
+    vi.mocked(instanceService.list).mockResolvedValue([instance('disconnected')])
+
+    await act(async () => {
+      await result.current.connection.disconnect()
+    })
+
+    await waitFor(() => expect(result.current.list.data?.[0].status).toBe('disconnected'))
+  })
+
   it('conectar (QR pedido) refaz a lista', async () => {
     vi.mocked(instanceService.getStatus).mockResolvedValue('connected')
     vi.mocked(instanceService.connect).mockResolvedValue({ qrCode: 'qr', status: 'connecting' })
