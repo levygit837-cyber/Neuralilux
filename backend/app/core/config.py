@@ -1,6 +1,8 @@
-from pydantic import model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+import ipaddress
 from typing import List
+
+from pydantic import PositiveInt, model_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 EXAMPLE_SECRET_PREFIX = "change-me"  # todo valor de exemplo do repo (.env.example e defaults) começa assim
@@ -37,6 +39,18 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-me-in-production-use-strong-secret-key-here"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+
+    # Superfície pública (#85). Cadastro anônimo desligado por padrão: usuários saem do `create_superuser.py` ou de
+    # um superusuário autenticado. Limites por IP em /auth/login e /auth/register (janela fixa no Redis; o que
+    # acontece com o Redis fora está em docs/operations.md).
+    ALLOW_PUBLIC_REGISTRATION: bool = False
+    LOGIN_RATE_LIMIT_ATTEMPTS: PositiveInt = 10
+    LOGIN_RATE_LIMIT_WINDOW_SECONDS: PositiveInt = 60
+    REGISTER_RATE_LIMIT_ATTEMPTS: PositiveInt = 5
+    REGISTER_RATE_LIMIT_WINDOW_SECONDS: PositiveInt = 3600
+    # IPs/CIDRs dos proxies reversos que a app aceita como confiáveis. Só peers desta lista têm o cabeçalho
+    # X-Forwarded-For lido; vazio (padrão) = o IP do cliente é sempre o do peer TCP.
+    TRUSTED_PROXIES: List[str] = []
 
     # Criptografia em repouso das chaves de API dos Gateways. Independente da SECRET_KEY: rotacionar o JWT não
     # destrói as chaves salvas. Trocar esta invalida as chaves gravadas (é preciso informá-las de novo).
@@ -109,6 +123,15 @@ class Settings(BaseSettings):
                 f"Fora dele, defina valores fortes e distintos para SECRET_KEY, EVOLUTION_WEBHOOK_TOKEN e "
                 f"GATEWAY_ENCRYPTION_KEY, as duas chaves com ao menos {_MIN_KEY_LENGTH} caracteres (gere cada um com: {_GENERATE_HINT})"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _trusted_proxies_are_networks(self) -> "Settings":
+        for entry in self.TRUSTED_PROXIES:
+            try:
+                ipaddress.ip_network(entry, strict=False)
+            except ValueError:
+                raise ValueError(f"TRUSTED_PROXIES: '{entry}' não é um IP nem um CIDR válido")
         return self
 
     @model_validator(mode="after")

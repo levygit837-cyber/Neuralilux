@@ -141,6 +141,33 @@ O `finalizar` recusa em código, e o Agent repassa o motivo ao Contact. Os erros
 - O socket exige o JWT em `auth.token`; sem ele, com token inválido/vencido ou de usuário inativo a conexão é recusada (mesma regra da API HTTP). O cliente precisa chamar `subscribe_instance` e `join_conversation`. Desativar o usuário recusa conexões novas e os eventos `subscribe_instance`, `join_conversation` e `send_message`, mas um socket já aberto segue recebendo os `emit` da sala até desconectar.
 - Há polling de contingência no frontend para mensagens, mas não para esses eventos.
 
+### Login ou cadastro respondem 429 ou 503
+
+`POST /auth/login` e `POST /auth/register` têm rate limit por IP, em janela fixa no Redis (a chave `neuralilux:ratelimit:<escopo>:<ip>` expira sozinha ao fim da janela):
+
+| Variável | Padrão | Efeito |
+| --- | --- | --- |
+| `LOGIN_RATE_LIMIT_ATTEMPTS` / `LOGIN_RATE_LIMIT_WINDOW_SECONDS` | 10 / 60 | tentativas de login por IP por janela |
+| `REGISTER_RATE_LIMIT_ATTEMPTS` / `REGISTER_RATE_LIMIT_WINDOW_SECONDS` | 5 / 3600 | tentativas de cadastro por IP por janela |
+| `ALLOW_PUBLIC_REGISTRATION` | `false` | cadastro anônimo: `false` responde 403 |
+| `TRUSTED_PROXIES` | vazio | proxies de confiança (JSON, IP ou CIDR) |
+
+- **429**: passou do limite. `Retry-After` traz os segundos até a janela virar. Toda tentativa conta, acertando ou errando, e a senha de quem está bloqueado não é conferida. No cadastro, a tentativa recusada com 403 (cadastro fechado) também conta.
+- **Redis fora do ar ou travado: falha fechada, 503.** Sem Redis não há como contar tentativas, e deixar o login passar sem contar abriria a força bruta justamente quando o contador cai. O preço é o login (e o cadastro público) indisponível enquanto o Redis cai, o que já derruba o resto do atendimento (eventos de UI, debounce). Um Redis que não responde não prende a requisição: o cliente usa `REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS` e `REDIS_SOCKET_TIMEOUT_SECONDS` e a chamada tem teto igual à soma dos dois. Quem já tem token segue usando a API; só login e cadastro param. O superusuário autenticado cadastra mesmo com o Redis fora, porque não passa pelo limite. O log traz `Rate limit failed closed: Redis unavailable or too slow; refusing the request` (com `error_type` e `error`); o cliente descartado é fechado em background e o novo reconecta sozinho na tentativa seguinte.
+- **Redis 7.0 ou mais novo.** O contador usa `EXPIRE ... NX`, que só existe a partir do Redis 7.0 (o `docker-compose.example.yml` usa `redis:7-alpine`). Num Redis 6 ou anterior o comando é recusado e login e cadastro público respondem 503 sempre; o log então traz `Redis rejected the rate limit command (EXPIRE NX needs Redis >= 7.0)`. Atualize o Redis, não o limite.
+- **Atrás de proxy reverso**: o IP do peer TCP é o do proxy, e sem configuração todos os clientes dividem um contador (o primeiro a abusar bloqueia todos). Liste os proxies em `TRUSTED_PROXIES`; só de um peer listado o `X-Forwarded-For` é lido (todas as linhas do cabeçalho, em ordem, da direita para a esquerda), pulando os proxies listados, e o primeiro endereço fora da lista vira o IP do cliente. O proxy precisa **anexar** o IP real ao cabeçalho (nginx: `proxy_add_x_forwarded_for`) e nunca repassar o valor do cliente. Valor que não é IP no cabeçalho é ignorado e vale o IP do peer. Sem `TRUSTED_PROXIES`, o cabeçalho é ignorado por inteiro, então um cliente não escolhe a própria chave.
+- **`FORWARDED_ALLOW_IPS` nunca `*`.** O uvicorn também lê o `X-Forwarded-For` (`--proxy-headers`, ligado por padrão) e reescreve o IP do peer para quem estiver em `FORWARDED_ALLOW_IPS` (padrão `127.0.0.1`). Com `*`, qualquer cliente forja o próprio IP e escapa do limite. Com o proxy em loopback e o uvicorn no padrão, o uvicorn já consome o cabeçalho e entrega o IP real como peer: nesse caso deixe `TRUSTED_PROXIES` vazio, porque o peer que a app enxerga já é o cliente. Preencha `TRUSTED_PROXIES` quando o uvicorn não reescreve o peer (proxy em outro host ou `--no-proxy-headers`).
+- **IPv6 conta por /64.** Um cliente IPv6 recebe pelo menos um /64; trocar o sufixo do endereço não zera o contador. IPv4 mapeado em IPv6 (`::ffff:a.b.c.d`) conta como o IPv4.
+- Para liberar alguém bloqueado antes da janela virar: `redis-cli DEL neuralilux:ratelimit:login:<ip>` (para IPv6, `<ip>` é o prefixo, por exemplo `2001:db8:1:2::/64`).
+
+### Rotacionar a `EVOLUTION_API_KEY` ao publicar o #85
+
+Antes do #85, `POST /instances/{nome}` criava a Instance na Evolution com a `EVOLUTION_API_KEY` global como token da Instance, e a resposta devolvia o retorno da Evolution (campo `raw`, com `hash` = o token). Qualquer usuário que criou uma Instance recebeu a chave global. A partir do #85 cada Instance nasce com token próprio aleatório e a resposta não traz mais o retorno da Evolution, mas **as Instances que já existem continuam com a chave global como token e a chave já foi exposta**. No deploy:
+
+1. Gere uma chave nova e troque `EVOLUTION_API_KEY` em `backend/.env` (a Evolution lê o mesmo valor como `AUTHENTICATION_API_KEY`, pelo `docker-compose.example.yml`). API e worker leem o mesmo arquivo.
+2. Reinicie Evolution, API e worker.
+3. As Instances antigas passam a ter um token que não vale mais nada; a app usa só a chave global no header `apikey`, então o atendimento segue. Recrie as Instances que precisem de token próprio.
+
 ### A app não sobe
 
 - `Configuração recusada com ENVIRONMENT='production' (sem ENVIRONMENT definido vale 'production')…`: sem `ENVIRONMENT=development` explícito a app recusa `SECRET_KEY`, `EVOLUTION_WEBHOOK_TOKEN` e `GATEWAY_ENCRYPTION_KEY` vazios ou de exemplo (e exige `GATEWAY_ENCRYPTION_KEY` diferente da `SECRET_KEY`, as duas com 32+ caracteres). Em dev local, ponha `ENVIRONMENT=development` no `backend/.env`. Fora dele, defina valores fortes e distintos (`python3 -c "import secrets; print(secrets.token_urlsafe(48))"`).

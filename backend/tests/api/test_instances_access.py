@@ -172,8 +172,29 @@ def test_create_without_company_agent_leaves_agent_unset(client, db, evolution):
     assert instance.agent_enabled is False
 
 
+def _owner(client, db, email: str) -> dict:
+    """Usuário comum com Company: criar Instance exige uma (#85)."""
+    return make_user(client, db, email, company=make_company(db, f"Company de {email}"))
+
+
+def test_create_response_never_carries_the_evolution_instance_token(client, db, evolution):
+    headers = _owner(client, db, "dono@example.com")
+    evolution["create_instance"].return_value = {
+        "instance": {"instanceName": "inst-novo", "status": "created"},
+        "hash": "token-secreto-da-instance",
+        "apikey": "token-secreto-da-instance",
+    }
+
+    response = client.post("/api/v1/instances/inst-novo", headers=headers)
+
+    assert response.status_code == 200
+    assert "token-secreto-da-instance" not in response.text
+    assert "raw" not in response.json()
+    assert response.json()["instance_id"] == "inst-novo"
+
+
 def test_local_row_is_written_only_after_evolution_created_the_instance(client, db, evolution):
-    headers = make_user(client, db, "dono@example.com")
+    headers = _owner(client, db, "dono@example.com")
     rows_when_evolution_ran = []
 
     async def create(name, *args, **kwargs):
@@ -188,7 +209,7 @@ def test_local_row_is_written_only_after_evolution_created_the_instance(client, 
 
 
 def test_create_failure_in_evolution_leaves_no_local_row(client, db, evolution):
-    headers = make_user(client, db, "dono@example.com")
+    headers = _owner(client, db, "dono@example.com")
     evolution["create_instance"].side_effect = EvolutionAPIError("boom", status_code=500)
 
     response = client.post("/api/v1/instances/inst-novo", headers=headers)
@@ -205,7 +226,7 @@ def test_create_over_another_owners_instance_is_403_before_calling_evolution(cli
 
 
 def test_regular_user_gets_409_when_evolution_already_has_the_name(client, db, evolution):
-    headers = make_user(client, db, "comum@example.com")
+    headers = _owner(client, db, "comum@example.com")
     evolution["create_instance"].side_effect = ALREADY_IN_USE
 
     response = client.post("/api/v1/instances/inst-x", headers=headers)
@@ -213,6 +234,17 @@ def test_regular_user_gets_409_when_evolution_already_has_the_name(client, db, e
     assert response.status_code == 409
     assert _count(db) == 0
     evolution["get_instance_qrcode"].assert_not_called()
+
+
+def test_user_without_company_gets_403_before_calling_evolution(client, db, evolution):
+    headers = make_user(client, db, "sem-company@example.com")
+
+    response = client.post("/api/v1/instances/inst-novo", headers=headers)
+
+    assert response.status_code == 403
+    assert "Company" in response.json()["detail"]
+    evolution["create_instance"].assert_not_called()
+    assert _count(db) == 0
 
 
 def test_superuser_imports_an_instance_that_already_exists_in_evolution(client, db, evolution):
@@ -230,7 +262,7 @@ def test_superuser_imports_an_instance_that_already_exists_in_evolution(client, 
 
 
 def test_concurrent_create_returns_409_and_rolls_back(client, db, evolution, monkeypatch):
-    headers = make_user(client, db, "dono@example.com")
+    headers = _owner(client, db, "dono@example.com")
     _race_on_commit(monkeypatch)  # duas linhas com o mesmo evolution_instance_id: o commit estoura como na corrida real
 
     response = client.post("/api/v1/instances/inst-corrida", headers=headers)
@@ -254,7 +286,7 @@ def _race_on_commit(monkeypatch):
 
 
 def test_failed_orphan_cleanup_is_logged_and_never_masks_the_409(client, db, evolution, monkeypatch):
-    headers = make_user(client, db, "dono@example.com")
+    headers = _owner(client, db, "dono@example.com")
     _race_on_commit(monkeypatch)
     evolution["delete_instance"].side_effect = EvolutionAPIError("boom", status_code=500)
 

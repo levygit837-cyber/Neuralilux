@@ -206,6 +206,31 @@ def auth_headers(client):
 
 
 @pytest.fixture(autouse=True)
+def fake_rate_limit_redis(monkeypatch):
+    """Rate limit contra um Redis em memória por teste, e cadastro público aberto (o padrão de produção é fechado).
+
+    Sem isto os testes falariam fechado (503) por não achar Redis, e os contadores vazariam de um teste
+    para outro. Testes do próprio limite ajustam `settings` ou trocam o cliente por um que falha.
+    """
+    import fakeredis
+
+    from app.core import rate_limit
+    from app.core.config import settings
+
+    server = fakeredis.FakeServer()
+    monkeypatch.setattr(
+        rate_limit, "_new_client", lambda: fakeredis.FakeAsyncRedis(server=server, decode_responses=True)
+    )
+    monkeypatch.setattr(rate_limit, "_redis", None)
+    monkeypatch.setattr(rate_limit, "_redis_loop", None)
+    monkeypatch.setattr(settings, "ALLOW_PUBLIC_REGISTRATION", True)
+    # Folga larga: a suíte registra e loga dezenas de usuários pelo mesmo IP de teste.
+    monkeypatch.setattr(settings, "LOGIN_RATE_LIMIT_ATTEMPTS", 10_000)
+    monkeypatch.setattr(settings, "REGISTER_RATE_LIMIT_ATTEMPTS", 10_000)
+    yield server
+
+
+@pytest.fixture(autouse=True)
 def _no_real_realtime_publish(monkeypatch):
     """Impede que os testes publiquem no Redis real via realtime_event_bus.
 

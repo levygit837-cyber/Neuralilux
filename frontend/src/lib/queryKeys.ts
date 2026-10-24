@@ -16,6 +16,7 @@ export const queryKeys = {
   gateways: ['gateways'] as const,
   gatewayList: ['gateways', 'list'] as const,
   gatewayAssignments: ['gateways', 'assignments'] as const,
+  gatewayActiveModels: ['gateways', 'active-models'] as const,
   dashboard: ['dashboard'] as const,
   dashboardPart: (part: string, ...args: string[]) => ['dashboard', part, ...args] as const,
 }

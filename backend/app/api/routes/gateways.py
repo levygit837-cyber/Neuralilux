@@ -1,7 +1,8 @@
 """CRUD de Gateways de inferencia (protocolo Anthropic Messages), seus modelos e a atribuicao por tipo de agente.
 
-Leitura exige usuario autenticado. Criar, editar, apagar, atribuir e testar exigem superuser: Gateways sao
-globais e `base_url` e um alvo de SSRF (ADR 0002). A chave de API e criptografada em repouso e nunca e devolvida.
+Toda rota exige superuser, exceto `GET /active-models`, a leitura enxuta (nome do Gateway e do modelo por tipo de agente,
+sem `base_url`) para qualquer usuario logado. Gateways sao globais e `base_url` e um alvo de SSRF (ADR 0002); a leitura
+tambem expoe a rede interna. A chave de API e criptografada em repouso e nunca e devolvida.
 """
 from typing import List
 from urllib.parse import urlparse
@@ -18,6 +19,7 @@ from app.llm import registry
 from app.llm.errors import LLMError, LLMNotConfiguredError, LLMProviderError
 from app.models import GatewayAssignment, GatewayModel, InferenceGateway, User
 from app.schemas.gateway import (
+    ActiveModelResponse,
     AgentType,
     AssignmentResponse,
     AssignmentUpdate,
@@ -49,7 +51,7 @@ router = APIRouter()
 
 def require_superuser(current_user: User = Depends(get_current_user)) -> User:
     if not current_user.is_superuser:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Apenas superusuarios podem alterar ou testar gateways")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Apenas superusuarios podem acessar gateways")
     return current_user
 
 
@@ -103,8 +105,27 @@ def _commit(db: Session, conflict_detail: str) -> None:
 
 # --- atribuicoes (rotas estaticas antes de /{gateway_id}) ------------------- #
 
+@router.get("/active-models", response_model=List[ActiveModelResponse])
+def list_active_models(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    """Leitura enxuta para qualquer usuario logado: o modelo de cada tipo de agente, sem `base_url`, ids nem chave."""
+    rows = (
+        db.query(GatewayAssignment)
+        .options(joinedload(GatewayAssignment.gateway_model).joinedload(GatewayModel.gateway))
+        .order_by(GatewayAssignment.agent_type)
+        .all()
+    )
+    return [
+        ActiveModelResponse(
+            agent_type=row.agent_type,
+            gateway_name=row.gateway_model.gateway.name,
+            model_name=row.gateway_model.name,
+        )
+        for row in rows
+    ]
+
+
 @router.get("/assignments", response_model=List[AssignmentResponse])
-def list_assignments(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def list_assignments(db: Session = Depends(get_db), _: User = Depends(require_superuser)):
     rows = (
         db.query(GatewayAssignment)
         .options(joinedload(GatewayAssignment.gateway_model).joinedload(GatewayModel.gateway))
@@ -193,7 +214,7 @@ async def test_model(model_id: str, db: Session = Depends(get_db), _: User = Dep
 # --- gateways ---------------------------------------------------------------- #
 
 @router.get("/", response_model=List[GatewayResponse])
-def list_gateways(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def list_gateways(db: Session = Depends(get_db), _: User = Depends(require_superuser)):
     rows = (
         db.query(InferenceGateway)
         .options(joinedload(InferenceGateway.models))
@@ -221,7 +242,7 @@ def create_gateway(
 
 
 @router.get("/{gateway_id}", response_model=GatewayResponse)
-def get_gateway(gateway_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def get_gateway(gateway_id: str, db: Session = Depends(get_db), _: User = Depends(require_superuser)):
     return _gateway_response(_get_gateway(db, gateway_id))
 
 

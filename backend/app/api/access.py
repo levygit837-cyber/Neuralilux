@@ -4,6 +4,7 @@ Regras:
 - O dono (`Instance.owner_id`) e o superusuário acessam; qualquer outro recebe 403.
 - Instance sem dono (legado) é só do superusuário.
 - Só `POST /instances/{name}` cria ou assume a linha local, depois de a Evolution criar a Instance.
+  Criar exige usuário com Company (ou superusuário): sem Company a Instance nasceria sem Agent nem escopo.
   As demais rotas só resolvem linhas que já existem (404 se não houver).
 - Rotas que listam dados de Instances filtram por `instance_ids_for_user`.
 """
@@ -84,8 +85,14 @@ def _find_by_evolution_name(db: Session, name: str) -> Instance | None:
 def check_create_access(db: Session, name: str, user: User) -> Instance | None:
     """Pode este usuário registrar `name`? Devolve a linha local existente (ou None) ou levanta 403.
 
-    Chamar ANTES de falar com a Evolution. Linha de outro dono ou sem dono só é do superusuário.
+    Chamar ANTES de falar com a Evolution. Linha de outro dono ou sem dono só é do superusuário. Quem não é
+    superusuário precisa ter Company: sem ela, 403.
     """
+    if not user.is_superuser and user.company_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="A Company is required to create an instance",
+        )
     existing = _find_by_evolution_name(db, name)
     if existing is not None and not can_access_instance(existing, user):
         raise HTTPException(

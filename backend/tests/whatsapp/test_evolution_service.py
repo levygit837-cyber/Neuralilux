@@ -145,6 +145,24 @@ class TestCreateInstance:
         body = json.loads(route.calls[0].request.content)
         assert body["integration"] == "WHATSAPP-BAILEYS"
 
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_instance_token_is_random_and_never_the_global_api_key(self, svc):
+        route = respx.post(f"{BASE_URL}/instance/create").mock(
+            return_value=httpx.Response(200, json={"instance": {}})
+        )
+
+        await svc.create_instance("inst-a")
+        await svc.create_instance("inst-b")
+
+        first, second = (json.loads(call.request.content)["token"] for call in route.calls)
+        assert API_KEY not in (first, second)
+        assert first != second
+        assert len(first) >= 32 and len(second) >= 32
+        # a chave global segue autenticando o backend no header, não vai no corpo
+        assert route.calls[0].request.headers["apikey"] == API_KEY
+        assert API_KEY not in route.calls[0].request.content.decode()
+
 
 class TestSendPresence:
     """send_presence: POST /chat/sendPresence/{instance} com `number`, `presence` e `delay` (todos obrigatórios na Evolution)."""

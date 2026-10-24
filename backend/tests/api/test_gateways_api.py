@@ -156,13 +156,46 @@ def test_non_superuser_is_forbidden_on_every_mutation_and_probe(client, auth_hea
     assert client.get(f"{BASE}/{gateway_id}", headers=auth_headers).json()["timeout_seconds"] == 60
 
 
-def test_non_superuser_can_still_read_gateways_without_secrets(client, auth_headers, user_headers):
-    _create_gateway(client, auth_headers)
+def test_non_superuser_cannot_read_gateways_assignments_or_a_single_gateway(client, auth_headers, user_headers):
+    gateway_id = _create_gateway(client, auth_headers).json()["id"]
+    model_id = _create_model(client, auth_headers, gateway_id).json()["id"]
+    client.put(f"{BASE}/assignments/whatsapp_agent", json={"gateway_model_id": model_id}, headers=auth_headers)
 
-    response = client.get(f"{BASE}/", headers=user_headers)
+    reads = [
+        client.get(f"{BASE}/", headers=user_headers),
+        client.get(f"{BASE}/{gateway_id}", headers=user_headers),
+        client.get(f"{BASE}/assignments", headers=user_headers),
+    ]
 
-    assert response.status_code == 200 and len(response.json()) == 1
-    assert "sk-super-secret" not in response.text
+    assert [r.status_code for r in reads] == [403] * len(reads)
+    assert all("localhost:5580" not in r.text and "sk-super-secret" not in r.text for r in reads)
+
+
+def test_superuser_still_reads_gateways_and_assignments(client, auth_headers):
+    gateway_id = _create_gateway(client, auth_headers).json()["id"]
+
+    assert client.get(f"{BASE}/", headers=auth_headers).status_code == 200
+    assert client.get(f"{BASE}/{gateway_id}", headers=auth_headers).status_code == 200
+    assert client.get(f"{BASE}/assignments", headers=auth_headers).status_code == 200
+
+
+def test_active_models_requires_login(client):
+    assert client.get(f"{BASE}/active-models").status_code == 401
+
+
+def test_non_superuser_reads_active_models_without_base_url_ids_or_secrets(client, auth_headers, user_headers):
+    gateway_id = _create_gateway(client, auth_headers).json()["id"]
+    model_id = _create_model(client, auth_headers, gateway_id).json()["id"]
+    client.put(f"{BASE}/assignments/whatsapp_agent", json={"gateway_model_id": model_id}, headers=auth_headers)
+
+    response = client.get(f"{BASE}/active-models", headers=user_headers)
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {"agent_type": "whatsapp_agent", "gateway_name": "Kiro-backend", "model_name": "Sonnet 5.5 (low)"}
+    ]
+    for leaked in ("localhost:5580", "sk-super-secret", "claude-sonnet-5.5", gateway_id, model_id):
+        assert leaked not in response.text
 
 
 @pytest.mark.parametrize(

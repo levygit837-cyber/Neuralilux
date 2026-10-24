@@ -3,7 +3,7 @@
 import { Plus, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { AssignmentsSection } from './gateways/AssignmentsSection'
-import { READ_ONLY_MESSAGE } from './gateways/constants'
+import { READ_ONLY_MESSAGE, RESTRICTED_HINT, RESTRICTED_MESSAGE } from './gateways/constants'
 import { GatewayCard } from './gateways/GatewayCard'
 import { GatewayForm } from './gateways/GatewayForm'
 import { ModelForm } from './gateways/ModelForm'
@@ -11,6 +11,21 @@ import { useGatewaysController } from './gateways/useGatewaysController'
 
 export function GatewaysPanel() {
   const c = useGatewaysController()
+
+  if (c.restricted) {
+    return (
+      <div
+        role="status"
+        className="flex items-start gap-3 rounded-xl border border-brand-border bg-brand-hover px-4 py-4 text-sm text-content-gray"
+      >
+        <Lock className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+        <div>
+          <p className="font-medium text-content-light">{RESTRICTED_MESSAGE}</p>
+          <p className="mt-1">{RESTRICTED_HINT}</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -26,7 +41,7 @@ export function GatewaysPanel() {
           className="flex items-center gap-2 rounded-xl border border-brand-border bg-brand-hover px-4 py-3 text-sm text-content-gray"
         >
           <Lock className="h-4 w-4 shrink-0" aria-hidden />
-          {READ_ONLY_MESSAGE}. Você pode consultar, mas não editar nem testar.
+          {READ_ONLY_MESSAGE}. Suas alterações foram recusadas pelo servidor.
         </p>
       )}
 

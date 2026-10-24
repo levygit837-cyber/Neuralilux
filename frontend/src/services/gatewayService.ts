@@ -1,5 +1,6 @@
 import { apiRequest, jsonBody as json } from '@/services/http'
 import type {
+  ActiveModel,
   AgentType,
   Gateway,
   GatewayAssignment,
@@ -26,6 +27,8 @@ export const gatewayService = {
   testModel: (id: string) => request<ProbeResult>(`/models/${id}/test`, { method: 'POST' }),
 
   assignments: () => request<GatewayAssignment[]>('/assignments'),
+  /** Qualquer usuário logado: nome do Gateway e do modelo por agente, sem URL nem ids. */
+  activeModels: () => request<ActiveModel[]>('/active-models'),
   assign: (agentType: AgentType, gatewayModelId: string) =>
     request<GatewayAssignment>(`/assignments/${agentType}`, json('PUT', { gateway_model_id: gatewayModelId })),
   unassign: (agentType: AgentType) => request<void>(`/assignments/${agentType}`, { method: 'DELETE' }),

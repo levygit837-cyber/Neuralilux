@@ -114,6 +114,14 @@ class AssignmentResponse(BaseModel):
     model_id: str
 
 
+class ActiveModelResponse(BaseModel):
+    """Leitura enxuta para usuário comum: sem `base_url`, ids nem chave."""
+
+    agent_type: AgentType
+    gateway_name: str
+    model_name: str
+
+
 class RemoteModelsResponse(BaseModel):
     models: List[str]
 
