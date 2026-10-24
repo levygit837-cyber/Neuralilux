@@ -135,11 +135,11 @@ O `finalizar` recusa em código, e o Agent repassa o motivo ao Contact. Os erros
 
 ### Dashboard sem eventos ao vivo
 
-- `thinking_event`, `tool_event` e `human_handoff_requested` saem do **worker** pelo Redis: API e worker precisam usar o mesmo `REDIS_URL`. O dashboard atual só consome `thinking_event`; os outros dois estão disponíveis no Socket.IO para quem os assinar.
+- `thinking_event`, `tool_event` e `human_handoff_requested` saem do **worker** pelo Redis: API e worker precisam usar o mesmo `REDIS_URL`. O chat consome `thinking_event` e `human_handoff_requested`; `tool_event` está disponível a quem entrar na sala da Conversation.
 - **Redis lento ou fora**: o evento de UI nunca segura o Turn além de `REALTIME_PUBLISH_TIMEOUT_SECONDS` (1 s; o fechamento do cliente descartado roda em background) nem o derruba; o evento é perdido e logado (`Realtime event dropped`). Depois de uma falha, os eventos seguintes são descartados por `REALTIME_PUBLISH_COOLDOWN_SECONDS` (5 s) e o cliente reconecta do zero. O cooldown precisa ser maior que o teto: a app recusa subir se não for. O cliente usa `REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS`, `REDIS_SOCKET_TIMEOUT_SECONDS` e `REDIS_HEALTH_CHECK_INTERVAL_SECONDS`.
 - **503 no webhook / `Evolution webhook event lost` no log**: o RabbitMQ recusou o publish. A Evolution reenvia o webhook (até 10 vezes, backoff até 300 s; detalhes em [evolution-data-formats.md](agents/evolution-data-formats.md)); o caminho websocket não reenvia.
-- O socket exige o JWT em `auth.token`; sem ele, com token inválido/vencido ou de usuário inativo a conexão é recusada (mesma regra da API HTTP). O cliente precisa chamar `subscribe_instance` e `join_conversation`. Desativar o usuário recusa conexões novas e os eventos `subscribe_instance`, `join_conversation` e `send_message`, mas um socket já aberto segue recebendo os `emit` da sala até desconectar.
-- Há polling de contingência no frontend para mensagens, mas não para esses eventos.
+- O socket autentica pelo cookie de sessão; sem ele, com sessão inválida/vencida ou de usuário inativo a conexão é recusada com `connect_error: unauthorized` (mesma regra da API HTTP) e o painel encerra a sessão. Qualquer outra falha de conexão é tratada como passageira: o painel avisa e reconecta sem limite. O cliente precisa chamar `subscribe_instance` e `join_conversation` com os UUIDs (`instanceId`, `conversationId`); depois de uma queda ele refaz as duas chamadas sozinho. Desativar o usuário recusa conexões novas e os eventos `subscribe_instance`, `join_conversation` e `send_message`, mas um socket já aberto segue recebendo os `emit` da sala até desconectar.
+- Há polling de contingência no frontend para mensagens enquanto o socket está fora, mas não para esses eventos. Ao reconectar, o painel recarrega a lista, os contadores e as Messages da Conversation aberta.
 
 ### Login ou cadastro respondem 429 ou 503
 
