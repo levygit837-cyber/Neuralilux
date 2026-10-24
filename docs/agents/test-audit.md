@@ -29,12 +29,12 @@ Contagem por linha de tabela (uma linha por função; parametrizado conta uma ve
 
 | Área | Arquivos | Funções | `keep` | `redundant` | `stub` | `wiring` | `wording` | `extreme` | `dead-e2e` |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| api / core / models (após #53) | 19 | 195 | 193 | 1 | 0 | 0 | 1 | 0 | 0 |
+| api / core / models (após #53) | 19 | 189 | 187 | 1 | 0 | 0 | 1 | 0 | 0 |
 | whatsapp / realtime (após #54) | 21 | 152 | 152 | 0 | 0 | 0 | 0 | 0 | 0 |
-| agent / packs / handoff / llm / scripts (após #55) | 28 | 327 | 327 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | 68 | 674 | **672** | **1** | **0** | **0** | **1** | **0** | **0** |
+| agent / packs / handoff / llm / scripts (após #55) | 28 | 328 | 328 | 0 | 0 | 0 | 0 | 0 | 0 |
+| **Total** | 68 | 669 | **667** | **1** | **0** | **0** | **1** | **0** | **0** |
 
-- Auditoria original: 745 funções em 70 arquivos, 80 candidatos a remoção. Depois de #53, #54 e #55 restam 674 funções inventariadas; os 2 candidatos ainda listados na área 1 foram relidos e mantidos (motivo na própria linha). Testes criados depois da auditoria (como `tests/core/test_password_hash_cost.py`, de #50, e `tests/api/test_handoff_event_bus.py`, de #53) não estão nas tabelas.
+- Auditoria original: 745 funções em 70 arquivos, 80 candidatos a remoção. Depois de #53, #54 e #55 restam 669 funções inventariadas; os 2 candidatos ainda listados na área 1 foram relidos e mantidos (motivo na própria linha). Testes criados depois da auditoria (como `tests/core/test_password_hash_cost.py`, de #50, e `tests/api/test_handoff_event_bus.py`, de #53) não estão nas tabelas.
 - `dead-e2e` é zero de propósito: `tests/whatsapp/test_whatsapp_actions.py` é o único arquivo marcado `e2e` (pulado sem `RUN_E2E=1`). Depois de #54 ele só faz leituras contra a Evolution local e passa com `RUN_E2E=1` (como rodar: `docs/setup.md`).
 - `test_instance_name` em `test_whatsapp_actions.py` é fixture (nome casa com `test_*`), não teste, e não entra na contagem.
 
@@ -440,14 +440,14 @@ Arquivo novo da #53. 2 testes: 2 keep.
 |`test_invalid_token_on_register_is_401`|`keep`|Token inválido não vira registro anônimo (401)|
 
 #### `tests/api/test_tickets_scoping.py`
-10 testes: 10 keep.
+4 testes: 4 keep.
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
 |`test_list_is_filtered_per_user`|`keep`|Lista de tickets restrita às Instances do usuário|
 |`test_superuser_lists_all`|`keep`|Superuser vê tickets de todas as Companies|
 |`test_get_out_of_scope_ticket_is_404`|`keep`|GET de ticket alheio dá 404; superuser acessa|
-|`test_ticket_mutation_routes_are_gone`|`keep`|PATCH e assign de Ticket não existem mais (404/405) e o Ticket não muda|
+|`test_ticket_mutation_routes_are_gone`|`keep`|PATCH de Ticket dá 405, assign dá 404, e o Ticket não muda|
 
 #### `tests/api/test_webhook_auth.py`
 12 testes: 12 keep.
@@ -824,11 +824,12 @@ Arquivo novo da #53. 2 testes: 2 keep.
 |`test_handoff_publica_um_dict`|`keep`|Mantido (#55): `publish_handoff_requested` só tem este teste de pé; o equivalente em `tests/realtime/test_socket_thinking_events.py` é candidato da Área 2 e aponta para cá.|
 
 #### `tests/agent/test_agent_executor.py`
-16 testes: 16 keep.
+17 testes: 17 keep.
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
 |`test_conversation_em_handoff_nao_responde_nem_chama_o_modelo`|`keep`|Gate de Handoff relê o estado do banco, não o objeto stale|
+|`test_devolver_pela_rota_de_controle_humano_fecha_o_ticket_e_o_agent_volta_a_responder`|`keep`|Devolver por `release-control` fecha o Ticket e o Agent responde à próxima Message|
 |`test_turn_com_tool_usa_a_memoria_e_devolve_resposta_formatada`|`keep`|Turn completo: memória, Tool, ctx e formatação WhatsApp|
 |`test_falha_do_gateway_devolve_mensagem_generica_sem_debug`|`keep`|Falha do Gateway não vaza detalhe ao cliente|
 |`test_instance_sem_company_nao_responde`|`keep`|Sem Company não chama o modelo nem responde|

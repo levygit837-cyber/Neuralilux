@@ -48,6 +48,7 @@ def test_ticket_mutation_routes_are_gone(client, world):
     patch_body = client.patch(url, json={"status": "closed"}, headers=world["alice"])
     assign = client.post(f"{url}/assign", params={"user_id": uid}, headers=world["alice"])
 
-    assert {patch.status_code, patch_body.status_code, assign.status_code} <= {404, 405}
+    assert (patch.status_code, patch_body.status_code) == (405, 405)  # a rota /tickets/{id} só aceita GET
+    assert assign.status_code == 404  # /tickets/{id}/assign não existe
     ticket = client.get(url, headers=world["alice"]).json()
     assert (ticket["status"], ticket["assigned_to"]) == ("open", None)
