@@ -164,7 +164,7 @@ export function LineChart({ data, period, onPeriodChange, isLoading, className }
                 stroke="url(#purpleGradient)"
                 strokeWidth="4"
                 strokeLinecap="round"
-                className="chart-path filter drop-shadow-[0_4px_6px_rgba(139,92,246,0.5)]"
+                className="chart-path filter drop-shadow-[0_4px_6px_rgb(var(--color-primary)/0.5)]"
               />
 
               {/* Last point highlight */}

@@ -138,7 +138,7 @@ export function AreaChart({ metrics, isLoading, className }: AreaChartProps) {
                   stroke="rgb(var(--color-accent))"
                   strokeWidth="3"
                   strokeLinecap="round"
-                  className="chart-path filter drop-shadow-[0_2px_4px_rgba(236,72,153,0.4)]"
+                  className="chart-path filter drop-shadow-[0_2px_4px_rgb(var(--color-accent)/0.4)]"
                 />
 
                 {/* Nodes */}
@@ -157,7 +157,7 @@ export function AreaChart({ metrics, isLoading, className }: AreaChartProps) {
                       strokeWidth="2"
                       className={
                         isLast
-                          ? 'shadow-[0_0_10px_rgba(236,72,153,0.8)]'
+                          ? 'shadow-[0_0_10px_rgb(var(--color-accent)/0.8)]'
                           : ''
                       }
                     />

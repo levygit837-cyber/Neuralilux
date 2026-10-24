@@ -19,7 +19,7 @@ const CHANNEL_CONFIG = [
   {
     name: 'Website',
     color: 'bg-primary',
-    icon: <Globe weight="regular" className="text-primary text-xl" />,
+    icon: <Globe weight="regular" className="text-primary-light text-xl" />,
   },
   {
     name: 'Instagram',
@@ -53,7 +53,7 @@ export function BarChart({ channels, isLoading, className }: BarChartProps) {
           <h3 className="font-medium text-content-light">Mensagens por Canal</h3>
           <p className="text-xs text-content-muted mt-1">Distribuição de envios omnicanal</p>
         </div>
-        <div className="p-2 rounded bg-brand-base/50 text-primary">
+        <div className="p-2 rounded bg-brand-base/50 text-primary-light">
           <ShareNetwork weight="regular" className="text-xl" />
         </div>
       </div>

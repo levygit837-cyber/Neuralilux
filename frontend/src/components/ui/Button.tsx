@@ -7,7 +7,7 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        primary: 'bg-primary text-content-light hover:bg-primary-dark',
+        primary: 'bg-primary-dark text-content-light hover:bg-secondary',
         secondary: 'bg-transparent text-content-gray border border-brand-border hover:bg-brand-hover',
       },
       size: {

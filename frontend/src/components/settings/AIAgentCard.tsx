@@ -56,8 +56,8 @@ function AgentForm({ agent, saveAgent }: { agent: AgentSettings; saveAgent: Comp
   return (
     <div className="rounded-2xl border border-brand-border bg-brand-card p-7">
       <div className="mb-6 flex items-center gap-4">
-        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-500/10">
-          <Bot className="h-5 w-5 text-indigo-500" />
+        <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-secondary/10">
+          <Bot className="h-5 w-5 text-secondary" />
         </div>
         <div>
           <h3 className="text-lg font-semibold text-content-light">Comportamento do Agent</h3>
@@ -71,7 +71,7 @@ function AgentForm({ agent, saveAgent }: { agent: AgentSettings; saveAgent: Comp
           <button
             type="button"
             onClick={() => setActiveTab('gateways')}
-            className="font-medium text-primary underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="font-medium text-primary-light underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             Abrir aba Gateways
           </button>
@@ -80,7 +80,7 @@ function AgentForm({ agent, saveAgent }: { agent: AgentSettings; saveAgent: Comp
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
             <label htmlFor="agent-temperature" className="text-sm font-medium text-content-light">Temperatura</label>
-            <span className="text-sm font-semibold text-primary">{useGatewayTemperature ? 'Padrão do Gateway' : temperature}</span>
+            <span className="text-sm font-semibold text-primary-light">{useGatewayTemperature ? 'Padrão do Gateway' : temperature}</span>
           </div>
           <div className="flex h-11 items-center rounded-xl border border-brand-border bg-brand-base px-4">
             <input

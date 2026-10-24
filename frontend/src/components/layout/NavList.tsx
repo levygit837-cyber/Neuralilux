@@ -41,8 +41,8 @@ export function NavList({ onNavigate }: NavListProps) {
               className={cn(
                 'text-xl',
                 isActive
-                  ? 'text-primary drop-shadow-[0_0_8px_rgba(139,92,246,0.6)]'
-                  : 'transition-colors group-hover:text-primary'
+                  ? 'text-primary-light drop-shadow-[0_0_8px_rgb(var(--color-primary)/0.6)]'
+                  : 'transition-colors group-hover:text-primary-light'
               )}
             />
             <span className="font-medium">{item.label}</span>

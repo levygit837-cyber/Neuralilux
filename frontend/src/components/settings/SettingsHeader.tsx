@@ -30,7 +30,7 @@ export function SettingsHeader() {
               onClick={() => setActiveTab(tab.id)}
               className={`relative pb-3 text-sm font-medium transition-colors ${
                 activeTab === tab.id
-                  ? 'text-primary'
+                  ? 'text-primary-light'
                   : 'text-content-gray hover:text-content-light'
               }`}
             >

@@ -94,13 +94,13 @@ export function ChatListItem({ conversation, isActive, onClick }: ChatListItemPr
               <span className="bg-accent/10 border border-accent/20 text-accent text-[8px] uppercase tracking-wider px-1.5 py-0.5 rounded font-bold">Bot</span>
             )}
           </div>
-          <span className={cn('text-xs', isActive ? 'text-primary font-medium' : 'text-content-muted')}>
+          <span className={cn('text-xs', isActive ? 'text-primary-light font-medium' : 'text-content-muted')}>
             {conversation.timestamp}
           </span>
         </div>
         <div className="flex justify-between items-center">
           {isTyping ? (
-            <div className="text-sm text-primary flex items-center gap-1">
+            <div className="text-sm text-primary-light flex items-center gap-1">
               <span className="flex gap-[2px]">
                 <div className="w-1 h-1 bg-primary rounded-full dot-1" />
                 <div className="w-1 h-1 bg-primary rounded-full dot-2" />
@@ -112,7 +112,7 @@ export function ChatListItem({ conversation, isActive, onClick }: ChatListItemPr
             <div className="flex items-center gap-1 text-content-muted">
               {/* Show icon based on message type */}
               {conversation.lastMessage.includes('audio') && (
-                <Microphone weight="fill" className="text-primary text-sm" />
+                <Microphone weight="fill" className="text-primary-light text-sm" />
               )}
               {conversation.lastMessage.includes('.jpg') && (
                 <ImageGlyph weight="regular" aria-hidden="true" className="text-content-muted text-sm" />

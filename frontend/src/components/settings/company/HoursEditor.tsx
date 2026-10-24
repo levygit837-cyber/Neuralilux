@@ -65,7 +65,7 @@ export function HoursEditor({ hours, onChange, error }: Props) {
             <button
               type="button"
               onClick={() => setDay(day, [...hours[day], hours[day].length === 0 ? ['18:00', '23:00'] : ['', '']])}
-              className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="inline-flex items-center gap-1 text-xs font-medium text-primary-light hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
               <Plus className="h-3.5 w-3.5" /> Adicionar intervalo
             </button>

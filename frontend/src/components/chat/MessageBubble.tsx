@@ -62,7 +62,7 @@ export function MessageBubble({ message, showSender = false, onRetry }: MessageB
       )}
       <div className={cn('flex flex-col gap-1', message.isOutgoing ? 'items-end' : 'items-start')}>
         {showSender && !message.isOutgoing && message.sender && (
-          <span className="ml-1 text-xs font-semibold text-primary">{message.sender.name}</span>
+          <span className="ml-1 text-xs font-semibold text-primary-light">{message.sender.name}</span>
         )}
         <div
           className={cn(

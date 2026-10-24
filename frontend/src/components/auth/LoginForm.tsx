@@ -125,7 +125,7 @@ export function LoginForm({ callbackUrl }: LoginFormProps) {
           <div className="flex justify-end">
             <button
               type="button"
-              className="text-sm font-medium text-primary hover:text-primary-light"
+              className="text-sm font-medium text-primary-light hover:text-primary-light"
             >
               Esqueci a senha
             </button>

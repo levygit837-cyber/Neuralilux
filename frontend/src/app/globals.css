@@ -29,6 +29,7 @@
     --color-status-success: 16 185 129;
     --color-status-error: 239 68 68;
     --color-status-warning: 245 158 11;
+    --color-status-info: 96 165 250;
   }
 }
 
@@ -40,7 +41,7 @@
 
   /* Foco visível por padrão em todo controle; utilitários `focus-visible:*` de cada componente sobrescrevem. */
   :focus-visible {
-    outline: 2px solid #8B5CF6;
+    outline: 2px solid rgb(var(--color-primary));
     outline-offset: 2px;
   }
 

@@ -5,8 +5,7 @@ import {
   PaperPlaneRight, 
   CheckCircle, 
   Star,
-  StarHalf,
-  ArrowUpRight
+  StarHalf
 } from '@phosphor-icons/react'
 import type { IconWeight } from '@phosphor-icons/react'
 import { Card } from '@/components/ui/Card'
@@ -34,14 +33,15 @@ export function MetricCard({ metric, index = 0 }: MetricCardProps) {
   const isSatisfaction = metric.label.toLowerCase().includes('satisfação')
   const isSuccessRate = metric.label.toLowerCase().includes('sucesso') || metric.label.toLowerCase().includes('resposta')
   
-  // Extract numeric value for progress bar
+  // Extract numeric value for progress bar and star rating
   const numericValue = typeof metric.value === 'string' ? parseFloat(metric.value.replace('%', '')) : 0
+  const rating = typeof metric.value === 'number' ? metric.value : numericValue
 
   return (
     <Card className={`relative overflow-hidden group hover:border-primary/40 transition-colors animate-slide-up ${delayClass}`}>
       {/* Decorative background icon */}
       <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-        <MetricIcon label={metric.label} weight="fill" className="text-6xl text-primary" />
+        <MetricIcon label={metric.label} weight="fill" className="text-6xl text-primary-light" />
       </div>
       
       {/* Neon glow for success rate */}
@@ -50,7 +50,7 @@ export function MetricCard({ metric, index = 0 }: MetricCardProps) {
       )}
       
       <h3 className="text-content-muted text-sm font-medium mb-4 flex items-center gap-2">
-        <MetricIcon label={metric.label} weight="regular" className="text-primary" />
+        <MetricIcon label={metric.label} weight="regular" className="text-primary-light" />
         {metric.label}
       </h3>
       
@@ -60,14 +60,9 @@ export function MetricCard({ metric, index = 0 }: MetricCardProps) {
         </div>
         
         {isSuccessRate ? (
-          <div className="flex flex-col items-end">
-            <div className="flex items-center text-status-success text-sm font-medium mb-0.5">
-              <ArrowUpRight weight="regular" className="mr-1" /> 2.1%
-            </div>
-            <span className="text-[0.65rem] text-content-muted uppercase tracking-wide">
-              Respostas Enviadas
-            </span>
-          </div>
+          <span className="text-[0.65rem] text-content-muted uppercase tracking-wide">
+            {metric.change}
+          </span>
         ) : (
           <div className="flex items-center text-status-success text-sm bg-status-success/10 px-2 py-1 rounded-md mb-1">
             <Icon weight="regular" className="mr-1 text-xs" />
@@ -86,14 +81,18 @@ export function MetricCard({ metric, index = 0 }: MetricCardProps) {
         </div>
       )}
       
-      {/* Star rating for satisfaction */}
-      {isSatisfaction && (
-        <div className="flex gap-1 mt-4 text-status-warning text-sm">
-          <Star weight="fill" />
-          <Star weight="fill" />
-          <Star weight="fill" />
-          <Star weight="fill" />
-          <StarHalf weight="fill" />
+      {/* Estrelas só com nota real (valor numérico > 0); sem avaliação, nada de estrela */}
+      {isSatisfaction && Number.isFinite(rating) && rating > 0 && (
+        <div role="img" aria-label={`Nota ${rating} de 5`} className="flex gap-1 mt-4 text-status-warning text-sm">
+          {[1, 2, 3, 4, 5].map((position) =>
+            rating >= position ? (
+              <Star key={position} weight="fill" aria-hidden="true" />
+            ) : rating >= position - 0.5 ? (
+              <StarHalf key={position} weight="fill" aria-hidden="true" />
+            ) : (
+              <Star key={position} weight="regular" aria-hidden="true" />
+            )
+          )}
         </div>
       )}
     </Card>
