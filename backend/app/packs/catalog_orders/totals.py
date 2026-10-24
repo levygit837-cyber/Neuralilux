@@ -23,6 +23,7 @@ def active_zones(ctx: ToolContext) -> list[DeliveryZone]:
     return (
         ctx.db.query(DeliveryZone)
         .filter(DeliveryZone.company_id == ctx.company_id, DeliveryZone.is_active.is_(True))
+        .order_by(DeliveryZone.name)
         .all()
     )
 

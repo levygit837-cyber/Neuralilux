@@ -63,7 +63,7 @@ Regras que o `ToolRegistry` (`app/agent/tools.py`) impõe:
 - Uma Tool que grava só grava depois de validar tudo; falhou, nada muda (veja `catalog_orders/orders.py`).
 - `on_session_start` é **opcional**: implemente o Protocol `SessionStartHook` (`app/agent/contracts.py`) e o núcleo o chama (`app/agent/pack_hooks.py`); sem o método, o Pack continua válido. Roda quando uma Session nova substitui a anterior ([ADR 0007](adr/0007-session-de-atendimento.md)), na transação que grava a Message, sem `commit`. Use para tratar o que ficou pendente do ramo; o Pack de pedidos marca o Order aberto como `abandoned`. Sem pendência, não defina o método.
 - `on_reply_delivered` também é **opcional** (Protocol `ReplyDeliveredHook`). Roda depois de a resposta do Turn `turn_id` ter sido enviada ao Contact, nunca antes, e não roda se o Turn falhou, ficou sem resposta, teve a resposta descartada ou o envio falhou. Use quando o ramo precisa saber que o Contact viu algo; o Pack de pedidos só dá a Recap por apresentada aqui.
-- Os nomes dos ganchos são um conjunto fechado (`PACK_HOOK_NAMES`). `register_pack` (`app/packs/registry.py`) chama `validate_pack_hooks` e levanta `InvalidPackHookError` se o Pack tem qualquer `on_*` fora dele (ex.: `on_reply_deliverd`), em vez de o gancho nunca disparar sem avisar.
+- Os nomes dos ganchos são um conjunto fechado (`PACK_HOOKS`, nome -> Protocol). `register_pack` (`app/packs/registry.py`) chama `validate_pack_hooks` e levanta `InvalidPackHookError` se o Pack tem qualquer `on_*` fora dele (ex.: `on_reply_deliverd`) ou um gancho conhecido que não aceita os argumentos do Protocol (ex.: `on_reply_delivered(self)`), em vez de o gancho nunca disparar, ou falhar no meio de um Turn.
 - `turn_state` é rascunho por Turn: cada Pack guarda o que precisar sob a chave do próprio nome (`ctx.turn_state["catalog_orders"]`), sem colidir com outro Pack e sem o núcleo conhecer o conteúdo (ADR 0004). O `turn_id` e o `turn_state` são recriados a cada Turn; o que precisa sobreviver a ele vai para o banco.
 - A `system_prompt_section` descreve o fluxo e as regras do ramo, citando as Tools pelo nome, na mesma estrutura do núcleo (objetivo → fluxo → regras). Ela é anexada ao prompt base; não repita o que o prompt base já diz (papel, tom, formato, regras fixas) nem o que a Tool já garante. Vocabulário do ramo (pedido, cardápio, entrega) mora aqui, nunca no núcleo. Tem de ser **estável**: o mesmo texto, byte a byte, entre Turns da mesma Company, senão o prefix cache do servidor de inferência não vale. Divisão completa em [agent.md](agent.md#estrutura-do-prompt).
 - O que muda de um Turn para o outro (nota de pedido abandonado, estado do dia) vai em `turn_context(ctx)`, que o executor põe no bloco `<contexto_do_atendimento>` da última mensagem `user` ([Turn Context](agent.md#turn-context)). Devolva `""` quando não há nada. O Pack de pedidos devolve ali a nota do pedido abandonado.
@@ -141,15 +141,12 @@ class GymPack:
 ### Ligar o Pack a um Business Type
 
 1. Crie a pasta do Pack em `backend/app/packs/gym/` (com `__init__.py`) e o `pack.py` acima.
-2. Registre o ramo em `backend/app/packs/registry.py`, a única mudança fora da pasta do Pack:
+2. Registre o ramo em `backend/app/packs/registry.py`, a única mudança fora da pasta do Pack. `register_pack` valida os ganchos `on_*` do Pack (nome e assinatura) e falha na importação se algum estiver errado:
 
    ```python
    from app.packs.gym.pack import GymPack
 
-   PACKS_BY_BUSINESS_TYPE: dict[str, Callable[[], Pack]] = {
-       "restaurant": CatalogOrdersPack,
-       "gym": GymPack,
-   }
+   register_pack("gym", GymPack)
    ```
 
 3. Garanta que existe um Business Type com `slug="gym"` e que a Company aponta para ele (`Company.business_type_id`). O seed (`scripts/seed_data.py`, `create_business_types`) só cria `restaurant`, `clinic`, `store` e `services`; adicione o novo `slug` lá ou insira a linha em `business_types`.
@@ -172,7 +169,7 @@ Teste comportamento: validação de input, escopo entre Companies, erro esperado
 - [ ] `input_schema` com `additionalProperties: false` e `required` correto.
 - [ ] Todo acesso filtrado por `ctx.company_id`, `ctx.contact_id` ou `ctx.conversation_id`.
 - [ ] Erros esperados como `ToolResult(is_error=True)`.
-- [ ] Entrada em `PACKS_BY_BUSINESS_TYPE` e Business Type com o mesmo `slug`.
+- [ ] `register_pack(slug, Pack)` em `registry.py` e Business Type com o mesmo `slug`.
 - [ ] Nada do ramo dentro de `backend/app/agent/`.
 - [ ] Testes em `backend/tests/packs/`.
 

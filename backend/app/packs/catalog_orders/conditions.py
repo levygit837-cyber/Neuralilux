@@ -24,7 +24,7 @@ async def _condicoes_pedido(ctx: ToolContext, _args: dict[str, Any]) -> ToolResu
         company = get_company(ctx)
     except OrderError as exc:
         return error(str(exc))
-    zones = sorted(active_zones(ctx), key=lambda zone: zone.name or "")
+    zones = active_zones(ctx)
     return ok(
         {
             "formas_pagamento": payment_methods(company.pix_key),

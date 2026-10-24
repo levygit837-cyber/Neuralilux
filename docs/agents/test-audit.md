@@ -31,8 +31,8 @@ Contagem por linha de tabela (uma linha por função; parametrizado conta uma ve
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
 | api / core / models (após #53) | 19 | 189 | 187 | 1 | 0 | 0 | 1 | 0 | 0 |
 | whatsapp / realtime (após #54) | 21 | 152 | 152 | 0 | 0 | 0 | 0 | 0 | 0 |
-| agent / packs / handoff / llm / scripts (após #55) | 28 | 328 | 328 | 0 | 0 | 0 | 0 | 0 | 0 |
-| **Total** | 68 | 669 | **667** | **1** | **0** | **0** | **1** | **0** | **0** |
+| agent / packs / handoff / llm / scripts (após #55 e #95) | 32 | 349 | 349 | 0 | 0 | 0 | 0 | 0 | 0 |
+| **Total** | 72 | 690 | **688** | **1** | **0** | **0** | **1** | **0** | **0** |
 
 - Auditoria original: 745 funções em 70 arquivos, 80 candidatos a remoção. Depois de #53, #54 e #55 restam 669 funções inventariadas; os 2 candidatos ainda listados na área 1 foram relidos e mantidos (motivo na própria linha). Testes criados depois da auditoria (como `tests/core/test_password_hash_cost.py`, de #50, e `tests/api/test_handoff_event_bus.py`, de #53) não estão nas tabelas.
 - `dead-e2e` é zero de propósito: `tests/whatsapp/test_whatsapp_actions.py` é o único arquivo marcado `e2e` (pulado sem `RUN_E2E=1`). Depois de #54 ele só faz leituras contra a Evolution local e passa com `RUN_E2E=1` (como rodar: `docs/setup.md`).
@@ -157,7 +157,7 @@ Issue #55: 21 testes removidos nesta área. Quatro candidatos foram relidos e ma
 
 - `test_handoff_publica_um_dict`: `publish_handoff_requested` só tem este teste de pé; o equivalente em `tests/realtime/test_socket_thinking_events.py` é candidato da Área 2 e aponta para cá.
 - `test_handoff_event_without_instance_is_dropped_like_other_events`: o equivalente em `tests/realtime/test_socket_thinking_events.py` é candidato da Área 2 e aponta para cá; sobra só este para o descarte sem `instance_name`.
-- `test_six_tools_in_total`: nenhum outro teste monta um `ToolRegistry` com as Tools reais do núcleo e do Pack; `from_packs` só recusa duplicata nos testes com Packs falsos.
+- `test_seven_tools_in_total_with_unique_names` (antes `test_six_tools_in_total`): nenhum outro teste monta um `ToolRegistry` com as Tools reais do núcleo e do Pack; `from_packs` só recusa duplicata nos testes com Packs falsos.
 - `test_tokens_derived_from_secret_key_no_longer_open`: único teste que prova que `decrypt_secret` recusa token derivado da `SECRET_KEY` (SHA-256 ou HKDF); `test_llm_registry.py::test_reencrypt_*` só prova a migração.
 
 ## Inventário por arquivo
@@ -214,7 +214,7 @@ Issue #55: 21 testes removidos nesta área. Quatro candidatos foram relidos e ma
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
-|`test_info_empresa_returns_what_the_panel_saved`|`keep`|Config salva no painel chega ao `info_empresa` do Agent.|
+|`test_info_empresa_returns_what_the_panel_saved`|`keep`|Config salva no painel chega ao `info_empresa` (telefone, horários) e à `condicoes_pedido` (Pix, mínimo) do Agent.|
 |`test_pix_is_accepted_at_closing_once_the_panel_saves_a_key`|`keep`|Chave Pix salva passa a valer no fechamento.|
 
 #### `tests/api/test_conversations_chat_list.py`
@@ -968,24 +968,36 @@ Arquivo novo da #53. 2 testes: 2 keep.
 |`test_summary_batch_is_capped_at_the_100_oldest_pending_messages`|`keep`|Lote de 100 e continuação no próximo resumo|
 |`test_summary_refresh_follows_the_window_it_is_given`|`keep`|Resumo respeita a janela informada|
 
+#### `tests/agent/test_core_is_pack_agnostic.py`
+5 funções: 5 keep (novas, #95; as duas parametrizadas rodam uma vez por arquivo de `app/agent`).
+
+| Teste | Categoria | Motivo / equivalente |
+|---|---|---|
+|`test_core_files_were_found`|`keep`|Guarda: sem arquivos encontrados os demais passariam sem varrer nada|
+|`test_core_imports_nothing_from_packs (×N arquivos)`|`keep`|Nenhum arquivo do núcleo importa `app.packs` (inclui import relativo)|
+|`test_core_imports_no_catalog_or_order_models (×N arquivos)`|`keep`|Nenhum arquivo do núcleo importa ou cita os models de catálogo e pedidos (`DeliveryZone`, `PaymentRecord`, `from app.models import order`...)|
+|`test_import_scanner_catches_the_known_gaps`|`keep`|O scanner de imports enxerga `from app.models import order` e `from ..packs import x`|
+|`test_text_the_model_sees_from_the_core_has_no_catalog_or_order_terms`|`keep`|Descrições e schemas das Tools do núcleo, prompt base e prompt do Summary sem termos de catálogo e pedidos|
+
 #### `tests/agent/test_core_tools.py`
-14 testes: 14 keep.
+15 testes: 15 keep.
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
 |`test_info_empresa_open_now_uses_company_timezone`|`keep`|aberto_agora usa fuso local na virada de dia|
 |`test_info_empresa_timezone_changes_the_answer`|`keep`|Lê timezone da Company, não fuso fixo|
-|`test_info_empresa_fields`|`keep`|Endereço, horários, pagamento e taxas formatados|
+|`test_info_empresa_fields`|`keep`|Nome, endereço, telefone, horários e fuso formatados (#95: sem Pix e taxas)|
+|`test_info_empresa_returns_only_company_identity_and_hours`|`keep`|Novo (#95): o núcleo devolve só nome, endereço, telefone, horários, `aberto_agora` e `fuso_horario`|
 |`test_info_empresa_is_scoped_to_context_company`|`keep`|Não vaza dados de outra Company|
-|`test_info_empresa_without_hours_or_pix`|`keep`|Sem horário/pix: None e sem forma pix|
+|`test_info_empresa_without_hours`|`keep`|Sem horário cadastrado: `aberto_agora` é None|
 |`test_transfer_creates_ticket_with_contact_fk_and_flags_conversation`|`keep`|Ticket com FK correta e Conversation em Handoff|
 |`test_transfer_falls_back_to_reason_when_no_incoming_message`|`keep`|Conteúdo do Ticket cai no motivo|
 |`test_transfer_is_idempotent_per_conversation`|`keep`|Um só Ticket e um só evento por Conversation|
 |`test_transfer_requires_reason`|`keep`|Motivo em branco é erro sem Ticket|
-|`test_transfer_survives_event_bus_failure`|`keep`|Bus fora não impede a transferência|
+|`test_transfer_survives_event_bus_failure`|`keep`|Bus fora não impede a transferência (falha no `realtime_event_bus.publish`, engolida por `publish_event`)|
 |`test_buscar_historico_with_no_match_returns_empty_list`|`keep`|Sem resultado devolve lista vazia, não erro|
 |`test_buscar_historico_blank_query_is_error`|`keep`|Consulta em branco é erro da Tool|
-|`test_six_tools_in_total`|`keep`|Mantido (#55): nenhum outro teste monta um `ToolRegistry` com as Tools reais do núcleo e do Pack; `from_packs` só recusa duplicata nos testes com Packs falsos.|
+|`test_seven_tools_in_total_with_unique_names`|`keep`|Mantido (#55), renomeado em #95 (de `test_six_tools_in_total`, agora 7 Tools): nenhum outro teste monta um `ToolRegistry` com as Tools reais do núcleo e do Pack; `from_packs` só recusa duplicata nos testes com Packs falsos.|
 |`test_buscar_historico_uses_memory_search_scoped_to_contact`|`keep`|Tool filtra pelo Contact do ctx|
 
 #### `tests/agent/test_handoff_socket.py`
@@ -1113,6 +1125,19 @@ Arquivo novo da #53. 2 testes: 2 keep.
 |`test_rotating_secret_key_after_migration_does_not_affect_gateway_keys`|`keep`|Trocar a `SECRET_KEY` depois da migração não afeta as chaves dos Gateways|
 |`test_reencrypt_skips_tokens_that_open_with_neither_key`|`keep`|Token irrecuperável é ignorado sem quebrar nem alterar|
 
+#### `tests/packs/test_conditions.py`
+7 testes: 7 keep (novos, #95).
+
+| Teste | Categoria | Motivo / equivalente |
+|---|---|---|
+|`test_returns_the_zones_pix_and_minimum_of_the_context_company`|`keep`|`condicoes_pedido` devolve zonas, Pix, mínimo e pagamentos da Company do contexto|
+|`test_never_leaks_another_company_or_a_legacy_zone`|`keep`|Nada de outra Company nem de zona sem dono|
+|`test_each_company_sees_its_own_data`|`keep`|Outra Company vê os próprios dados|
+|`test_without_pix_key_pix_is_not_offered`|`keep`|Sem chave, `pix` não aparece em `formas_pagamento`|
+|`test_without_zones_the_list_is_empty`|`keep`|Sem zona, `taxas_entrega` vem vazia|
+|`test_inactive_zone_is_not_listed`|`keep`|Zona inativa não é listada|
+|`test_pack_prompt_points_to_the_pack_tool_for_rates_and_payments`|`keep`|O prompt do Pack manda consultar `condicoes_pedido`, não `info_empresa`|
+
 #### `tests/packs/test_pack_catalog_search.py`
 13 testes: 13 keep.
 
@@ -1230,6 +1255,26 @@ Arquivo novo da #53. 2 testes: 2 keep.
 |`test_window_crossing_midnight_refuses_at_dawn_and_says_when_it_opens`|`keep`|Janela cruzando meia-noite fecha às 03:00|
 |`test_company_without_business_hours_can_always_close`|`keep`|Sem horário configurado, sempre pode fechar|
 
+#### `tests/packs/test_pack_delivery_wiring.py`
+2 testes: 2 keep (novos, #95).
+
+| Teste | Categoria | Motivo / equivalente |
+|---|---|---|
+|`test_confirmation_after_a_delivered_recap_closes_the_order`|`keep`|Executor real + `CatalogOrdersPack`: `recapitular`, `reply_delivered(packs)` e a confirmação seguinte fecha o Order|
+|`test_confirmation_without_delivering_the_recap_does_not_close_the_order`|`keep`|Sem `reply_delivered` a Recap não vale e o `finalizar` seguinte é recusado|
+
+#### `tests/packs/test_pack_hooks.py`
+6 testes: 6 keep (novos, #95).
+
+| Teste | Categoria | Motivo / equivalente |
+|---|---|---|
+|`test_hook_with_a_wrong_name_fails_at_pack_registration`|`keep`|`on_reply_deliverd` falha em `register_pack` e o Pack não entra no registry|
+|`test_known_hook_with_the_wrong_arity_fails_at_pack_registration`|`keep`|`on_reply_delivered(self)` falha no registro pela assinatura do Protocol|
+|`test_error_lists_the_valid_hook_names`|`keep`|A mensagem de erro lista os ganchos válidos|
+|`test_pack_with_valid_hooks_and_pack_without_hooks_register`|`keep`|Pack com os dois ganchos e Pack sem gancho continuam válidos|
+|`test_shipped_packs_pass_the_validation`|`keep`|Os Packs que o repo registra passam na validação|
+|`test_hooks_are_dispatched_only_to_packs_that_implement_them`|`keep`|O núcleo só chama o gancho de quem o implementa|
+
 #### `tests/packs/test_pack_items.py`
 17 testes: 17 keep.
 
@@ -1306,7 +1351,7 @@ Arquivo novo da #53. 2 testes: 2 keep.
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
-|`test_restaurant_recebe_o_pack_de_catalogo_e_pedidos_alem_do_nucleo`|`keep`|Restaurant recebe Pack de pedidos mais as tools do núcleo|
+|`test_restaurant_recebe_o_pack_de_catalogo_e_pedidos_alem_do_nucleo`|`keep`|Restaurant recebe o Pack de pedidos (incluindo `condicoes_pedido`) mais as tools do núcleo|
 |`test_business_type_sem_pack_fica_so_com_as_tools_do_nucleo (×3 casos)`|`keep`|Sem Pack: só tools do núcleo (desconhecido, vazio, nulo)|
 
 #### `tests/scripts/test_create_superuser.py`

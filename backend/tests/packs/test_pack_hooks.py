@@ -27,6 +27,10 @@ class PackWithTypo(_Base):
         raise AssertionError("não deveria ser chamado")
 
 
+class PackWithWrongArity(_Base):
+    def on_reply_delivered(self) -> None: ...
+
+
 class PackWithUnknownHook(_Base):
     def on_turn_start(self, db, conversation) -> None: ...
 
@@ -47,6 +51,15 @@ def test_hook_with_a_wrong_name_fails_at_pack_registration(monkeypatch):
 
     with pytest.raises(InvalidPackHookError, match="on_reply_deliverd"):
         registry.register_pack("oficina", PackWithTypo)
+
+    assert "oficina" not in registry.PACKS_BY_BUSINESS_TYPE
+
+
+def test_known_hook_with_the_wrong_arity_fails_at_pack_registration(monkeypatch):
+    monkeypatch.setattr(registry, "PACKS_BY_BUSINESS_TYPE", {})
+
+    with pytest.raises(InvalidPackHookError, match="on_reply_delivered.*4 argumentos"):
+        registry.register_pack("oficina", PackWithWrongArity)
 
     assert "oficina" not in registry.PACKS_BY_BUSINESS_TYPE
 

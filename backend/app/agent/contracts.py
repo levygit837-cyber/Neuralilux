@@ -149,5 +149,9 @@ class ReplyDeliveredHook(Protocol):
     def on_reply_delivered(self, db: Session, conversation: Conversation, turn_id: str, at: datetime) -> None: ...
 
 
-# Closed set of hook names a Pack may define; `app.agent.pack_hooks` enforces it at registration.
-PACK_HOOK_NAMES: frozenset[str] = frozenset({"on_session_start", "on_reply_delivered"})
+# Closed set of hooks a Pack may define, name -> Protocol that fixes the signature. `app.agent.pack_hooks` checks
+# name and signature of every `on_*` attribute at registration.
+PACK_HOOKS: dict[str, type] = {
+    "on_session_start": SessionStartHook,
+    "on_reply_delivered": ReplyDeliveredHook,
+}
