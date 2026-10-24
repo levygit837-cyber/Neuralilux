@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Seed data script for Neuralilux
-Creates initial data including business types, product types, test company and test user
+Creates initial data including business types, test company and test user
 """
 import sys
 import os
