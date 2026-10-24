@@ -30,18 +30,22 @@ async def watch_slow_callbacks(threshold: float = SLOW_CALLBACK_SECONDS):
     O asyncio só cronometra um callback se o debug já estava ligado quando o passo começou; por isso o bloco cede o
     loop uma vez (`sleep(0)`) logo após ligá-lo, e o código testado roda em passos já cronometrados. Cede de novo ao
     sair: um passo que bloqueou sem nunca suspender só é logado quando termina, e a asserção do teste roda no mesmo passo. O coletor de lixo
-    fica desligado no bloco: uma pausa de GC não é chamada bloqueante.
+    fica desligado no bloco: uma pausa de GC não é chamada bloqueante. O `gc.collect()` de antes do bloco roda num passo
+    novo (o `sleep(0)` do início): numa nova tentativa, o passo anterior terminou com o debug ligado e é cronometrado inteiro.
 
     Devolve a lista (preenchida durante o bloco) dos logs de callback lento; o teste afirma que ela está vazia.
     """
     loop = asyncio.get_running_loop()
+    # Sem este `sleep(0)`, numa nova tentativa o `gc.collect()` rodaria no mesmo passo em que a tentativa anterior desligou
+    # o debug; esse passo começou com debug ligado, é cronometrado e o `gc.collect()` (100-250 ms) vira "callback lento".
+    await asyncio.sleep(0)
     was_debug, was_threshold = loop.get_debug(), loop.slow_callback_duration
-    collector = _Collector()
-    logger = logging.getLogger("asyncio")
-    logger.addHandler(collector)
     gc.collect()
     gc_was_enabled = gc.isenabled()
     gc.disable()
+    collector = _Collector()
+    logger = logging.getLogger("asyncio")
+    logger.addHandler(collector)
     loop.set_debug(True)
     loop.slow_callback_duration = threshold
     try:
