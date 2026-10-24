@@ -46,6 +46,10 @@ SAVE = "save"
 
 POLL_SECONDS = 0.2
 
+# A garantia "nunca dois Turns" vale enquanto a conexão que segura o lock está viva. Keepalive TCP faz o SO derrubar uma
+# conexão morta (reinício do Postgres, idle-kill de proxy) em ~60 s, em vez de o Turn só notar no `unlock` final.
+_KEEPALIVE = {"keepalives": 1, "keepalives_idle": 30, "keepalives_interval": 10, "keepalives_count": 3}
+
 _TRY = text("SELECT pg_try_advisory_lock(CAST(:key AS bigint))")
 _UNLOCK = text("SELECT pg_advisory_unlock(CAST(:key AS bigint))")
 
@@ -102,7 +106,12 @@ def _lock_engine(bind: Engine) -> Engine:
     engine = _engines.get(bind)
     if engine is None:
         engine = _engines[bind] = create_engine(
-            bind.url, pool_size=settings.LOCK_POOL_SIZE, max_overflow=0, pool_timeout=0, pool_pre_ping=True
+            bind.url,
+            pool_size=settings.LOCK_POOL_SIZE,
+            max_overflow=0,
+            pool_timeout=0,
+            pool_pre_ping=True,
+            connect_args=_KEEPALIVE,
         )
     return engine
 

@@ -89,6 +89,29 @@ def test_claim_lease_not_longer_than_the_debounce_cap_plus_turn_timeout_is_refus
 
 def test_claim_lease_longer_than_the_debounce_cap_plus_turn_timeout_is_accepted():
     settings = _settings(
-        ENVIRONMENT="development", DEBOUNCE_MAX_WAIT_SECONDS=15, TURN_TIMEOUT_SECONDS=90, TURN_CLAIM_LEASE_SECONDS=106
+        ENVIRONMENT="development",
+        DEBOUNCE_MAX_WAIT_SECONDS=15,
+        TURN_TIMEOUT_SECONDS=90,
+        TURN_LOCK_WAIT_SECONDS=90,
+        TURN_CLAIM_LEASE_SECONDS=106,
     )
     assert settings.TURN_CLAIM_LEASE_SECONDS == 106
+
+
+def test_claim_lease_not_longer_than_the_debounce_cap_plus_lock_wait_is_refused():
+    with pytest.raises(ValidationError, match="DEBOUNCE_MAX_WAIT_SECONDS \\+ TURN_LOCK_WAIT_SECONDS"):
+        _settings(
+            ENVIRONMENT="development", DEBOUNCE_MAX_WAIT_SECONDS=15, TURN_LOCK_WAIT_SECONDS=300, TURN_CLAIM_LEASE_SECONDS=315
+        )
+
+
+def test_claim_lease_longer_than_the_debounce_cap_plus_lock_wait_is_accepted():
+    settings = _settings(
+        ENVIRONMENT="development", DEBOUNCE_MAX_WAIT_SECONDS=15, TURN_LOCK_WAIT_SECONDS=300, TURN_CLAIM_LEASE_SECONDS=316
+    )
+    assert settings.TURN_CLAIM_LEASE_SECONDS == 316
+
+
+def test_default_lease_covers_the_default_debounce_cap_and_lock_wait():
+    settings = _settings(ENVIRONMENT="development")
+    assert settings.TURN_CLAIM_LEASE_SECONDS > settings.DEBOUNCE_MAX_WAIT_SECONDS + settings.TURN_LOCK_WAIT_SECONDS

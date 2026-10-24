@@ -191,6 +191,25 @@ async def test_reply_without_an_evolution_id_is_adopted_by_the_echo(db, world, m
 
 
 @pytest.mark.asyncio
+async def test_two_identical_replies_without_an_id_are_each_adopted_by_their_own_echo(db, world, monkeypatch):
+    async def send_without_id(**_kwargs):
+        return {"status": "ok"}
+
+    monkeypatch.setattr(evolution_api, "send_text_message", send_without_id)
+    consumer = WhatsAppMessageConsumer()
+
+    await process(consumer, upsert(message_id="in-1"))
+    await process(consumer, upsert(message_id="in-2"))  # segunda resposta, mesmo texto, menos de 2 min depois
+    assert sorted(m.message_id or "" for m in messages(db) if m.is_from_me) == ["", ""]
+
+    await process(consumer, upsert(text="Resposta", from_me=True, message_id="echo-1"))
+    await process(consumer, upsert(text="Resposta", from_me=True, message_id="echo-2"))
+
+    assert sorted(m.message_id for m in messages(db)) == ["echo-1", "echo-2", "in-1", "in-2"]  # nenhuma Message nova
+    assert world["turns"] == ["Oi", "Oi"]
+
+
+@pytest.mark.asyncio
 async def test_failure_to_persist_the_reply_does_not_break_the_turn(db, world, monkeypatch):
     async def send_with_colliding_id(*, instance_name, remote_jid, text):
         world["sent"].append(text)

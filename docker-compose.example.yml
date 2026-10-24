@@ -70,6 +70,8 @@ x-backend-image: &backend-image
 services:
   postgres:
     image: postgres:15.19-alpine@sha256:a8e042598834300dfaa17a54f695b87b7f25d3490433bbbe2ef3bffbb9747f24
+    # Padrão do Postgres é 100. Duas réplicas do worker + a API somam 186 no pior caso (docs/operations.md, "Réplicas do worker").
+    command: ["postgres", "-c", "max_connections=200"]
     restart: unless-stopped
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5434}:5432"
