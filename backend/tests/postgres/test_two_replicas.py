@@ -168,6 +168,59 @@ async def test_turn_absorbs_what_the_other_replica_saved_and_the_burst_gets_one_
     }
 
 
+async def test_turn_that_cannot_get_the_lock_hands_its_messages_back_and_they_are_answered_once(cluster, monkeypatch):
+    handed_back: list[str] = []
+    real_unclaim = turn_state.unclaim
+
+    def spy_unclaim(db, items):
+        items = list(items)
+        handed_back.extend(message_id for message_id, _ in items)
+        real_unclaim(db, items)
+
+    monkeypatch.setattr(turn_state, "unclaim", spy_unclaim)
+    monkeypatch.setattr(settings, "TURN_LOCK_WAIT_SECONDS", 0.05)  # bem menos que o Turn da A (0,3 s): a B desiste
+    a, b = WhatsAppMessageConsumer(), WhatsAppMessageConsumer()
+
+    await a.process_webhook_event(upsert(text="primeira", message_id="in-1"))
+    for _ in range(200):
+        if cluster.turns:
+            break
+        await asyncio.sleep(0.01)
+    await b.process_webhook_event(upsert(text="segunda", message_id="in-2"))
+    await asyncio.gather(a.drain(), b.drain())
+
+    [second] = [m for m in cluster.incoming() if m.message_id == "in-2"]
+    assert handed_back == [second.id]  # a B devolveu a Message em vez de responder em paralelo
+    assert len(cluster.turns) == 1
+    assert (second.turn_state, second.turn_reason, second.turn_claimed_at) == (turn_state.PENDING, turn_state.QUEUED, None)
+
+    monkeypatch.setattr(settings, "TURN_LOCK_WAIT_SECONDS", 5.0)
+    await b.recovery.sweep()  # no worker real, `run_forever` faz isso
+    await b.drain()
+
+    assert max(cluster.overlaps) == 1
+    assert [(turn["text"], turn["replies_seen"]) for turn in cluster.turns] == [("primeira", 0), ("segunda", 1)]
+    assert {(m.turn_state, m.turn_reason) for m in cluster.incoming()} == {(turn_state.ANSWERED, turn_state.REPLIED)}
+    assert len(cluster.sent) == 2
+
+
+async def test_summary_refresh_is_skipped_while_another_replica_is_refreshing(cluster, monkeypatch):
+    calls: list[str] = []
+
+    async def counting_refresh(conversation_id):
+        calls.append(conversation_id)
+
+    monkeypatch.setattr(executor, "refresh_summary", counting_refresh)
+    consumer = WhatsAppMessageConsumer()
+
+    async with conversation_lock.conversation_lock(cluster.engine, conversation_lock.SUMMARY, "conv-1"):  # a outra réplica
+        await consumer._refresh_summary("conv-1")
+    assert calls == []
+
+    await consumer._refresh_summary("conv-1")
+    assert calls == ["conv-1"]
+
+
 # --- eco entre réplicas -------------------------------------------------------------------------------------
 
 
