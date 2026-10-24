@@ -55,12 +55,16 @@ class Message(Base):
 
     # History Search (ADR 0003). A expressão tem de ser idêntica à de `memory.search_history` e à da
     # migração 0004; declarada aqui para o autogenerate do Alembic não propor remover o índice.
+    # Os dois compostos (migração 0015) servem a Recent Window, o Summary, as Sessions e o Handoff
+    # (`conversation_id` + ordem por `timestamp, id`) e o dashboard (`instance_id` + janela de `timestamp`).
     __table_args__ = (
         Index(
             "ix_messages_content_fts",
             text("to_tsvector('portuguese', coalesce(content,''))"),
             postgresql_using="gin",
         ).ddl_if(dialect="postgresql"),
+        Index("ix_messages_conversation_timestamp", "conversation_id", "timestamp", "id"),
+        Index("ix_messages_instance_timestamp", "instance_id", "timestamp"),
     )
 
     # Relationships

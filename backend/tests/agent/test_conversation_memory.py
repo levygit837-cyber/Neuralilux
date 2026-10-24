@@ -211,31 +211,16 @@ async def test_summary_failure_is_only_logged(db, conversation_factory, add_mess
     assert "gateway fora do ar" in caplog.text
 
 
-def _second_conversation(db, conversation, conversation_id):
-    """Outra Conversation do mesmo Contact na mesma Instance."""
-    from app.models import Conversation
-
-    other = Conversation(
-        id=conversation_id,
-        instance_id=conversation.instance_id,
-        contact_id=conversation.contact_id,
-        remote_jid=conversation.remote_jid,
-    )
-    db.add(other)
-    db.commit()
-    return other
-
-
-def test_search_history_finds_old_messages_across_the_contact_conversations(
+def test_search_history_finds_old_messages_of_the_contact_conversation(
     db, conversation_factory, add_message
 ):
-    first = conversation_factory("conv-search-a")
-    second = _second_conversation(db, first, "conv-search-b")
-    add_message(first, 1, "user", "Quero uma pizza toscana grande")
-    add_message(first, 2, "assistant", "Anotado: pizza toscana grande")
-    add_message(second, 3, "user", "Vocês abrem domingo?")
+    # #90: o Contact tem uma só Conversation por Instance; a busca atravessa as Sessions dela.
+    conversation = conversation_factory("conv-search-a")
+    add_message(conversation, 1, "user", "Quero uma pizza toscana grande")
+    add_message(conversation, 2, "assistant", "Anotado: pizza toscana grande")
+    add_message(conversation, 3, "user", "Vocês abrem domingo?")
 
-    hits = memory.search_history(db, first.contact_id, first.instance_id, "toscana")
+    hits = memory.search_history(db, conversation.contact_id, conversation.instance_id, "toscana")
 
     assert [(h["role"], h["snippet"]) for h in hits] == [
         ("assistant", "Anotado: pizza toscana grande"),
@@ -243,8 +228,8 @@ def test_search_history_finds_old_messages_across_the_contact_conversations(
     ]
     assert hits[0]["date"].startswith("2026-10-01")
 
-    cross = memory.search_history(db, first.contact_id, first.instance_id, "domingo")
-    assert [h["snippet"] for h in cross] == ["Vocês abrem domingo?"]
+    later = memory.search_history(db, conversation.contact_id, conversation.instance_id, "domingo")
+    assert [h["snippet"] for h in later] == ["Vocês abrem domingo?"]
 
 
 def test_search_history_never_returns_other_contacts_or_instances(

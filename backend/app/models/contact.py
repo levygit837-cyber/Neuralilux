@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Boolean, Text, ForeignKey
+from sqlalchemy import Column, String, DateTime, Boolean, Text, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -21,6 +21,10 @@ class Contact(Base):
     notes = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # `get_or_create_contact` se apoia nesta unicidade (INSERT ... ON CONFLICT DO NOTHING). Cobre também o filtro
+    # por `instance_id` sozinho (dashboard, busca): o prefixo do índice.
+    __table_args__ = (UniqueConstraint("instance_id", "remote_jid", name="uq_contacts_instance_remote_jid"),)
 
     # Relationships
     instance = relationship("Instance", back_populates="contacts")
