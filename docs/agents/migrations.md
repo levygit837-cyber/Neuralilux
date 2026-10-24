@@ -15,5 +15,6 @@ Tickets paralelos não podem criar heads duplicados. Os ids seguem o padrão do 
 | `0011` | `0010` | #34 | `0011_message_sent_by.py` |
 | `0012` | `0011` | chat | `0012_chat_history_sync.py` |
 | `0013` | `0012` | #76 | `0013_agent_company_instructions.py` |
+| `0014` | `0013` | #82 | `0014_remove_products.py` |
 
 Ordem de merge obrigatória: T1 → T4 → T5 → T7 → #31 (0007, já na `main`) → #35 (0008) → (0009 #32 → 0010 #33 → 0011 #34). Antes de mergear, `alembic heads` tem de mostrar uma única head.

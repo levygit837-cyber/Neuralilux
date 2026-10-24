@@ -5,7 +5,7 @@ por nome dependem disso). Código novo importa daqui: `from app.models import Co
 """
 from app.models.agent import Agent
 from app.models.base import generate_uuid
-from app.models.catalog import MenuCatalog, MenuCategory, MenuItem, Product, ProductType
+from app.models.catalog import MenuCatalog, MenuCategory, MenuItem
 from app.models.company import BusinessType, Company
 from app.models.contact import Contact
 from app.models.conversation import Conversation, ConversationMemorySummary
@@ -39,8 +39,6 @@ __all__ = [
     "MessageStatus",
     "MessageType",
     "PaymentRecord",
-    "Product",
-    "ProductType",
     "Ticket",
     "User",
     "generate_uuid",

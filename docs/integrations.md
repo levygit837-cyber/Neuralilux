@@ -46,8 +46,6 @@ curl -s -X POST http://localhost:8000/api/v1/auth/login \
 | `GET /orders/refunds`, `POST /orders/refunds/{id}/refunded`, `POST /orders/refunds/{id}/dismissed` | Estornos Pix abertos (Order cancelado ou alterado) e a baixa manual idempotente, veja [operations.md](operations.md#cancelamento-alteração-e-estorno-de-pix). |
 | `GET /instances/`, `POST /instances/{nome}`, `GET .../status`, `POST .../connect`, `DELETE .../logout`, `DELETE /instances/{nome}` | Instances do usuário e conexão com a Evolution (login obrigatório; a listagem não devolve o token da Evolution). Só o `POST` cria a Instance local, com a Company do usuário. |
 
-`/products` existe só por compatibilidade e está marcado como obsoleto no código; use `/menu`.
-
 ### Exemplo: sincronizar a disponibilidade de um Catalog Item
 
 ```bash

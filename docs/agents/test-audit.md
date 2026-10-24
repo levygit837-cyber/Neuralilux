@@ -73,10 +73,8 @@ Arquivos de `app/` abaixo de 60% (os tickets de remoção não devem derrubar ma
 | `app/services/menu/lookup.py` | 79 | 79 | 0% |
 | `app/api/routes/dashboard.py` | 111 | 89 | 20% |
 | `app/services/menu/sync.py` | 50 | 39 | 22% |
-| `app/services/product_service.py` | 33 | 23 | 30% |
 | `app/whatsapp/evolution_history.py` | 28 | 19 | 32% |
 | `app/realtime/event_bus.py` | 65 | 39 | 40% |
-| `app/api/routes/products.py` | 39 | 21 | 46% |
 | `app/api/routes/conversations/contacts.py` | 28 | 15 | 46% |
 | `app/whatsapp/message_queue.py` | 121 | 60 | 50% |
 

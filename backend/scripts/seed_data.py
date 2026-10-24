@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Seed data script for Neuralilux
-Creates initial data including business types, product types, test company and test user
+Creates initial data including business types, test company and test user
 """
 import sys
 import os
@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from sqlalchemy.orm import Session
 from app.core.database import SessionLocal, engine, Base
-from app.models import Agent, BusinessType, ProductType, Company, Instance, User, DeliveryZone
+from app.models import Agent, BusinessType, Company, Instance, User, DeliveryZone
 from app.core.security import get_password_hash
 from app.services.menu.sync import sync_macedos_menu_from_json
 from app.llm.registry import ensure_default_gateway, reencrypt_gateway_secrets
@@ -54,48 +54,6 @@ def create_business_types(db: Session):
             bt = BusinessType(**bt_data)
             db.add(bt)
             created.append(bt_data["name"])
-
-    db.commit()
-    return created
-
-
-def create_product_types(db: Session):
-    """Create default product types"""
-    product_types = [
-        {
-            "name": "Comida",
-            "slug": "food",
-            "description": "Alimentos e pratos",
-            "icon": "restaurant_menu"
-        },
-        {
-            "name": "Bebida",
-            "slug": "beverage",
-            "description": "Bebidas em geral",
-            "icon": "local_bar"
-        },
-        {
-            "name": "Serviço",
-            "slug": "service",
-            "description": "Serviços prestados",
-            "icon": "room_service"
-        },
-        {
-            "name": "Produto Físico",
-            "slug": "physical_product",
-            "description": "Produtos físicos para venda",
-            "icon": "inventory_2"
-        }
-    ]
-
-    created = []
-    for pt_data in product_types:
-        # Check if already exists
-        existing = db.query(ProductType).filter(ProductType.slug == pt_data["slug"]).first()
-        if not existing:
-            pt = ProductType(**pt_data)
-            db.add(pt)
-            created.append(pt_data["name"])
 
     db.commit()
     return created
@@ -253,14 +211,6 @@ def main():
             print(f"Created: {', '.join(business_types)}")
         else:
             print("All business types already exist")
-
-        # Create product types
-        print("\nCreating product types...")
-        product_types = create_product_types(db)
-        if product_types:
-            print(f"Created: {', '.join(product_types)}")
-        else:
-            print("All product types already exist")
 
         # As zonas de entrega pertencem a uma Company: são criadas depois da importação do cardápio da Macedos.
 

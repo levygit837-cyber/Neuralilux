@@ -6,43 +6,6 @@ from app.core.database import Base
 from app.models.base import generate_uuid
 
 
-class ProductType(Base):
-    # DEPRECATED: Use MenuItem/MenuCategory instead for inventory management
-    __tablename__ = "product_types"
-
-    id = Column(String, primary_key=True, default=generate_uuid)
-    name = Column(String(100), nullable=False)
-    slug = Column(String(50), unique=True, nullable=False, index=True)
-    description = Column(Text)
-    icon = Column(String(50))
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    # Relationships
-    products = relationship("Product", back_populates="product_type")
-
-
-class Product(Base):
-    # DEPRECATED: Use MenuItem/MenuCategory instead for inventory management
-    __tablename__ = "products"
-
-    id = Column(String, primary_key=True, default=generate_uuid)
-    company_id = Column(String, ForeignKey("companies.id"), nullable=False)
-    product_type_id = Column(String, ForeignKey("product_types.id"))
-    name = Column(String(200), nullable=False)
-    description = Column(Text)
-    price = Column(Numeric(10, 2), nullable=False)
-    image_url = Column(String(500))
-    sku = Column(String(50), unique=True, index=True)
-    is_available = Column(Boolean, default=True)
-    stock_quantity = Column(Integer)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-    # Relationships
-    company = relationship("Company", back_populates="products")
-    product_type = relationship("ProductType", back_populates="products")
-
-
 class MenuCatalog(Base):
     __tablename__ = "menu_catalogs"
 
