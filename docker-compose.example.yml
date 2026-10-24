@@ -9,8 +9,11 @@
 #   docker compose --env-file backend/.env --profile app up -d --build   # infra + migração + API + worker + painel
 #
 # Nenhuma senha tem valor padrão: o compose recusa subir sem elas. Defina no backend/.env (o .env.example traz
-# exemplos de desenvolvimento): POSTGRES_PASSWORD, REDIS_PASSWORD, RABBITMQ_PASSWORD, EVOLUTION_DB_PASSWORD,
-# EVOLUTION_API_KEY, EVOLUTION_WEBHOOK_TOKEN, SECRET_KEY e GATEWAY_ENCRYPTION_KEY.
+# exemplos de desenvolvimento). Para a infra: POSTGRES_PASSWORD, REDIS_PASSWORD, RABBITMQ_PASSWORD,
+# EVOLUTION_DB_PASSWORD, EVOLUTION_API_KEY e EVOLUTION_WEBHOOK_TOKEN (são as únicas que o `up` só da infra exige).
+# SECRET_KEY e GATEWAY_ENCRYPTION_KEY são repassadas à app só se existirem: o compose NÃO as exige (a interpolação
+# vale para o arquivo inteiro, mesmo sem o perfil `app`). Quem as recusa é a app: fora de ENVIRONMENT=development,
+# `migrate`, `api` e `worker` não sobem com elas ausentes, vazias, de exemplo ou com menos de 32 caracteres.
 # As três senhas de infra e EVOLUTION_DB_PASSWORD entram em URIs: use só letras, dígitos, `-` e `_`.
 # EVOLUTION_DB_PASSWORD é lida pelo init do Postgres, que só roda na criação do volume (num banco existente use
 # ALTER USER evolution).
@@ -29,8 +32,11 @@
 
 x-backend-environment: &backend-environment
   ENVIRONMENT: ${ENVIRONMENT:-production}
-  SECRET_KEY: ${SECRET_KEY:?defina SECRET_KEY em backend/.env}
-  GATEWAY_ENCRYPTION_KEY: ${GATEWAY_ENCRYPTION_KEY:?defina GATEWAY_ENCRYPTION_KEY em backend/.env}
+  # Pass-through (sem `=`): se a variável não existe em backend/.env, ela NÃO entra no container e vale o default do
+  # config.py, que fora de development é recusado. Com `${VAR:-}` entraria uma string vazia, que em development
+  # (onde a checagem é pulada) viraria uma chave de assinatura vazia.
+  SECRET_KEY:
+  GATEWAY_ENCRYPTION_KEY:
   EVOLUTION_WEBHOOK_TOKEN: ${EVOLUTION_WEBHOOK_TOKEN:?defina EVOLUTION_WEBHOOK_TOKEN em backend/.env}
   EVOLUTION_API_KEY: ${EVOLUTION_API_KEY:?defina EVOLUTION_API_KEY em backend/.env}
   EVOLUTION_API_URL: http://evolution-api:8080
@@ -42,6 +48,12 @@ x-backend-environment: &backend-environment
   CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000","http://127.0.0.1:3000"]}
   AUTH_COOKIE_DOMAIN: ${AUTH_COOKIE_DOMAIN:-}
   TURN_TIMEOUT_SECONDS: ${TURN_TIMEOUT_SECONDS:-90}
+  # Atrás de proxy reverso (docs/operations.md, "Login ou cadastro respondem 429 ou 503"). Pass-through: ausentes,
+  # valem os defaults da app (TRUSTED_PROXIES=[]) e do uvicorn (FORWARDED_ALLOW_IPS=127.0.0.1). Nunca `*`.
+  TRUSTED_PROXIES:
+  FORWARDED_ALLOW_IPS:
+  # Prazo do worker para terminar os Turns em voo no SIGTERM. Se subir, suba `stop_grace_period` do worker junto.
+  SHUTDOWN_TIMEOUT_SECONDS: ${SHUTDOWN_TIMEOUT_SECONDS:-20}
 
 x-backend-image: &backend-image
   image: neuralilux/backend:0.1.0
@@ -50,7 +62,7 @@ x-backend-image: &backend-image
 
 services:
   postgres:
-    image: postgres:15.19-alpine
+    image: postgres:15.19-alpine@sha256:a8e042598834300dfaa17a54f695b87b7f25d3490433bbbe2ef3bffbb9747f24
     restart: unless-stopped
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5434}:5432"
@@ -71,7 +83,7 @@ services:
 
   redis:
     # Redis 7 ou mais novo: o rate limit usa `EXPIRE ... NX` (docs/operations.md).
-    image: redis:7.4.10-alpine
+    image: redis:7.4.10-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
     restart: unless-stopped
     ports:
       - "127.0.0.1:${REDIS_PORT:-6380}:6379"
@@ -87,7 +99,7 @@ services:
       retries: 5
 
   rabbitmq:
-    image: rabbitmq:3.13.7-management-alpine
+    image: rabbitmq:3.13.7-management-alpine@sha256:606d8c0d6b3c18d1da9afc53bc7cdb2a8d5486df91b5a9830e9e07626c9ae281
     restart: unless-stopped
     ports:
       - "127.0.0.1:${RABBITMQ_PORT:-5672}:5672"
@@ -105,10 +117,15 @@ services:
       retries: 5
 
   evolution-api:
-    # A imagem oficial roda como root; docker/evolution/Dockerfile só a troca para o usuário `node`.
-    image: neuralilux/evolution-api:v2.3.7
+    # A imagem oficial roda como root; docker/evolution/Dockerfile só a troca para o usuário `node`. A versão vive
+    # numa variável só (EVOLUTION_VERSION), usada no build e na tag local. Sem digest de propósito: um `@sha256`
+    # na base faria o Docker ignorar a tag e reconstruir a versão antiga em silêncio ao trocar EVOLUTION_VERSION.
+    # Volumes de um compose antigo são do root: veja docs/setup.md ("Migrando de um compose antigo") antes do 1º up.
+    image: neuralilux/evolution-api:${EVOLUTION_VERSION:-v2.3.7}
     build:
       context: ./docker/evolution
+      args:
+        EVOLUTION_VERSION: ${EVOLUTION_VERSION:-v2.3.7}
     restart: unless-stopped
     ports:
       - "127.0.0.1:${EVOLUTION_PORT:-8081}:8080"
@@ -237,9 +254,10 @@ services:
     command: ["python", "scripts/run_worker.py"]
     restart: unless-stopped
     environment: *backend-environment
-    # SIGTERM faz o worker parar de consumir, esperar os Turns em voo até SHUTDOWN_TIMEOUT_SECONDS (20 s) e
-    # desconectar (~5 s). Se subir SHUTDOWN_TIMEOUT_SECONDS, mantenha este prazo em pelo menos esse valor + 10 s;
-    # o Turn que sobrar fica `pending` e é retomado no próximo start. O worker não escuta porta: sem healthcheck HTTP.
+    # SIGTERM faz o worker parar de consumir, esperar os Turns em voo até SHUTDOWN_TIMEOUT_SECONDS (20 s, prazo único
+    # que NÃO espera TURN_TIMEOUT_SECONDS), cancelar o que sobrar e desconectar (~5 s): pior caso ~25 s. Regra:
+    # stop_grace_period >= SHUTDOWN_TIMEOUT_SECONDS + 10 s. O Turn cancelado fica `pending` e o worker seguinte o
+    # retoma. O worker não escuta porta: sem healthcheck HTTP.
     stop_grace_period: 30s
     healthcheck:
       disable: true

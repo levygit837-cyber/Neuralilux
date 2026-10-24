@@ -1,17 +1,19 @@
 # Painel Next.js em três estágios: deps (npm ci) -> build (standalone) -> runtime mínimo, sem devDependencies.
 # Contexto de build: frontend/
+# A base é fixada por digest (build reproduzível). Para atualizar: `docker buildx imagetools inspect node:24-alpine` e troque
+# o digest nos três FROM.
 #
 # NEXT_PUBLIC_API_URL (e NEXT_PUBLIC_WS_URL, se o Socket.IO ficar em outro host) é gravada no bundle do navegador e na CSP
 # no `next build`: passe como build arg com a URL PÚBLICA da API. Trocar a URL exige rebuild.
 # API_INTERNAL_URL (como o servidor do Next alcança a API, ex. http://api:8000) é lida em runtime: passe no `run`.
 
-FROM node:24-alpine AS deps
+FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
 
-FROM node:24-alpine AS build
+FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS build
 WORKDIR /app
 ARG NEXT_PUBLIC_API_URL=http://localhost:8000
 ARG NEXT_PUBLIC_WS_URL=
@@ -23,7 +25,7 @@ COPY . .
 RUN npm run build
 
 
-FROM node:24-alpine AS runtime
+FROM node:24-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa1888c934d3ecec86c33918b53 AS runtime
 WORKDIR /app
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \

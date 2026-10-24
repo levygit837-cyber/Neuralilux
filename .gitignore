@@ -28,6 +28,7 @@ venv/
 env/
 ENV/
 .venv
+.venv-issue
 # IDEs
 .vscode/
 .idea/
@@ -69,9 +70,12 @@ coverage/
 # Evolution API data
 evolution-api/instances/
 evolution-api/store/
-# Backups
+# Backups e dumps do banco (pg_dump): nunca no repositório. Grave fora dele, ex. ~/backups/ (docs/operations.md)
 *.bak
 *.backup
+/*.sql
+backup*.sql
+dump*.sql
 .aidesigner/*
 !.aidesigner/.gitkeep
 # ============================
