@@ -2,36 +2,35 @@
 WhatsApp Message Consumer Worker
 Processa os eventos do webhook da Evolution vindos do RabbitMQ.
 
-Concorrência: o worker roda um único event loop e entrega até `RABBITMQ_PREFETCH` mensagens em
-paralelo. Dentro de uma Conversation a gravação é serializada por um `asyncio.Lock`; entre Conversations
-o processamento é paralelo.
+Concorrência: o worker roda um único event loop e entrega até `RABBITMQ_PREFETCH` mensagens em paralelo. Dentro de uma
+Conversation a gravação é serializada pelo lock `SAVE` do JID (`core/conversation_lock.py`): advisory lock do Postgres,
+então vale entre réplicas do worker (#92); em SQLite é um `asyncio.Lock` do processo. Entre Conversations é paralelo.
 
 Resposta durável (#91): a entrega só grava a Message do Contact com `turn_state = pending` e volta, então o broker a
 confirma logo. O Turn roda fora da entrega (`TurnRunner`: agrupamento das Messages picadas, concorrência limitada) e a
 `Recovery` retoma o que ficou pendente. Estados e regras de posse: `turn_state.py`.
 """
 import asyncio
-from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
-from typing import Any, AsyncIterator, Dict
+from typing import Any, Dict
 
 import structlog
 from sqlalchemy.orm import Session
 
 from app.agent import executor
 from app.core.config import settings
+from app.core.conversation_lock import SAVE, SUMMARY, LockBusy, conversation_lock, jid_scope
 from app.core.database import SessionLocal
 from app.agent.sessions import roll_session
 from app.models import Company, Conversation, Instance, Message
 from app.packs.registry import packs_for
 from app.services import handoff_service
-from app.whatsapp import history_sync, system_notice, turn_state
+from app.whatsapp import history_sync, sent_echo, turn_state
 from app.whatsapp.message_store import get_or_create_contact, get_or_create_conversation, new_message
 from app.whatsapp.message_queue import message_queue_service
 from app.whatsapp.recovery import Recovery
 from app.whatsapp.turn_batcher import Entry
 from app.whatsapp.turn_runner import TurnRunner, Work
-from app.whatsapp.sender import claim_agent_echo
 from app.whatsapp.status_events import (
     find_instance,
     publish_message,
@@ -69,7 +68,6 @@ class WhatsAppMessageConsumer:
     def __init__(self):
         self.mq = message_queue_service
         self._started_at = datetime.now(timezone.utc)
-        self._locks: Dict[str, list] = {}  # chave da Conversation -> [Lock, quantos a usam]
         self._background: set[asyncio.Task] = set()
         self._summarizing: set[str] = set()
         self._syncing: set[str] = set()
@@ -77,21 +75,6 @@ class WhatsAppMessageConsumer:
         self.runner = TurnRunner(lambda: SessionLocal(), self._spawn_summary)
         self.recovery = Recovery(self.runner, lambda: SessionLocal())
         self._recovering: asyncio.Task | None = None
-
-    @asynccontextmanager
-    async def _serialized(self, key: str) -> AsyncIterator[None]:
-        """Uma Conversation por vez; Conversations diferentes em paralelo. O Lock some quando ninguém o usa."""
-        entry = self._locks.get(key)
-        if entry is None:
-            entry = self._locks[key] = [asyncio.Lock(), 0]
-        entry[1] += 1
-        try:
-            async with entry[0]:
-                yield
-        finally:
-            entry[1] -= 1
-            if entry[1] == 0:
-                del self._locks[key]
 
     async def process_webhook_event(self, message: Dict[str, Any]) -> Dict[str, Any]:
         """Process an Evolution API webhook event"""
@@ -160,7 +143,9 @@ class WhatsAppMessageConsumer:
                 logger.info("Invisible message type skipped", message_id=message_id, remote_jid=remote_jid)
                 return
 
-            async with self._serialized(f"{instance.id}:{remote_jid}"):
+            scope = jid_scope(instance.id, remote_jid)
+            db.rollback()  # só leu até aqui: não segura uma conexão do pool de dados enquanto espera o lock de outra réplica
+            async with conversation_lock(db.get_bind(), SAVE, scope, wait=settings.LOCK_SAVE_WAIT_SECONDS):
                 await self._handle_message(db, instance, payload, key, remote_jid, from_me)
 
         except Exception as e:
@@ -193,9 +178,10 @@ class WhatsAppMessageConsumer:
                 self.recovery.resume_redelivered(db, existing)
             return
 
-        # Eco de um aviso da API enviado sem id (#34): já está gravado; não é Attendant nem Message nova.
-        if from_me and system_notice.adopt_echo(db, instance.id, remote_jid, parsed.content, message_id):
-            logger.info("Echo of a system notice matched", message_id=message_id)
+        # Eco de uma saída da API enviada sem id (resposta do Agent, aviso do #34), por qualquer réplica: já está
+        # gravada; não é Attendant nem Message nova.
+        if from_me and sent_echo.adopt_echo(db, instance.id, remote_jid, parsed.content, message_id):
+            logger.info("Echo of an API message matched", message_id=message_id)
             return
 
         # O pushName de uma mensagem `fromMe` é o do nosso número; o de uma mensagem de grupo é o do
@@ -235,7 +221,7 @@ class WhatsAppMessageConsumer:
             )
 
             if not is_group:  # Session e Handoff são do atendimento 1:1
-                await self._track_handoff(db, instance, conversation, remote_jid, parsed.content, from_me)
+                await self._track_handoff(db, instance, conversation, from_me)
 
             if skip:
                 logger.info("Message not processed by agent", message_id=message_id, reason=skip)
@@ -249,14 +235,11 @@ class WhatsAppMessageConsumer:
             raise
 
     @staticmethod
-    async def _track_handoff(
-        db: Session, instance: Instance, conversation: Conversation, remote_jid: str, content: str | None, from_me: bool
-    ) -> None:
+    async def _track_handoff(db: Session, instance: Instance, conversation: Conversation, from_me: bool) -> None:
         """O que o Handoff pede a cada Message gravada: atividade do Attendant e expiração por timeout."""
         if from_me:
-            # Só um Attendant escrevendo pelo celular reinicia o timeout; o eco de uma resposta do Agent não.
-            if not claim_agent_echo(instance.id, remote_jid, content):
-                handoff_service.record_attendant_activity(db, conversation)
+            # O eco de uma resposta do Agent já foi adotado (`sent_echo`) e não chega aqui: sobra o Attendant no celular.
+            handoff_service.record_attendant_activity(db, conversation)
         else:
             # Rede de segurança do timeout: o sweeper do worker roda a cada minuto, esta checagem é exata.
             await handoff_service.expire_if_due(db, conversation, instance)
@@ -308,7 +291,12 @@ class WhatsAppMessageConsumer:
 
     async def _refresh_summary(self, conversation_id: str) -> None:
         try:
-            await executor.refresh_summary(conversation_id)
+            with SessionLocal() as db:
+                bind = db.get_bind()
+            async with conversation_lock(bind, SUMMARY, conversation_id):  # outra réplica já está atualizando: pula
+                await executor.refresh_summary(conversation_id)
+        except LockBusy:
+            logger.info("Summary refresh skipped: another process is refreshing", conversation_id=conversation_id)
         except Exception:
             logger.exception("Summary refresh failed after reply", conversation_id=conversation_id)
         finally:

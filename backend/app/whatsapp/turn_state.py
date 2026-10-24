@@ -214,6 +214,30 @@ def recoverable(db: Session, at: datetime) -> list[Message]:
     )
 
 
+def foreign_queued(db: Session, conversation_id: str, at: datetime, exclude_ids: Iterable[str]) -> list[Message]:
+    """Messages do Contact que outra réplica gravou e ainda espera a pausa ou uma vaga (`queued`), na ordem de chegada.
+
+    Quem acabou de tomar o lock `TURN` da Conversation as absorve no próprio Turn (#92): uma rajada dividida entre
+    réplicas vira uma resposta só, e o Turn da outra réplica encontra tudo tomado e se descarta. `exclude_ids`: as
+    deste processo (o agrupamento daqui já cuida delas). Mais velhas que `TURN_RECOVERY_MAX_AGE_SECONDS` ficam para a
+    recuperação, que as marca `stale`.
+    """
+    oldest = at - timedelta(seconds=settings.TURN_RECOVERY_MAX_AGE_SECONDS)
+    return list(
+        db.scalars(
+            select(Message)
+            .where(
+                Message.conversation_id == conversation_id,
+                Message.turn_state == PENDING,
+                Message.turn_reason == QUEUED,
+                Message.timestamp >= oldest,
+                Message.id.not_in(list(exclude_ids)),
+            )
+            .order_by(Message.timestamp, Message.created_at, Message.id)
+        )
+    )
+
+
 def sent_since(db: Session, conversation_id: str, since: datetime) -> bool:
     """Há Message `from_me` do Agent ou de um Attendant (não aviso da API) a partir de `since` na Conversation?"""
     return bool(

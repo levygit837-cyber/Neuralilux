@@ -94,6 +94,9 @@ class Settings(BaseSettings):
     TURN_RECOVERY_INTERVAL_SECONDS: float = 60.0  # de quanto em quanto tempo o worker procura Message pendente (além da varredura na subida)
     TURN_CLAIM_LEASE_SECONDS: float = 180.0  # validade da posse de uma Message pendente; maior que DEBOUNCE_MAX_WAIT_SECONDS + TURN_TIMEOUT_SECONDS
     SHUTDOWN_TIMEOUT_SECONDS: float = 20.0  # prazo do shutdown para os Turns em voo; o que sobra é cancelado e fica pendente (mantenha abaixo do grace do orquestrador)
+    LOCK_POOL_SIZE: int = 32  # conexões por processo reservadas aos locks por Conversation (#92); pool próprio, fora do pool dos dados
+    LOCK_SAVE_WAIT_SECONDS: float = 45.0  # quanto o webhook e o envio esperam o lock de gravação da Conversation; maior que o timeout de 30 s do envio pela Evolution
+    TURN_LOCK_WAIT_SECONDS: float = 120.0  # quanto um Turn espera o Turn de outra réplica da mesma Conversation (#92); acima de TURN_TIMEOUT_SECONDS
 
     # Realtime
     REALTIME_REDIS_CHANNEL: str = "neuralilux:realtime:events"
@@ -165,6 +168,13 @@ class Settings(BaseSettings):
                 "TURN_CLAIM_LEASE_SECONDS deve ser maior que DEBOUNCE_MAX_WAIT_SECONDS + TURN_TIMEOUT_SECONDS "
                 "(senão a posse vence com o Turn ainda rodando e outro worker responde a mesma Message)"
             )
+        if self.TURN_CLAIM_LEASE_SECONDS <= self.DEBOUNCE_MAX_WAIT_SECONDS + self.TURN_LOCK_WAIT_SECONDS:
+            raise ValueError(
+                "TURN_CLAIM_LEASE_SECONDS deve ser maior que DEBOUNCE_MAX_WAIT_SECONDS + TURN_LOCK_WAIT_SECONDS "
+                "(senão a posse vence enquanto o Turn espera o lock de outra réplica e ele é descartado à toa)"
+            )
+        if self.TURN_LOCK_WAIT_SECONDS < self.TURN_TIMEOUT_SECONDS:
+            raise ValueError("TURN_LOCK_WAIT_SECONDS deve ser maior ou igual a TURN_TIMEOUT_SECONDS (o Turn da outra réplica ainda estaria rodando)")
         return self
 
     @model_validator(mode="after")

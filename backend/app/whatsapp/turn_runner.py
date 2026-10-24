@@ -20,6 +20,7 @@ import structlog
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.conversation_lock import TURN, LockBusy, conversation_lock
 from app.models import Contact, Conversation, Instance
 from app.services.agent_service import resolve_turn_agent
 from app.services import handoff_service
@@ -27,7 +28,7 @@ from app.whatsapp import turn_state
 from app.whatsapp.agent_turn import FAILED, GONE, NO_REPLY, REPLIED, run_agent_turn
 from app.whatsapp.sender import send_and_persist
 from app.whatsapp.turn_batcher import Entry, Group, Hold, TurnBatcher
-from app.whatsapp.webhook_parser import ParsedContent
+from app.whatsapp.webhook_parser import ParsedContent, parsed_from_stored
 
 logger = structlog.get_logger()
 
@@ -183,36 +184,76 @@ class TurnRunner:
             self._running.pop(message_id, None)
 
     async def _run(self, work: Work, agent_id: str, group: Group) -> None:
-        """Um Turn do agrupamento: espera vaga, toma as Messages, roda, grava o desfecho."""
+        """Um Turn do agrupamento: espera vaga e o lock da Conversation, toma as Messages, roda, grava o desfecho.
+
+        O lock `TURN` (#92) vem antes do claim: o Turn de outra réplica da mesma Conversation termina, e grava a
+        resposta, antes de este tomar as Messages e ler o contexto. Sem o lock em `TURN_LOCK_WAIT_SECONDS` as Messages
+        voltam a ficar sem dono e a recuperação as retoma.
+        """
         async with self._slots:
-            at = turn_state.now()
             with self._session() as db:
-                won = turn_state.claim(db, [(e.message_id, e.claim) for e in group.entries], at)
-            for entry in group.entries:
-                self._queued.pop(entry.message_id, None)
-            entries = tuple(replace(e, claim=at) for e in group.entries if e.message_id in won)
-            if not entries:
-                logger.info("Messages taken by another worker, Turn dropped", conversation_id=work.conversation_id)
-                return
-            mine = [(e.message_id, at) for e in entries]
-            self._running.update(dict(mine))
+                bind = db.get_bind()
             try:
-                outcome = await run_agent_turn(
-                    self._session_factory, work.instance_id, work.conversation_id, work.contact_id, agent_id,
-                    self._spawn_summary, Group(entries, group.deferred_ids),
-                )
-            except asyncio.CancelledError:
-                self._close(mine, turn_state.release)
-                raise
+                async with conversation_lock(bind, TURN, work.conversation_id, wait=settings.TURN_LOCK_WAIT_SECONDS):
+                    await self._run_locked(work, agent_id, group)
+            except LockBusy:
+                logger.warning("Conversation busy in another process, Messages handed back", conversation_id=work.conversation_id)
+                with self._session() as db:
+                    turn_state.unclaim(db, [(e.message_id, e.claim) for e in group.entries])
+                for entry in group.entries:
+                    self._queued.pop(entry.message_id, None)
+
+    async def _run_locked(self, work: Work, agent_id: str, group: Group) -> None:
+        at = turn_state.now()
+        with self._session() as db:
+            won = turn_state.claim(db, [(e.message_id, e.claim) for e in group.entries], at)
+            entries = tuple(replace(e, claim=at) for e in group.entries if e.message_id in won)
+            if entries:
+                entries = self._with_foreign(db, work.conversation_id, entries, group, at)
+        for entry in group.entries:
+            self._queued.pop(entry.message_id, None)
+        if not entries:
+            logger.info("Messages taken by another worker, Turn dropped", conversation_id=work.conversation_id)
+            return
+        mine = [(e.message_id, at) for e in entries]
+        self._running.update(dict(mine))
+        try:
+            outcome = await run_agent_turn(
+                self._session_factory, work.instance_id, work.conversation_id, work.contact_id, agent_id,
+                self._spawn_summary, Group(entries, group.deferred_ids),
+            )
+        except asyncio.CancelledError:
+            self._close(mine, turn_state.release)
+            raise
+        else:
+            if outcome == FAILED:
+                self._close(mine, turn_state.fail)
             else:
-                if outcome == FAILED:
-                    self._close(mine, turn_state.fail)
-                else:
-                    state, reason = _OUTCOMES[outcome]
-                    self._close(mine, partial(turn_state.settle, state=state, reason=reason))
-            finally:
-                for message_id, _ in mine:
-                    self._running.pop(message_id, None)
+                state, reason = _OUTCOMES[outcome]
+                self._close(mine, partial(turn_state.settle, state=state, reason=reason))
+        finally:
+            for message_id, _ in mine:
+                self._running.pop(message_id, None)
+
+    def _with_foreign(
+        self, db: Session, conversation_id: str, entries: tuple[Entry, ...], group: Group, at: datetime
+    ) -> tuple[Entry, ...]:
+        """Com o lock da Conversation, toma também as Messages que outra réplica gravou e ainda não tomou (#92).
+
+        Só entram as que têm texto: mídia sem legenda tem resposta fixa e é tratada por quem a gravou. A pausa do
+        Contact da outra réplica fica sem efeito: o Turn dela acha tudo tomado e se descarta (`claim` não casa).
+        """
+        own = {*self._queued, *self._running, *group.deferred_ids, *(e.message_id for e in entries)}
+        found = turn_state.foreign_queued(db, conversation_id, at, own)
+        parsed = {m.id: parsed_from_stored(m.message_type, m.content) for m in found}
+        found = [m for m in found if parsed[m.id].text.strip()]
+        won = turn_state.claim(db, [(m.id, m.turn_claimed_at) for m in found], at)
+        absorbed = tuple(
+            Entry(m.id, parsed[m.id].text, turn_state.aware(m.timestamp), at) for m in found if m.id in won
+        )
+        if absorbed:
+            logger.info("Messages of another process joined this Turn", conversation_id=conversation_id, count=len(absorbed))
+        return tuple(sorted((*entries, *absorbed), key=lambda e: e.received_at))
 
     def _close(self, claims: list[turn_state.Claim], action: Callable[..., None]) -> None:
         with self._session() as db:

@@ -65,9 +65,36 @@ Colunas em `messages` e não uma tabela à parte: são três colunas nulas sem d
 - **Posse.** Quem grava a Message é o dono dela (`turn_claimed_at = agora`, `queued`); o dono renova a posse ao começar o Turn (`running`). A posse vale `TURN_CLAIM_LEASE_SECONDS`. Ninguém mais toca numa pendente com posse válida.
 - **Recuperação** (`app/whatsapp/recovery.py`), na subida do worker e a cada `TURN_RECOVERY_INTERVAL_SECONDS`: pega as pendentes sem dono (posse vencida, `released` ou nunca tomada). Mais velhas que `TURN_RECOVERY_MAX_AGE_SECONDS` viram `skipped: stale`; as que já foram respondidas (`sent_since`) viram `sent_elsewhere`; Conversation em Handoff vira `skipped: handoff`; o resto passa pelas mesmas regras do consumer (`agent_enabled`, Agent, texto) e as pendentes da mesma Conversation viram **um** Turn, sem nova pausa.
 - **Redelivery.** O broker entrega de novo uma Message cujo `ack` se perdeu: o dedup por `message_id` não grava outra vez, mas, se ela estiver `pending` sem dono vivo, retoma o Turn.
-- **Vários workers.** Cada Message é tomada por um `UPDATE ... WHERE turn_state = 'pending' AND turn_claimed_at IS <o que viu> RETURNING id` (compare-and-set). Dois workers que tentam ao mesmo tempo: o segundo UPDATE espera o lock da linha, reavalia o WHERE depois do commit do primeiro e não casa nenhuma linha. Vale igual no SQLite dos testes; não precisa de `SKIP LOCKED`. Coberto por testes com Postgres de verdade (`tests/postgres/test_turn_claim.py`).
+- **Vários workers.** Cada Message é tomada por um `UPDATE ... WHERE turn_state = 'pending' AND turn_claimed_at IS <o que viu> RETURNING id` (compare-and-set). Dois workers que tentam ao mesmo tempo: o segundo UPDATE espera o lock da linha, reavalia o WHERE depois do commit do primeiro e não casa nenhuma linha. Vale igual no SQLite dos testes; não precisa de `SKIP LOCKED`. Coberto por testes com Postgres de verdade (`tests/postgres/test_turn_claim.py`). O claim cobre a **mesma** Message; Messages diferentes da mesma Conversation são cobertas pelo lock abaixo.
 - **Shutdown** (`SIGTERM`/`SIGINT`, `scripts/run_worker.py`): para de consumir, espera os Turns em voo até `SHUTDOWN_TIMEOUT_SECONDS`, cancela o resto (a Message volta a `pending`/`released`) e só então desconecta.
-- **Limites.** (1) Entrega **pelo menos uma vez**: se o worker cair entre o envio pela Evolution e a gravação da Message `from_me` (janela de milissegundos), a resposta sai de novo na recuperação. (2) Resposta enviada sem `id` pela Evolution não grava a `from_me` (ver `send_and_persist`), então não há prova de envio; o eco do webhook cobre. (3) Um Turn que estoura `TURN_TIMEOUT_SECONDS` responde o fallback e fecha a Message; só falha inesperada deixa `failed`. (4) A posse precisa ser maior que `DEBOUNCE_MAX_WAIT_SECONDS + TURN_TIMEOUT_SECONDS`, senão outro worker pode assumir um Turn que ainda roda.
+- **Limites.** (1) Entrega **pelo menos uma vez**: se o worker cair entre o envio pela Evolution e a gravação da Message `from_me` (janela de milissegundos), a resposta sai de novo na recuperação. (2) Resposta enviada sem `id` pela Evolution é gravada com `message_id` NULL e o eco do webhook a reconhece no banco (`sent_echo.adopt_echo`), então também há prova de envio. (3) Um Turn que estoura `TURN_TIMEOUT_SECONDS` responde o fallback e fecha a Message; só falha inesperada deixa `failed`. (4) A posse precisa ser maior que `DEBOUNCE_MAX_WAIT_SECONDS + TURN_TIMEOUT_SECONDS` e que `DEBOUNCE_MAX_WAIT_SECONDS + TURN_LOCK_WAIT_SECONDS` (a config recusa o contrário), senão outro worker pode assumir um Turn que ainda roda ou o Turn que espera o lock é descartado à toa. (5) Se `send_and_persist` falhar só ao gravar uma resposta sem `id`, o eco chega sem linha para adotar e vira atividade de Attendant (janela estreita).
+
+### Vários workers e locks por Conversation
+
+O claim por Message (#91) não impede dois Turns de Messages **diferentes** da mesma Conversation em réplicas diferentes, cada um sem ver a resposta do outro. O #92 fecha isso com um advisory lock do Postgres por Conversation (`app/core/conversation_lock.py`, lock de sessão, conexões de um pool próprio). Três locks independentes:
+
+| Lock | Chave | Em volta de | Por quê |
+|---|---|---|---|
+| `turn` | id da Conversation | o Turn inteiro (`TurnRunner._run`): claim, Agent, envio, fechamento | o segundo Turn só começa depois de gravada a resposta do primeiro, então lê o contexto com ela |
+| `summary` | id da Conversation | `refresh_summary` | uma réplica por vez resume; as outras pulam. Separado do Turn para o Contact nunca esperar o Gateway do resumo |
+| `save` | Instance + JID | gravar uma Message do webhook (`consumer`) e enviar+gravar uma saída (`sender.send_and_persist`) | o eco de uma resposta nunca é lido antes de a saída estar gravada, em qualquer réplica |
+
+Rajada dividida: o Turn que toma o lock `turn` também absorve as Messages `queued` que outra réplica gravou (`TurnRunner._with_foreign`, `turn_state.foreign_queued`), então a rajada vira **uma** resposta; o Turn da outra réplica acha tudo tomado e se descarta. O que chega com um Turn em curso espera o lock e vê a resposta no contexto.
+
+O que vive em memória do worker e quem cobre cada caso:
+
+| Estado em memória | Efeito entre réplicas | Cobertura |
+|---|---|---|
+| `TurnBatcher` (debounce, grupos) | cada réplica agrupa só o que recebeu | lock `turn` + `_with_foreign` unem a rajada dividida |
+| `consumer._locks` (serialização por JID) | não via a outra réplica | **removido**: lock `save` |
+| `TurnRunner._queued` / `_running` | só dizem "este processo está com" | a verdade é `turn_claimed_at` (claim do #91) |
+| `TurnRunner._missing_agent_logged` | só log | sem efeito |
+| `consumer._summarizing` | evita tasks repetidas no processo | lock `summary` |
+| `consumer._syncing` | idem para a importação de histórico | `pg_try_advisory_lock` do `history_sync` (já existia) |
+| `sender._unmatched_sends` (eco do Agent) | o eco caía em outra réplica e virava atividade de Attendant | **removido**: saída sem id gravada com `message_id` NULL, eco reconhecido no banco (`sent_echo`) |
+| sweeper de Handoff | roda em toda réplica | idempotente (`release(..., only_ticket_id)`) |
+
+Sem Postgres (SQLite dos testes e do dev) o lock é um `asyncio.Lock` por chave dentro do processo: não há exclusão entre processos, então SQLite só suporta **um** worker. Coberto por `tests/postgres/test_two_replicas.py` e `tests/postgres/test_advisory_lock.py`. Dimensionamento de conexões e como escalar: [operations.md](operations.md#réplicas-do-worker).
 
 Detalhes do loop, da memória e dos eventos estão em [agent.md](agent.md).
 
