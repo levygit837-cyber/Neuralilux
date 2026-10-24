@@ -1,13 +1,12 @@
 // @vitest-environment jsdom
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
-import { createElement, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useCompanySettings } from '@/hooks/useCompanySettings'
 import { authService, type User } from '@/services/authService'
 import { companyService } from '@/services/companyService'
 import { HttpError } from '@/services/http'
 import { useAuthStore } from '@/stores/useAuthStore'
+import { queryWrapper } from '@/test/queryWrapper'
 import type { AgentSettings, Company } from '@/types/company'
 
 vi.mock('@/services/authService', () => ({ authService: { getCurrentUser: vi.fn() } }))
@@ -18,13 +17,7 @@ vi.mock('@/services/companyService', () => ({
 const company = (name: string) => ({ id: 'c1', name }) as Company
 const agent = { max_tokens: 500 } as AgentSettings
 
-function wrapper() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  function Wrapper({ children }: { children: ReactNode }) {
-    return createElement(QueryClientProvider, { client }, children)
-  }
-  return Wrapper
-}
+const wrapper = () => queryWrapper().Wrapper
 
 describe('useCompanySettings', () => {
   beforeEach(() => {

@@ -9,7 +9,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { instanceService, type Instance, type InstanceStatus } from '@/services/instanceService'
 import { useInstances } from '@/hooks/useInstances'
 import { queryKeys } from '@/lib/queryKeys'
-import { useInstanceStore } from '@/stores/useInstanceStore'
+import { useInstanceStore, type SelectedInstance } from '@/stores/useInstanceStore'
 import { ROUTES } from '@/lib/constants'
 
 const STATUS_LABEL: Record<InstanceStatus, { label: string; color: string }> = {
@@ -37,10 +37,11 @@ export default function InstancesPage() {
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: queryKeys.instances })
   const createMutation = useMutation({
-    mutationFn: async (name: string) => {
-      await instanceService.create(name)
-      return (await instanceService.list()).find((item) => item.name === name)
+    mutationFn: async (name: string): Promise<SelectedInstance> => {
+      const { id } = await instanceService.create(name)
+      return { id, name, status: 'disconnected' }
     },
+    // Devolver a promise faz a mutation esperar a lista nova: ao abrir o QR, a Instance já está nela.
     onSettled: invalidate,
   })
   const deleteMutation = useMutation({
@@ -49,7 +50,7 @@ export default function InstancesPage() {
   })
   const isCreating = createMutation.isPending
 
-  const open = (instance: Instance, route: string) => {
+  const open = (instance: SelectedInstance, route: string) => {
     setSelectedInstance({ id: instance.id, name: instance.name, status: instance.status })
     router.push(route)
   }
@@ -66,7 +67,7 @@ export default function InstancesPage() {
     try {
       const created = await createMutation.mutateAsync(name)
       setNewName('')
-      if (created) open(created, ROUTES.QR)
+      open(created, ROUTES.QR)
     } catch (e) {
       setActionError(messageOf(e, 'Falha ao criar a instância'))
     }

@@ -1,8 +1,9 @@
 import type { OrderListFilter } from '@/types/order'
 
 /**
- * Chaves de query por recurso. Company usa o id na chave; o restante é escopado pelo token do
- * usuário, e o cache inteiro morre com o `QueryClientProvider` do layout autenticado (logout).
+ * Chaves de query por recurso. Company e Agent levam o id da Company na chave; as demais não
+ * carregam usuário. O isolamento entre sessões vem de `clearQueryCache()`, chamado no login e no
+ * logout (inclusive o do 401), não da chave.
  */
 export const queryKeys = {
   me: ['me'] as const,
