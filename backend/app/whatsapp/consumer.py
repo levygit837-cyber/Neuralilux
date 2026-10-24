@@ -24,13 +24,14 @@ from app.core.database import SessionLocal
 from app.agent.sessions import roll_session
 from app.models import Company, Conversation, Instance, Message
 from app.packs.registry import packs_for
+from app.services import handoff_service
 from app.whatsapp import history_sync, system_notice, turn_state
 from app.whatsapp.message_store import get_or_create_contact, get_or_create_conversation, new_message
 from app.whatsapp.message_queue import message_queue_service
-from app.whatsapp.handoff_tracking import track_handoff
 from app.whatsapp.recovery import Recovery
 from app.whatsapp.turn_batcher import Entry
 from app.whatsapp.turn_runner import TurnRunner, Work
+from app.whatsapp.sender import claim_agent_echo
 from app.whatsapp.status_events import (
     find_instance,
     publish_message,
@@ -234,7 +235,7 @@ class WhatsAppMessageConsumer:
             )
 
             if not is_group:  # Session e Handoff são do atendimento 1:1
-                await track_handoff(db, instance, conversation, remote_jid, parsed.content, from_me)
+                await self._track_handoff(db, instance, conversation, remote_jid, parsed.content, from_me)
 
             if skip:
                 logger.info("Message not processed by agent", message_id=message_id, reason=skip)
@@ -246,6 +247,19 @@ class WhatsAppMessageConsumer:
             if hold is not None:
                 hold.release()
             raise
+
+    @staticmethod
+    async def _track_handoff(
+        db: Session, instance: Instance, conversation: Conversation, remote_jid: str, content: str | None, from_me: bool
+    ) -> None:
+        """O que o Handoff pede a cada Message gravada: atividade do Attendant e expiração por timeout."""
+        if from_me:
+            # Só um Attendant escrevendo pelo celular reinicia o timeout; o eco de uma resposta do Agent não.
+            if not claim_agent_echo(instance.id, remote_jid, content):
+                handoff_service.record_attendant_activity(db, conversation)
+        else:
+            # Rede de segurança do timeout: o sweeper do worker roda a cada minuto, esta checagem é exata.
+            await handoff_service.expire_if_due(db, conversation, instance)
 
     @staticmethod
     def _roll_session(db: Session, instance: Instance, conversation: Conversation, timestamp: datetime) -> None:
@@ -300,16 +314,11 @@ class WhatsAppMessageConsumer:
         finally:
             self._summarizing.discard(conversation_id)
 
-    def register_consumers(self):
-        """Register all consumer callbacks"""
-        self.mq.register_consumer("webhooks.evolution", self.process_webhook_event)
-        logger.info("All WhatsApp consumers registered")
-
     async def start(self) -> None:
         """Consome até `stop()`. A recuperação varre as Messages pendentes na subida e depois periodicamente."""
         logger.info("Starting WhatsApp message consumer")
         self._started_at = datetime.now(timezone.utc)
-        self.register_consumers()
+        self.mq.register_consumer(self.process_webhook_event)
         self._recovering = asyncio.create_task(self.recovery.run_forever())
         await self.mq.start_consuming()
 

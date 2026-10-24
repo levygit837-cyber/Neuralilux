@@ -126,8 +126,48 @@ O `finalizar` recusa em código, e o Agent repassa o motivo ao Contact. Os erros
 - **401 no webhook**: o token da URL não bate com `EVOLUTION_WEBHOOK_TOKEN` do `backend/.env`, ou a variável está vazia ([ADR 0006](adr/0006-webhook-token-auth.md)). Confira `WEBHOOK_GLOBAL_URL` no serviço `evolution-api` e se o compose foi subido com `--env-file backend/.env`.
 - **Token chega como `TOKEN/messages-upsert`**: o serviço da Evolution está com `WEBHOOK_GLOBAL_WEBHOOK_BY_EVENTS=true`. Ponha `false` (motivo em [setup.md](setup.md#2-infra-postgresql-redis-rabbitmq-evolution)).
 - **A Evolution não alcança a API**: no Linux o container precisa de `extra_hosts: host.docker.internal:host-gateway` e a API de `--host 0.0.0.0`.
-- **A fila cresce e nada consome**: o worker não está rodando (`python scripts/run_worker.py`). Veja a fila `webhooks.evolution` no painel do RabbitMQ (`http://localhost:15672`, vhost `neuralilux`, usuário e senha de dev do compose). A fila guarda até 24 h e 100 mil Messages.
-- Uma Message cujo processamento falha volta à fila **uma vez**; se falhar de novo, é descartada e logada em `error` (`Processing error, requeueing once`). JSON inválido é descartado sem requeue.
+- **A fila cresce e nada consome**: o worker não está rodando (`python scripts/run_worker.py`). Veja a fila `webhooks.evolution` no painel do RabbitMQ (`http://localhost:15672`, vhost `neuralilux`, usuário e senha de dev do compose) ou rode `python scripts/queue_admin.py status`. A fila guarda até 24 h e 100 mil Messages; o que passa disso ou vence o TTL vai para a dead-letter queue (próxima seção), não some.
+- Uma Message cujo processamento falha volta à fila **uma vez**; se falhar de novo (ou for JSON inválido), vai para a dead-letter queue e é logada em `error` (`Processing error on redelivery, sent to the dead-letter queue`).
+
+### Dead-letter queue do webhook
+
+A fila `webhooks.evolution` tem uma exchange de dead-letter (`webhooks.evolution.dlx`) e uma fila `webhooks.evolution.dlq`. Chega lá, com o motivo no cabeçalho `x-death`:
+
+- **`rejected`**: o consumer falhou duas vezes na mesma mensagem (a original e a reentrega) ou o corpo não é JSON. Duas vezes, e não uma, porque uma falha isolada costuma ser passageira (banco fora, deadlock); `redelivered` do broker conta a segunda sem exigir fila quorum (`x-delivery-count`), e o consumer é idempotente por `Message.message_id`, então a reentrega é segura.
+- **`expired`**: a mensagem passou 24 h na fila sem ser consumida (worker parado).
+- **`maxlen`**: a fila passou de 100 mil mensagens. O overflow é `drop-head`: a **mais antiga** vai para a DLQ e a nova entra. O publish nunca falha por fila cheia, então o webhook não responde 503 nem a Evolution reenvia o que já está guardado. Com o `ack` logo depois de gravar a Message (#91), a fila só enche com o worker parado ou travado.
+
+A DLQ guarda até 100 mil mensagens; passando disso, as mais antigas dela somem. Alerte pela profundidade (`status`) ou pelo painel.
+
+**Inspecionar** (a partir de `backend/`, com o `RABBITMQ_URL` do `.env`):
+
+```bash
+python scripts/queue_admin.py status           # mensagens e consumers da fila e da DLQ
+python scripts/queue_admin.py peek --limit 10  # evento, instância, motivo e hora de cada uma; não remove
+```
+
+O painel do RabbitMQ (`Queues` → `webhooks.evolution.dlq` → `Get messages`, com `Ack mode: Reject requeue true`) mostra o corpo completo.
+
+**Reprocessar** depois de corrigir a causa (o log do worker traz o erro):
+
+```bash
+python scripts/queue_admin.py replay --limit 1   # teste com uma
+python scripts/queue_admin.py replay             # toda a DLQ
+```
+
+Cada mensagem só sai da DLQ depois que a fila principal confirmou o recebimento. Se o `replay` cair no meio, no máximo uma mensagem fica duplicada, e o consumer a ignora (dedup por `Message.message_id`). O `replay` move só o que estava na DLQ ao começar: uma mensagem que falhar de novo volta para a DLQ em vez de girar. Mensagem `expired` com mais de 5 minutos é gravada mas não ganha Turn (`stale`): o histórico se recupera, a resposta não. Para descartar a DLQ inteira, apague as mensagens no painel (`Purge Messages`).
+
+### Migrar a fila de um ambiente existente (DLQ)
+
+O RabbitMQ não deixa mudar os argumentos de uma fila que já existe: com `webhooks.evolution` criada antes da DLQ, a app e o worker **não sobem** (`PRECONDITION_FAILED`, log `Queue exists with other arguments: migrate it`). Passo único, **antes de subir a nova versão**:
+
+1. Pare a API e o worker (a janela dura segundos; o webhook responde 503 e a Evolution reenvia).
+2. `cd backend && python scripts/queue_admin.py migrate`.
+3. Suba a API e o worker.
+
+O `migrate` cria a exchange e a DLQ, move as mensagens para uma fila temporária `webhooks.evolution.migrating`, apaga a fila antiga (só se estiver vazia), recria a fila com os argumentos novos e devolve as mensagens em ordem, confirmando cada uma no destino antes de tirá-la da origem. Imprime `migrated`, `moved_out` e `moved_back`. É idempotente: sem nada a migrar devolve `migrated: false`; se foi interrompido no meio, rodar de novo esvazia a temporária na fila nova. Um ambiente novo não precisa dele. Ele só mexe nas filas `webhooks.evolution*`.
+
+As filas `whatsapp.messages.*`, `ai.processing` e `notifications`, que o código declarava mas ninguém publicava nem consumia, deixam de ser declaradas. As que já existem no broker ficam vazias e sem uso: apague-as no painel quando quiser.
 
 ### Instance e QR code
 
