@@ -12,13 +12,13 @@ com 404 se ela não existe e 403 se é de outro dono ou sem dono. Quem registra 
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
 from pydantic import BaseModel
 import structlog
 
 from app.api.access import get_instance_for_user
 from app.api.deps import get_current_user, get_db
-from app.models import User, Instance, Agent
+from app.models import User, Instance
+from app.services.agent_service import get_agent_for_instance
 
 logger = structlog.get_logger()
 
@@ -41,24 +41,6 @@ class AgentStatusUpdate(BaseModel):
 
 class AgentBindingUpdate(BaseModel):
     agent_id: str | None = None
-
-
-def _get_accessible_agent(
-    db: Session,
-    agent_id: str,
-    current_user: User,
-) -> Agent | None:
-    query = db.query(Agent).filter(
-        Agent.id == agent_id,
-        Agent.is_active == True,
-    )
-
-    if not current_user.is_superuser:
-        query = query.filter(
-            or_(Agent.owner_id == current_user.id, Agent.owner_id.is_(None))
-        )
-
-    return query.first()
 
 
 @router.get("/{instance_id}/agent-status")
@@ -117,7 +99,7 @@ async def update_agent_status(
                     detail="Assign an agent to this instance before enabling automatic responses.",
                 )
 
-            agent = _get_accessible_agent(db, instance.agent_id, current_user)
+            agent = get_agent_for_instance(db, instance.agent_id, current_user, instance)
             if not agent:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -174,7 +156,7 @@ async def update_agent_binding(
         message = "Agent unbound successfully"
 
         if binding_update.agent_id:
-            agent = _get_accessible_agent(db, binding_update.agent_id, current_user)
+            agent = get_agent_for_instance(db, binding_update.agent_id, current_user, instance)
             if not agent:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,

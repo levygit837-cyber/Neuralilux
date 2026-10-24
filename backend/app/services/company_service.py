@@ -53,7 +53,7 @@ def delete_company(db: Session, company_id: str) -> bool:
 
 
 def company_agent(db: Session, company_id: Optional[str]) -> Optional[Agent]:
-    """O Agent ativo da Company (o mesmo critério do worker em `_resolve_default_agent`)."""
+    """O Agent ativo mais antigo da Company. Só lê; o Turn usa `agent_service.resolve_turn_agent`."""
     if not company_id:
         return None
     return (

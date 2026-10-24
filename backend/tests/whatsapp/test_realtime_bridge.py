@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from app.agent import executor
 from app.agent.loop import TurnResult
 from app.core.database import Base, engine
-from app.models import Agent, Contact, Conversation, Instance, Message, User
+from app.models import Agent, Company, Contact, Conversation, Instance, Message, User
 from app.whatsapp.evolution_client import evolution_api
 from app.whatsapp.consumer import WhatsAppMessageConsumer
 from app.whatsapp.status_events import update_connection_status, update_message_status
@@ -15,7 +15,7 @@ def agent_turn(monkeypatch):
     """Troca o Turn real por um que só registra a chamada; o envio pela Evolution também é registrado."""
     calls = {"turns": [], "sent": [], "summaries": []}
 
-    async def fake_handle_incoming(db, conversation, contact, instance, text, received_at=None, message_ids=(), deferred_ids=()):
+    async def fake_handle_incoming(db, conversation, contact, instance, text, received_at=None, message_ids=(), deferred_ids=(), agent=None):
         # Guarda ids, não os objetos ORM: o Turn roda numa Session própria, fechada depois dele.
         calls["turns"].append(
             {"instance_id": instance.id, "remote_jid": contact.remote_jid, "text": text, "received_at": received_at}
@@ -273,12 +273,14 @@ async def test_save_message_to_database_triggers_agent_when_instance_is_enabled(
         full_name="Agent On User",
         is_active=True,
     )
+    company = Company(id="company-agent-on-1", name="Empresa ON")
     agent = Agent(
         id="agent-on-1",
         name="Agente Teste ON",
         system_prompt="Teste",
         is_active=True,
         owner_id=user.id,
+        company_id=company.id,
     )
     instance = Instance(
         id="instance-agent-on-1",
@@ -287,10 +289,11 @@ async def test_save_message_to_database_triggers_agent_when_instance_is_enabled(
         status="connected",
         is_active=True,
         owner_id=user.id,
+        company_id=company.id,
         agent_id=agent.id,
         agent_enabled=True,
     )
-    db.add_all([user, agent, instance])
+    db.add_all([user, company, agent, instance])
     db.commit()
 
     consumer = WhatsAppMessageConsumer()

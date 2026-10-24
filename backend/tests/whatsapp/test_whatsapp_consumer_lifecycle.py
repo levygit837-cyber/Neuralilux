@@ -16,7 +16,7 @@ from consumer_helpers import messages, process, upsert
 async def test_messages_of_one_conversation_run_in_order_and_never_overlap(db, world, monkeypatch):
     running, overlaps, order = 0, [], []
 
-    async def slow_turn(db, conversation, contact, instance, text, received_at=None, message_ids=(), deferred_ids=()):
+    async def slow_turn(db, conversation, contact, instance, text, received_at=None, message_ids=(), deferred_ids=(), agent=None):
         nonlocal running
         running += 1
         overlaps.append(running)
@@ -42,7 +42,7 @@ async def test_different_conversations_are_processed_in_parallel(db, world, monk
     both_inside = asyncio.Event()
     inside = []
 
-    async def rendezvous_turn(db, conversation, contact, instance, text, received_at=None, message_ids=(), deferred_ids=()):
+    async def rendezvous_turn(db, conversation, contact, instance, text, received_at=None, message_ids=(), deferred_ids=(), agent=None):
         inside.append(text)
         if len(inside) == 2:
             both_inside.set()

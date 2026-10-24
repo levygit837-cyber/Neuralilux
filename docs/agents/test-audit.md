@@ -291,7 +291,7 @@ Arquivo novo da #53. 2 testes: 2 keep.
 |`test_event_bus_failure_does_not_undo_the_release`|`keep`|Bus fora do ar não desfaz a devolução: API responde 200 e a Conversation volta ao Agent.|
 
 #### `tests/api/test_instance_agent_status.py`
-6 testes: 5 keep, 1 wiring.
+11 testes: 11 keep (o `wiring` foi removido na #53).
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
@@ -300,7 +300,13 @@ Arquivo novo da #53. 2 testes: 2 keep.
 |`test_patch_agent_status_requires_bound_agent_to_enable`|`keep`|Ligar sem Agent vinculado dá 400.|
 |`test_patch_agent_binding_assigns_agent_and_allows_enabling`|`keep`|Vincular Agent e depois ligar o auto-reply.|
 |`test_patch_agent_binding_unbinds_agent_and_disables_auto_reply`|`keep`|Desvincular Agent desliga o auto-reply.|
-|`test_list_agents_returns_only_active_agents_available_to_current_user`|`keep`|Lista só Agents ativos próprios ou compartilhados.|
+|`test_binding_an_agent_of_another_company_is_404_even_without_owner`|`keep`|Agent de outra Company sem dono: 404 e a Instance fica sem vínculo (#86).|
+|`test_binding_an_agent_of_the_users_company_that_belongs_to_someone_else_works`|`keep`|`owner_id` não é critério: Agent da Company de outro dono vincula (#86).|
+|`test_enabling_a_bound_agent_that_is_from_another_company_is_rejected`|`keep`|Vínculo legado com Agent de outra Company não liga o auto-reply (#86).|
+|`test_superuser_binds_the_agent_of_the_instances_company`|`keep`|Superusuário vincula o Agent da Company da Instance (#86).|
+|`test_list_agents_returns_only_active_agents_of_the_users_company`|`keep`|Lista só Agents ativos da Company do usuário (#86).|
+|`test_list_agents_for_a_user_without_company_is_empty`|`keep`|Usuário sem Company não vê Agent nenhum (#86).|
+|`test_superuser_lists_the_active_agents_of_every_company`|`keep`|Superusuário vê os Agents ativos de todas as Companies (#86).|
 
 #### `tests/api/test_instances_access.py`
 33 testes: 32 keep, 1 redundant.
@@ -428,6 +434,19 @@ Arquivo novo da #53. 2 testes: 2 keep.
 |`test_company_cancel_loses_nothing_when_the_contact_cancelled_first`|`keep`|Contact cancela antes: sem aviso falso de preparo|
 |`test_contact_cancel_loses_when_the_company_started_preparing_first`|`keep`|Company prepara antes: cancelamento do Contact recusado|
 
+#### `tests/api/test_turn_agent_resolution.py`
+7 testes: 7 keep.
+
+| Teste | Categoria | Motivo / equivalente |
+|---|---|---|
+|`test_the_agent_bound_to_the_instance_wins_over_the_oldest_of_the_company`|`keep`|O Agent vinculado vence o mais antigo da Company.|
+|`test_without_a_bound_agent_the_oldest_active_agent_of_the_company_is_used`|`keep`|Sem vínculo, o Agent ativo mais antigo da Company.|
+|`test_a_bound_agent_from_another_company_is_ignored`|`keep`|Vínculo com Agent de outra Company é ignorado.|
+|`test_a_bound_agent_from_another_company_without_own_agent_resolves_to_none`|`keep`|Sem Agent próprio, vínculo alheio não vira Agent do Turn.|
+|`test_an_inactive_bound_agent_falls_back_to_the_active_one_of_the_company`|`keep`|Vinculado inativo cai para o ativo da Company.|
+|`test_instance_without_company_has_no_agent`|`keep`|Instance sem Company não tem Agent.|
+|`test_resolving_does_not_write_or_commit`|`keep`|Resolver o Agent só faz SELECT, sem commit nem vínculo gravado.|
+
 #### `tests/api/test_register_company.py`
 5 testes: 5 keep.
 
@@ -544,7 +563,7 @@ Arquivo novo da #53. 2 testes: 2 keep.
 |`test_event_without_instance_is_dropped`|`redundant`|O descarte por falta de `instance_name` é o mesmo `return` inicial de `emit_realtime_event` coberto por `tests/agent/test_handoff_socket.py::test_handoff_event_without_instance_is_dropped_like_other_events`. **Removido (#54).**|
 
 #### `tests/whatsapp/test_debounce_context.py`
-6 testes: 6 keep.
+7 testes: 7 keep.
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
 |`test_text_media_text_in_one_window_is_one_turn_with_exactly_the_two_texts`|`keep`|Rajada texto+mídia+texto: um Turn, mídia respondida uma vez|
@@ -553,6 +572,7 @@ Arquivo novo da #53. 2 testes: 2 keep.
 |`test_transfer_requested_in_a_burst_transfers_once_and_later_messages_do_not_run_the_agent`|`keep`|Handoff em rajada: um Ticket, Message tardia não roda o Agent|
 |`test_attendant_taking_over_during_the_window_prevents_the_turn`|`keep`|Attendant assume na janela: nenhum Turn, Messages gravadas|
 |`test_without_grouping_each_message_gets_its_own_turn_and_the_queued_ones_stay_out_of_its_history`|`keep`|Sem janela: Turns em série, fila fora do histórico do Turn|
+|`test_turn_uses_temperature_and_max_tokens_of_the_agent_bound_to_the_instance`|`keep`|Consumer, batcher e executor reais: o Turn usa `temperature` e `max_tokens` do Agent vinculado, não do mais antigo da Company (#86)|
 
 #### `tests/whatsapp/test_evolution_realtime_service.py`
 1 teste: 1 keep.
@@ -752,7 +772,7 @@ Arquivo novo da #53. 2 testes: 2 keep.
 |`test_redelivered_incoming_message_is_answered_once`|`keep`|Webhook reentregue é respondido uma vez|
 |`test_reply_without_an_evolution_id_is_left_to_the_echo`|`keep`|Sem id na resposta, grava só quando o eco chega|
 |`test_failure_to_persist_the_reply_does_not_break_the_turn`|`keep`|Falha ao gravar a reply não quebra Session nem Turn seguinte|
-|`test_instance_without_binding_uses_the_agent_of_its_company_and_binds_it`|`keep`|Instance sem Agent usa o da Company e vincula|
+|`test_instance_without_binding_uses_the_agent_of_its_company_without_writing_the_binding`|`keep`|Instance sem Agent usa o da Company e a leitura não grava vínculo (#86)|
 |`test_agent_of_another_company_is_never_used`|`keep`|Isolamento: Agent de outra Company jamais é usado|
 |`test_missing_agent_logs_one_clear_error_and_never_answers`|`keep`|Sem Agent: um único erro de log e nenhuma resposta|
 |`test_disabled_agent_does_not_answer`|`keep`|`agent_enabled=False` grava mas não responde|

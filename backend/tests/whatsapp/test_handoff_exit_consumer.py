@@ -19,7 +19,7 @@ def real_handoff_gate(world, monkeypatch):
     """O Turn falso do `world` não olha o Handoff; aqui ele passa pelo mesmo gate do executor real."""
     fake_turn = executor.handle_incoming
 
-    async def gated(db, conversation, contact, instance, text, received_at=None, message_ids=(), deferred_ids=()):
+    async def gated(db, conversation, contact, instance, text, received_at=None, message_ids=(), deferred_ids=(), agent=None):
         if executor._in_handoff(db, conversation.id):
             return TurnResult(reply_text=None)
         return await fake_turn(db, conversation, contact, instance, text, received_at)

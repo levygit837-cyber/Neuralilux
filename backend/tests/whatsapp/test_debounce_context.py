@@ -11,7 +11,7 @@ from consumer_helpers import JID, messages, upsert
 
 from app.agent import core_tools, executor
 from app.core.config import settings
-from app.models import Contact, Conversation, CustomerOrder, Ticket
+from app.models import Agent, Contact, Conversation, CustomerOrder, Ticket
 from app.services import handoff_service
 from app.whatsapp import consumer as consumer_module
 from app.whatsapp.consumer import MEDIA_REPLY, WhatsAppMessageConsumer
@@ -272,3 +272,23 @@ async def test_without_grouping_each_message_gets_its_own_turn_and_the_queued_on
         ],
     ]
     assert [sent["text"] for sent in world["sent"]] == ["r1", "r2", "r3"]
+
+
+async def test_turn_uses_temperature_and_max_tokens_of_the_agent_bound_to_the_instance(
+    db, world, model, consumer
+):
+    # Um Agent mais antigo na mesma Company: o Turn não pode escolhê-lo no lugar do vinculado.
+    older = Agent(
+        name="Mais antigo", company_id=world["company"].id, is_active=True, temperature=0.9, max_tokens=111,
+        created_at=datetime(2020, 1, 1, tzinfo=timezone.utc),
+    )
+    db.add(older)
+    bound = world["agent"]
+    bound.temperature, bound.max_tokens = 0.2, 700
+    db.commit()
+
+    await consumer.process_webhook_event(upsert(text="oi", message_id="in-1"))
+    await consumer.drain()
+
+    request = model.requests[0]
+    assert (request.temperature, request.max_tokens) == (0.2, 700)

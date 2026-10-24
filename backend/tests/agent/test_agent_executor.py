@@ -10,6 +10,7 @@ from app.agent.contracts import DEFAULT_MAX_TOKENS, Tool, ToolResult
 from app.core import database
 from app.models import Agent, Company, Contact, Conversation, ConversationMemorySummary, Instance, Message, Ticket
 from tests.agent_fakes import FakeMessagesClient, FakePack, reply, text, tool_use, without_turn_context
+from app.services.agent_service import resolve_turn_agent
 from tests.access_helpers import make_user
 from tests.conftest import TestingSessionLocal
 
@@ -27,6 +28,13 @@ def _message(db, conversation, content, direction, minutes_ago):
     db.add(message)
     db.commit()
     return message
+
+
+async def _handle(db, conversation, contact, instance, text, **kwargs):
+    """O Turn como o consumer o roda: o Agent vem de `resolve_turn_agent` e segue até o executor."""
+    return await executor.handle_incoming(
+        db, conversation, contact, instance, text, agent=resolve_turn_agent(db, instance), **kwargs
+    )
 
 
 @pytest.fixture
@@ -90,7 +98,7 @@ async def test_conversation_em_handoff_nao_responde_nem_chama_o_modelo(turn_setu
     db.expire_all()
     conversation.__dict__["human_in_loop"] = False  # objeto em memória desatualizado
 
-    result = await executor.handle_incoming(db, conversation, contact, instance, "oi")
+    result = await _handle(db, conversation, contact, instance, "oi")
 
     assert result.reply_text is None
     assert agent["client"].requests == []
@@ -136,7 +144,7 @@ async def test_turn_com_tool_usa_a_memoria_e_devolve_resposta_formatada(turn_set
         reply(text("Temos **Pizza Toscana** por R$ 1.250,00")),
     ]
 
-    result = await executor.handle_incoming(
+    result = await _handle(
         db, conversation, contact, instance, "Tem pizza toscana?", message_ids=[incoming.id]
     )
 
@@ -174,7 +182,7 @@ async def test_falha_do_gateway_devolve_mensagem_generica_sem_debug(turn_setup, 
 
     monkeypatch.setattr(executor, "resolve_gateway", no_gateway)
 
-    result = await executor.handle_incoming(db, conversation, contact, instance, "oi")
+    result = await _handle(db, conversation, contact, instance, "oi")
 
     assert result.reply_text == executor.FALLBACK_REPLY
     assert "[Debug" not in result.reply_text
@@ -187,7 +195,7 @@ async def test_instance_sem_company_nao_responde(turn_setup, agent):
     instance.company_id = None
     db.commit()
 
-    result = await executor.handle_incoming(db, conversation, contact, instance, "oi")
+    result = await _handle(db, conversation, contact, instance, "oi")
 
     assert result.reply_text is None
     assert agent["client"].requests == []
@@ -200,7 +208,7 @@ async def test_texto_atual_entra_mesmo_com_message_anterior_do_contact_sem_respo
     agent["client"].script = [reply(text("Temos sim!"))]
 
     # A Message atual ainda não foi gravada quando o Turn começa.
-    await executor.handle_incoming(db, conversation, contact, instance, "Tem pizza toscana?")
+    await _handle(db, conversation, contact, instance, "Tem pizza toscana?")
 
     assert without_turn_context(agent["client"].requests[0].messages) == [
         {"role": "user", "content": "Oi, tudo bem?\nTem pizza toscana?"}
@@ -218,7 +226,7 @@ async def test_falha_no_turn_desfaz_a_session_para_quem_chama(turn_setup, agent,
 
     monkeypatch.setattr(executor, "build_context", broken_context)
 
-    result = await executor.handle_incoming(db, conversation, contact, instance, "oi")
+    result = await _handle(db, conversation, contact, instance, "oi")
 
     assert result.reply_text == executor.FALLBACK_REPLY
     # O consumer continua usando a mesma Session depois do Turn.
@@ -236,7 +244,7 @@ async def test_attendant_que_assume_durante_o_turn_cala_o_agent(turn_setup, agen
     agent["add_tool"]("consulta_lenta", lenta)
     agent["client"].script = [reply(tool_use("consulta_lenta", {}, "toolu_1")), reply(text("Resposta do Agent"))]
 
-    result = await executor.handle_incoming(db, conversation, contact, instance, "oi")
+    result = await _handle(db, conversation, contact, instance, "oi")
 
     assert result.reply_text is None
 
@@ -253,7 +261,7 @@ async def test_tool_que_transfere_ainda_envia_a_mensagem_de_transferencia(turn_s
     agent["add_tool"]("transferir_teste", transferir)
     agent["client"].script = [reply(tool_use("transferir_teste", {}, "toolu_1"))]
 
-    result = await executor.handle_incoming(db, conversation, contact, instance, "quero falar com alguém")
+    result = await _handle(db, conversation, contact, instance, "quero falar com alguém")
 
     assert result.reply_text == "Vou te passar para um atendente."
 
@@ -279,7 +287,7 @@ async def test_refresh_summary_usa_session_propria_e_falha_nao_afeta_a_resposta(
     monkeypatch.setattr(executor, "maybe_refresh_summary", failing_refresh)
     agent["client"].script = [reply(text("Oi! Como posso ajudar?"))]
 
-    result = await executor.handle_incoming(db, conversation, contact, instance, "oi")
+    result = await _handle(db, conversation, contact, instance, "oi")
     await executor.refresh_summary(conversation.id)  # não levanta
 
     assert result.reply_text == "Oi! Como posso ajudar?"
@@ -317,7 +325,7 @@ async def _prompt(turn_setup, agent, monkeypatch, timezone_name="America/Fortale
     newest = db.query(Message).filter_by(conversation_id=conversation.id, direction="incoming").order_by(
         Message.timestamp.desc()
     ).first()
-    await executor.handle_incoming(db, conversation, contact, instance, "oi", message_ids=[newest.id])
+    await _handle(db, conversation, contact, instance, "oi", message_ids=[newest.id])
     return agent["client"].requests[0].messages[-1]["content"]
 
 
@@ -447,7 +455,7 @@ async def _turn(turn_setup, agent, text_in, minutes_ago=0):
     db, conversation, contact, instance = turn_setup
     newest = _message(db, conversation, text_in, "incoming", minutes_ago)
     agent["client"].script = [reply(text("ok"))]
-    await executor.handle_incoming(db, conversation, contact, instance, text_in, message_ids=[newest.id])
+    await _handle(db, conversation, contact, instance, text_in, message_ids=[newest.id])
     return agent["client"].requests[-1]
 
 
@@ -490,7 +498,7 @@ async def test_contexto_do_turn_fica_na_ultima_mensagem_user_e_nao_muda_nos_pass
     db, conversation, contact, instance = turn_setup
     newest = _message(db, conversation, "tem toscana?", "incoming", 0)
 
-    await executor.handle_incoming(db, conversation, contact, instance, "tem toscana?", message_ids=[newest.id])
+    await _handle(db, conversation, contact, instance, "tem toscana?", message_ids=[newest.id])
 
     step1, step2 = agent["client"].requests
     assert step2.messages[0] == step1.messages[0]
@@ -516,7 +524,7 @@ async def test_turn_usa_temperatura_e_limite_de_tokens_do_agent_da_company(turn_
     db.commit()
     agent["client"].script = [reply(text("Olá!"))]
 
-    await executor.handle_incoming(db, conversation, contact, instance, "oi")
+    await _handle(db, conversation, contact, instance, "oi")
 
     request = agent["client"].requests[0]
     assert (request.temperature, request.max_tokens) == (0.2, 700)
@@ -527,7 +535,7 @@ async def test_company_sem_agent_cadastrado_usa_os_padroes(turn_setup, agent):
     db, conversation, contact, instance = turn_setup
     agent["client"].script = [reply(text("Olá!"))]
 
-    await executor.handle_incoming(db, conversation, contact, instance, "oi")
+    await _handle(db, conversation, contact, instance, "oi")
 
     request = agent["client"].requests[0]
     assert (request.temperature, request.max_tokens) == (None, DEFAULT_MAX_TOKENS)
