@@ -175,7 +175,7 @@ async def test_redelivered_incoming_message_is_answered_once(db, world):
 
 
 @pytest.mark.asyncio
-async def test_reply_without_an_evolution_id_is_left_to_the_echo(db, world, monkeypatch):
+async def test_reply_without_an_evolution_id_is_adopted_by_the_echo(db, world, monkeypatch):
     async def send_without_id(**_kwargs):
         return {"status": "ok"}
 
@@ -183,10 +183,11 @@ async def test_reply_without_an_evolution_id_is_left_to_the_echo(db, world, monk
     consumer = WhatsAppMessageConsumer()
 
     await process(consumer, upsert())
-    assert len(messages(db)) == 1  # nada gravado sem id
+    assert sorted((m.message_id or "", m.content) for m in messages(db)) == [("", "Resposta"), ("in-1", "Oi")]  # gravada sem id
 
     await process(consumer, upsert(text="Resposta", from_me=True, message_id="echo-9"))
-    assert sorted(m.message_id for m in messages(db)) == ["echo-9", "in-1"]
+    assert sorted((m.message_id, m.content) for m in messages(db)) == [("echo-9", "Resposta"), ("in-1", "Oi")]
+    assert world["turns"] == ["Oi"]
 
 
 @pytest.mark.asyncio

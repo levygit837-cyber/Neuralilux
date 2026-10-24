@@ -5,6 +5,7 @@ import pytest
 
 from app.agent import executor
 from app.agent.loop import TurnResult
+from app.core import conversation_lock
 from app.models import Conversation
 from app.core.config import settings
 from app.realtime import event_bus as event_bus_module
@@ -68,7 +69,7 @@ async def test_conversation_locks_are_released_when_idle(db, world):
 
     await process(consumer, upsert())
 
-    assert consumer._locks == {}
+    assert conversation_lock._local == {}
 
 
 # --- Summary fora do caminho crítico ---------------------------------------------------------------
