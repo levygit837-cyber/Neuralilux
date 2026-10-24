@@ -53,7 +53,7 @@ export function ModelForm({
             onChange={(e) => patchModel({ model_id: e.target.value })} />
           <datalist id="gm-remote">
             {(remoteModels[modelDraft.gateway_id] ?? []).map((id) => (
-              <option key={id} value={id} />
+              <option key={id} value={id}>{id}</option>
             ))}
           </datalist>
           <FieldError id="gm-id-error" message={modelErrors.model_id} />

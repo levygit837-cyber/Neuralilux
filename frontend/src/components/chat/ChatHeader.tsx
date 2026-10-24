@@ -122,15 +122,20 @@ export function ChatHeader({
         )}
         {/* Agent Toggle */}
         <div className="flex items-center gap-3 bg-brand-card/50 rounded-lg px-3 py-2 border border-brand-border/50">
-          <Robot weight="regular" className="text-lg text-content-muted" />
+          <Robot weight="regular" className="text-lg text-content-muted" aria-hidden="true" />
           <button
+            type="button"
+            role="switch"
+            aria-checked={agentEnabled === true}
+            aria-label="Agent ativo nesta conversa"
             onClick={onToggleAgent}
             disabled={isButtonDisabled}
-            className={`relative w-11 h-6 rounded-full transition-colors duration-200 ${
+            className={`relative w-11 h-6 rounded-full transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
               agentEnabled ? 'bg-primary' : 'bg-brand-border'
             } ${isButtonDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
           >
             <span
+              aria-hidden="true"
               className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform duration-200 ${
                 agentEnabled ? 'translate-x-5' : 'translate-x-0'
               }`}
@@ -144,10 +149,11 @@ export function ChatHeader({
         {/* Agent Selector */}
         {agentEnabled && availableAgents.length > 0 && (
           <select
+            aria-label="Agent da conversa"
             value={selectedAgentId || ''}
             onChange={(e) => onSelectAgent?.(e.target.value || null)}
             disabled={isSelectorDisabled}
-            className="bg-brand-card/50 border border-brand-border/50 rounded-lg px-3 py-2 text-sm text-content-light focus:outline-none focus:border-primary/50 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="bg-brand-card/50 border border-brand-border/50 rounded-lg px-3 py-2 text-sm text-content-light focus:outline-none focus:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <option value="">Selecione um agente</option>
             {normalizedAgents.map((agent) => (
@@ -158,19 +164,35 @@ export function ChatHeader({
           </select>
         )}
 
-        <button className="hidden lg:flex w-10 h-10 rounded-full items-center justify-center text-content-gray hover:text-primary hover:bg-brand-hover transition-colors">
-          <MagnifyingGlass weight="regular" className="text-xl" />
+        <button
+          type="button"
+          aria-label="Buscar na conversa"
+          className="hidden lg:flex w-10 h-10 rounded-full items-center justify-center text-content-gray hover:text-primary hover:bg-brand-hover transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          <MagnifyingGlass weight="regular" className="text-xl" aria-hidden="true" />
         </button>
         <div className="hidden lg:block w-px h-6 bg-brand-border mx-1" />
-        <button className="hidden lg:flex w-10 h-10 rounded-full items-center justify-center text-content-gray hover:bg-brand-hover transition-colors">
-          <Phone weight="regular" className="text-xl" />
+        <button
+          type="button"
+          aria-label="Chamada de voz"
+          className="hidden lg:flex w-10 h-10 rounded-full items-center justify-center text-content-gray hover:bg-brand-hover transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          <Phone weight="regular" className="text-xl" aria-hidden="true" />
         </button>
-        <button className="hidden lg:flex w-10 h-10 rounded-full items-center justify-center text-content-gray hover:bg-brand-hover transition-colors">
-          <VideoCamera weight="regular" className="text-xl" />
+        <button
+          type="button"
+          aria-label="Chamada de vídeo"
+          className="hidden lg:flex w-10 h-10 rounded-full items-center justify-center text-content-gray hover:bg-brand-hover transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          <VideoCamera weight="regular" className="text-xl" aria-hidden="true" />
         </button>
         <div className="hidden lg:block w-px h-6 bg-brand-border mx-1" />
-        <button className="hidden lg:flex w-10 h-10 rounded-full items-center justify-center text-content-gray hover:text-white hover:bg-brand-hover transition-colors">
-          <DotsThreeVertical weight="regular" className="text-xl" />
+        <button
+          type="button"
+          aria-label="Mais opções"
+          className="hidden lg:flex w-10 h-10 rounded-full items-center justify-center text-content-gray hover:text-white hover:bg-brand-hover transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        >
+          <DotsThreeVertical weight="regular" className="text-xl" aria-hidden="true" />
         </button>
       </div>
     </header>

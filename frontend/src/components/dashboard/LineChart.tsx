@@ -103,6 +103,8 @@ export function LineChart({ data, period, onPeriodChange, isLoading, className }
           {timePeriods.map((p) => (
             <button
               key={p.value}
+              type="button"
+              aria-pressed={period === p.value}
               onClick={() => onPeriodChange(p.value)}
               className={`px-3 py-1 text-xs font-medium rounded transition ${
                 period === p.value

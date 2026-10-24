@@ -3,7 +3,7 @@ import type { Dispatch, FormEvent, SetStateAction } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 
-import { ModalFrame } from './ModalFrame'
+import { Dialog } from '@/components/ui/Dialog'
 import type { CategoryFormState } from './types'
 
 export function CategoryFormDialog({
@@ -18,15 +18,16 @@ export function CategoryFormDialog({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
 }) {
   return (
-    <ModalFrame
+    <Dialog
       title={categoryForm.id ? 'Editar categoria' : 'Nova categoria'}
       description="Defina o nome da categoria e uma descrição opcional para organizar o cardápio."
       onClose={() => setCategoryForm(null)}
     >
       <form className="space-y-5" onSubmit={onSubmit}>
         <div className="space-y-2">
-          <label className="text-sm font-medium text-text-light">Nome da categoria</label>
+          <label htmlFor="category-name" className="text-sm font-medium text-text-light">Nome da categoria</label>
           <Input
+            id="category-name"
             value={categoryForm.name}
             onChange={(event) =>
               setCategoryForm((current) =>
@@ -44,8 +45,9 @@ export function CategoryFormDialog({
         </div>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium text-text-light">Descrição</label>
+          <label htmlFor="category-description" className="text-sm font-medium text-text-light">Descrição</label>
           <textarea
+            id="category-description"
             value={categoryForm.description}
             onChange={(event) =>
               setCategoryForm((current) =>
@@ -72,6 +74,6 @@ export function CategoryFormDialog({
           </Button>
         </div>
       </form>
-    </ModalFrame>
+    </Dialog>
   )
 }

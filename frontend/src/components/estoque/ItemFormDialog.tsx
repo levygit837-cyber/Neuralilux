@@ -4,7 +4,7 @@ import { Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 
-import { ModalFrame } from './ModalFrame'
+import { Dialog } from '@/components/ui/Dialog'
 import type { ItemFormState } from './types'
 
 export function ItemFormDialog({
@@ -19,7 +19,7 @@ export function ItemFormDialog({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
 }) {
   return (
-    <ModalFrame
+    <Dialog
       title={itemForm.id ? 'Editar item' : 'Novo item'}
       description="Cadastre os dados principais do item e inclua variáveis livres sempre que precisar."
       onClose={() => setItemForm(null)}
@@ -27,8 +27,9 @@ export function ItemFormDialog({
       <form className="space-y-5" onSubmit={onSubmit}>
         <div className="grid gap-5 md:grid-cols-2">
           <div className="space-y-2">
-            <label className="text-sm font-medium text-text-light">Nome do item</label>
+            <label htmlFor="item-name" className="text-sm font-medium text-text-light">Nome do item</label>
             <Input
+              id="item-name"
               value={itemForm.name}
               onChange={(event) =>
                 setItemForm((current) =>
@@ -46,8 +47,9 @@ export function ItemFormDialog({
           </div>
 
           <div className="space-y-2">
-            <label className="text-sm font-medium text-text-light">Preço</label>
+            <label htmlFor="item-price" className="text-sm font-medium text-text-light">Preço</label>
             <Input
+              id="item-price"
               value={itemForm.price}
               onChange={(event) =>
                 setItemForm((current) =>
@@ -65,8 +67,9 @@ export function ItemFormDialog({
         </div>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium text-text-light">Descrição</label>
+          <label htmlFor="item-description" className="text-sm font-medium text-text-light">Descrição</label>
           <textarea
+            id="item-description"
             value={itemForm.description}
             onChange={(event) =>
               setItemForm((current) =>
@@ -84,8 +87,9 @@ export function ItemFormDialog({
           />
         </div>
 
-        <label className="flex items-center gap-3 rounded-2xl border border-border-color bg-dark px-4 py-3">
+        <label htmlFor="item-available" className="flex items-center gap-3 rounded-2xl border border-border-color bg-dark px-4 py-3">
           <input
+            id="item-available"
             type="checkbox"
             checked={itemForm.is_available}
             onChange={(event) =>
@@ -211,6 +215,6 @@ export function ItemFormDialog({
           </Button>
         </div>
       </form>
-    </ModalFrame>
+    </Dialog>
   )
 }

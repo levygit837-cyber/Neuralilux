@@ -39,40 +39,41 @@ export function CategoryList({
             return (
               <div
                 key={category.id}
-                onClick={() => onSelect(category.id)}
-                className={`w-full cursor-pointer rounded-2xl border p-4 text-left transition-colors ${
+                className={`relative w-full rounded-2xl border p-4 text-left transition-colors focus-within:ring-2 focus-within:ring-primary ${
                   isSelected
                     ? 'border-primary bg-primary/10'
                     : 'border-border-color bg-dark hover:border-primary/40 hover:bg-hover'
                 }`}
               >
                 <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="font-medium text-text-light">{category.name}</p>
-                    <p className="mt-1 text-xs text-text-muted">
+                  {/* O botão cobre o card inteiro (after:inset-0); as ações ficam acima dele. */}
+                  <button
+                    type="button"
+                    aria-pressed={isSelected}
+                    onClick={() => onSelect(category.id)}
+                    className="cursor-pointer text-left after:absolute after:inset-0 after:rounded-2xl focus-visible:outline-none"
+                  >
+                    <span className="block font-medium text-text-light">{category.name}</span>
+                    <span className="mt-1 block text-xs text-text-muted">
                       {category.items_count} item(ns)
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
+                    </span>
+                  </button>
+                  <div className="relative z-10 flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        onEdit(category)
-                      }}
-                      className="rounded-full bg-hover p-2 text-text-muted hover:text-text-light"
+                      aria-label={`Editar categoria ${category.name}`}
+                      onClick={() => onEdit(category)}
+                      className="rounded-full bg-hover p-2 text-text-muted hover:text-text-light focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                     >
-                      <Pencil className="h-3.5 w-3.5" />
+                      <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
                     </button>
                     <button
                       type="button"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        onDelete(category)
-                      }}
-                      className="rounded-full bg-hover p-2 text-text-muted hover:text-error"
+                      aria-label={`Excluir categoria ${category.name}`}
+                      onClick={() => onDelete(category)}
+                      className="rounded-full bg-hover p-2 text-text-muted hover:text-error focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
+                      <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                     </button>
                   </div>
                 </div>

@@ -36,12 +36,20 @@ export function Header({ title, showOnlineBadge = true }: HeaderProps) {
         
         {/* Utilities */}
         <div className="flex items-center gap-2 border-l border-border-color pl-4">
-          <button className="w-9 h-9 rounded bg-card border border-border-color flex items-center justify-center hover:text-primary hover:border-primary transition-all relative">
-            <Bell weight="regular" className="text-lg" />
+          <button
+            type="button"
+            aria-label="Notificações"
+            className="w-9 h-9 rounded bg-card border border-border-color flex items-center justify-center hover:text-primary hover:border-primary transition-all relative focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+          >
+            <Bell weight="regular" className="text-lg" aria-hidden="true" />
             <span className="absolute top-2 right-2 w-2 h-2 bg-accent rounded-full animate-pulse-slow"></span>
           </button>
-          <button className="w-9 h-9 rounded bg-card border border-border-color flex items-center justify-center hover:text-primary hover:border-primary transition-all">
-            <MagnifyingGlass weight="regular" className="text-lg" />
+          <button
+            type="button"
+            aria-label="Buscar"
+            className="w-9 h-9 rounded bg-card border border-border-color flex items-center justify-center hover:text-primary hover:border-primary transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+          >
+            <MagnifyingGlass weight="regular" className="text-lg" aria-hidden="true" />
           </button>
         </div>
       </div>
