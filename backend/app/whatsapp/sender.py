@@ -99,7 +99,5 @@ async def send_and_persist(
         db.rollback()
         logger.exception("Failed to persist the Agent reply", message_id=sent_id)
         return timestamp
-    await publish_message(
-        instance_name, conversation.remote_jid, contact, conversation, sent_id, text, timestamp, True
-    )
+    await publish_message(conversation, contact, sent_id, text, timestamp, True)
     return timestamp

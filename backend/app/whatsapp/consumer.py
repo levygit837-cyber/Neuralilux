@@ -114,7 +114,7 @@ class WhatsAppMessageConsumer:
                 if applied and unwrap_event_payload(data).get("state") == "open":
                     self._spawn_history_sync(db, data)
             elif event == "qrcode.updated":
-                await publish_qr_code_update(data)
+                await publish_qr_code_update(db, data)
             elif event in HISTORY_EVENTS:
                 self._spawn_history_sync(db, data)
             else:
@@ -160,7 +160,7 @@ class WhatsAppMessageConsumer:
                 return
 
             async with self._serialized(f"{instance.id}:{remote_jid}"):
-                pending = await self._handle_message(db, instance, instance_name, payload, key, remote_jid, from_me)
+                pending = await self._handle_message(db, instance, payload, key, remote_jid, from_me)
             # Fora do Lock: a líder do agrupamento espera a pausa do Contact e não pode travar a gravação das Messages seguintes.
             if pending is not None:
                 await self._try_process_with_agent(db, *pending)
@@ -174,7 +174,6 @@ class WhatsAppMessageConsumer:
         self,
         db: Session,
         instance: Instance,
-        instance_name: str,
         payload: Dict[str, Any],
         key: Dict[str, Any],
         remote_jid: str,
@@ -224,8 +223,7 @@ class WhatsAppMessageConsumer:
 
         try:
             await publish_message(
-                instance_name, remote_jid, contact, conversation, message_id, parsed.content, timestamp, from_me,
-                sender_name,
+                conversation, contact, message_id, parsed.content, timestamp, from_me, sender_name
             )
 
             if not is_group:  # Session e Handoff são do atendimento 1:1

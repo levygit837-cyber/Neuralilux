@@ -31,7 +31,8 @@ def test_take_and_release_publish_handoff_updated_on_the_event_bus(client, setup
         ("handoff_updated", "assumed"),
         ("handoff_updated", "released"),
     ]
-    assert {e["instance_name"] for e in published} == {instance.name}
+    assert {e["payload"]["instance_id"] for e in published} == {instance.id}
+    assert {e["payload"]["conversation_id"] for e in published} == {conversation.id}
     assert [e["payload"]["human_in_loop"] for e in published] == [True, False]
 
 

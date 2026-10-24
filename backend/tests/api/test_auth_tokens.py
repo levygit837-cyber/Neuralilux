@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import jwt
 import pytest
+import socketio
 from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
@@ -75,8 +76,11 @@ async def _handshake(token: str | None, monkeypatch, db):
 
     monkeypatch.setattr(server, "save_session", save_session)
     auth = {"token": token} if token is not None else None
-    refused = await server.handlers["/"]["connect"]("sid-teste", {}, auth) is False
-    return False if refused else saved
+    try:
+        await server.handlers["/"]["connect"]("sid-teste", {}, auth)
+    except socketio.exceptions.ConnectionRefusedError:
+        return False
+    return saved
 
 
 @pytest.mark.parametrize("kind", list(_bad_tokens()))

@@ -23,7 +23,7 @@ def events(monkeypatch):
     async def publish(event):
         sent.append(event)
 
-    monkeypatch.setattr(core_tools, "publish_event", publish)
+    monkeypatch.setattr(realtime_event_bus, "publish", publish)
     # Segunda 19:00 em Fortaleza: a Company está aberta, então o Handoff usa a mensagem de horário comercial.
     monkeypatch.setattr(clock, "utc_now", lambda: datetime(2026, 10, 19, 22, 0, tzinfo=timezone.utc))
     return sent

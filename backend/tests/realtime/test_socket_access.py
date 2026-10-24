@@ -1,4 +1,4 @@
-"""Socket.IO respeita o dono da Instance: join_conversation e send_message (T10, #25)."""
+"""Socket.IO respeita o dono da Instance: subscribe, join_conversation e send_message (T10, #25, #101)."""
 import uuid
 
 import pytest
@@ -58,41 +58,87 @@ def _rooms(server, sid) -> list[str]:
     return [room for room in server.rooms(sid) if room != sid]
 
 
-@pytest.mark.parametrize("email,instance_key,conversation_key,allowed", [
+CASES = [
     (OWNER, "mine", "mine_conversation", True),
     (ADMIN, "theirs", "theirs_conversation", True),
     (OTHER, "mine", "mine_conversation", False),
     (OWNER, "theirs", "theirs_conversation", False),
-])
+]
+
+
+@pytest.mark.parametrize("email,instance_key,conversation_key,allowed", CASES)
+async def test_subscribe_instance_follows_the_instance_owner(world, monkeypatch, email, instance_key, conversation_key, allowed):
+    sid, server = await _connect(world, monkeypatch, email)
+    instance = world[instance_key]
+
+    result = await _handler("subscribe_instance")(sid, {"instanceId": instance.id})
+
+    assert result == {"ok": allowed}
+    assert _rooms(server, sid) == ([f"instance:{instance.id}"] if allowed else [])
+
+
+@pytest.mark.parametrize("reference", ["name", "evolution_instance_id", "unknown", None, 42])
+async def test_subscribe_instance_only_resolves_the_instance_id(world, monkeypatch, reference):
+    sid, server = await _connect(world, monkeypatch, OWNER)
+    mine = world["mine"]
+    value = {"name": mine.name, "evolution_instance_id": mine.evolution_instance_id, "unknown": "nao-existe"}.get(
+        reference, reference
+    )
+
+    result = await _handler("subscribe_instance")(sid, {"instanceId": value})
+
+    assert result == {"ok": False}
+    assert _rooms(server, sid) == []
+
+
+async def test_subscribe_instance_ignores_the_legacy_instance_name_field(world, monkeypatch):
+    sid, server = await _connect(world, monkeypatch, OWNER)
+
+    result = await _handler("subscribe_instance")(sid, {"instanceName": world["mine"].name})
+
+    assert result == {"ok": False}
+    assert _rooms(server, sid) == []
+
+
+@pytest.mark.parametrize("email,instance_key,conversation_key,allowed", CASES)
 async def test_join_conversation_follows_the_instance_owner(world, monkeypatch, email, instance_key, conversation_key, allowed):
     sid, server = await _connect(world, monkeypatch, email)
     instance = world[instance_key]
     conversation = world[conversation_key]
 
     result = await _handler("join_conversation")(
-        sid, {"instanceName": instance.name, "conversationId": conversation.id}
+        sid, {"instanceId": instance.id, "conversationId": conversation.id}
     )
 
-    expected_room = f"conversation:{instance.name}:{conversation.id}"
     assert result == {"ok": allowed}
-    assert _rooms(server, sid) == ([expected_room] if allowed else [])
+    assert _rooms(server, sid) == ([f"conversation:{conversation.id}"] if allowed else [])
 
 
 async def test_join_conversation_of_an_unknown_instance_is_denied(world, monkeypatch):
     sid, server = await _connect(world, monkeypatch, OWNER)
 
-    result = await _handler("join_conversation")(sid, {"instanceName": "nao-existe", "conversationId": "c1"})
+    result = await _handler("join_conversation")(sid, {"instanceId": "nao-existe", "conversationId": "c1"})
 
     assert result == {"ok": False}
     assert _rooms(server, sid) == []
 
 
-@pytest.mark.parametrize("email,instance_key,conversation_key,allowed", [
-    (OWNER, "mine", "mine_conversation", True),
-    (ADMIN, "theirs", "theirs_conversation", True),
-    (OTHER, "mine", "mine_conversation", False),
-    (OWNER, "theirs", "theirs_conversation", False),
-])
+async def test_join_conversation_refuses_the_remote_jid_and_a_conversation_of_another_instance(world, monkeypatch):
+    sid, server = await _connect(world, monkeypatch, OWNER)
+    mine = world["mine"]
+
+    by_jid = await _handler("join_conversation")(
+        sid, {"instanceId": mine.id, "conversationId": world["mine_conversation"].remote_jid}
+    )
+    foreign = await _handler("join_conversation")(
+        sid, {"instanceId": mine.id, "conversationId": world["theirs_conversation"].id}
+    )
+
+    assert by_jid == foreign == {"ok": False}
+    assert _rooms(server, sid) == []
+
+
+@pytest.mark.parametrize("email,instance_key,conversation_key,allowed", CASES)
 async def test_send_message_follows_the_instance_owner(world, monkeypatch, email, instance_key, conversation_key, allowed):
     sid, _ = await _connect(world, monkeypatch, email)
     instance = world[instance_key]
@@ -100,7 +146,7 @@ async def test_send_message_follows_the_instance_owner(world, monkeypatch, email
     send = world["evolution"]["send_text_message"]
 
     result = await _handler("send_message")(
-        sid, {"instanceName": instance.name, "conversationId": conversation.id, "content": "oi"}
+        sid, {"instanceId": instance.id, "conversationId": conversation.id, "content": "oi"}
     )
 
     if allowed:
@@ -111,17 +157,17 @@ async def test_send_message_follows_the_instance_owner(world, monkeypatch, email
         send.assert_not_called()
 
 
-async def test_send_message_accepts_the_remote_jid_as_conversation_reference(world, monkeypatch):
+async def test_send_message_refuses_the_remote_jid_as_conversation_reference(world, monkeypatch):
     sid, _ = await _connect(world, monkeypatch, OWNER)
     conversation = world["mine_conversation"]
     send = world["evolution"]["send_text_message"]
 
     result = await _handler("send_message")(
-        sid, {"instanceName": "inst-dono", "conversationId": conversation.remote_jid, "content": "oi"}
+        sid, {"instanceId": world["mine"].id, "conversationId": conversation.remote_jid, "content": "oi"}
     )
 
-    assert result["ok"] is True
-    send.assert_awaited_once_with("inst-dono", conversation.remote_jid, "oi")
+    assert result == {"ok": False}
+    send.assert_not_called()
 
 
 async def test_send_message_refuses_a_conversation_of_another_instance_even_for_the_owner(world, monkeypatch):
@@ -131,10 +177,10 @@ async def test_send_message_refuses_a_conversation_of_another_instance_even_for_
     foreign = world["theirs_conversation"]
 
     by_id = await _handler("send_message")(
-        sid, {"instanceName": "inst-dono", "conversationId": foreign.id, "content": "oi"}
+        sid, {"instanceId": world["mine"].id, "conversationId": foreign.id, "content": "oi"}
     )
     by_jid = await _handler("send_message")(
-        sid, {"instanceName": "inst-dono", "conversationId": foreign.remote_jid, "content": "oi"}
+        sid, {"instanceId": world["mine"].id, "conversationId": foreign.remote_jid, "content": "oi"}
     )
 
     assert by_id == by_jid == {"ok": False}
@@ -146,7 +192,7 @@ async def test_superuser_cannot_send_to_a_conversation_outside_the_named_instanc
     send = world["evolution"]["send_text_message"]
 
     result = await _handler("send_message")(
-        sid, {"instanceName": "inst-dono", "conversationId": world["theirs_conversation"].id, "content": "oi"}
+        sid, {"instanceId": world["mine"].id, "conversationId": world["theirs_conversation"].id, "content": "oi"}
     )
 
     assert result == {"ok": False}
@@ -155,14 +201,17 @@ async def test_superuser_cannot_send_to_a_conversation_outside_the_named_instanc
 
 async def test_leaving_never_needs_access(world, monkeypatch):
     sid, server = await _connect(world, monkeypatch, OWNER)
-    joined = await _handler("join_conversation")(
-        sid, {"instanceName": "inst-dono", "conversationId": world["mine_conversation"].id}
-    )
-    assert joined == {"ok": True}
+    mine, conversation = world["mine"], world["mine_conversation"]
+    assert await _handler("subscribe_instance")(sid, {"instanceId": mine.id}) == {"ok": True}
+    assert await _handler("join_conversation")(
+        sid, {"instanceId": mine.id, "conversationId": conversation.id}
+    ) == {"ok": True}
+    assert len(_rooms(server, sid)) == 2
 
-    left = await _handler("leave_conversation")(
-        sid, {"instanceName": "inst-dono", "conversationId": world["mine_conversation"].id}
+    left_conversation = await _handler("leave_conversation")(
+        sid, {"instanceId": mine.id, "conversationId": conversation.id}
     )
+    left_instance = await _handler("leave_instance")(sid, {"instanceId": mine.id})
 
-    assert left == {"ok": True}
+    assert left_conversation == left_instance == {"ok": True}
     assert _rooms(server, sid) == []

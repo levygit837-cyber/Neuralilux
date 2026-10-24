@@ -1,4 +1,4 @@
-"""Eventos de um Turn, do `TurnEvents` até as salas do Socket.IO que o frontend escuta."""
+"""Eventos de um Turn, do `TurnEvents` até a sala da Conversation que o frontend escuta."""
 from unittest.mock import AsyncMock
 
 import pytest
@@ -8,8 +8,8 @@ from app.agent.tools import ToolCall
 from app.realtime.event_bus import realtime_event_bus
 from app.realtime.socket import chat_socket_service
 
-INSTANCE = "company-123"
-CONVERSATION = "5511999990001@s.whatsapp.net"
+INSTANCE = "0b1d5f4e-1111-4111-8111-000000000001"
+CONVERSATION = "0b1d5f4e-2222-4222-8222-000000000002"
 
 
 @pytest.fixture
@@ -26,11 +26,11 @@ def socket(monkeypatch):
 
 
 def _events() -> TurnEvents:
-    return TurnEvents(instance_name=INSTANCE, conversation_id=CONVERSATION, request_id="req-1")
+    return TurnEvents(instance_id=INSTANCE, conversation_id=CONVERSATION, request_id="req-1")
 
 
 @pytest.mark.asyncio
-async def test_thinking_reaches_the_conversation_room_and_the_instance_room(socket):
+async def test_thinking_reaches_only_the_conversation_room(socket):
     events = _events()
 
     await events.thinking_start()
@@ -38,14 +38,17 @@ async def test_thinking_reaches_the_conversation_room_and_the_instance_room(sock
 
     emitted = socket()
     assert [(name, room) for name, _payload, room in emitted] == [
-        ("thinking_event", f"conversation:{INSTANCE}:{CONVERSATION}"),
-        ("thinking_event", f"instance:{INSTANCE}"),
-        ("thinking_event", f"conversation:{INSTANCE}:{CONVERSATION}"),
-        ("thinking_event", f"instance:{INSTANCE}"),
+        ("thinking_event", f"conversation:{CONVERSATION}"),
+        ("thinking_event", f"conversation:{CONVERSATION}"),
     ]
-    start, end = emitted[0][1], emitted[2][1]
-    assert (start["event"], start["conversationId"], start["data"]) == ("thinking_start", CONVERSATION, {})
-    assert (end["event"], end["conversationId"]) == ("thinking_end", CONVERSATION)
+    start, end = emitted[0][1], emitted[1][1]
+    assert start == {
+        "instance_id": INSTANCE,
+        "conversation_id": CONVERSATION,
+        "event": "thinking_start",
+        "data": {},
+    }
+    assert (end["event"], end["conversation_id"]) == ("thinking_end", CONVERSATION)
 
 
 @pytest.mark.asyncio
@@ -65,9 +68,9 @@ async def test_tool_call_reaches_the_client_as_started_then_completed_with_one_t
     await events.flush()
 
     tool_events = [payload for name, payload, _room in socket() if name == "tool_event"]
-    assert len({payload["traceId"] for payload in tool_events}) == 1
+    assert len({payload["trace_id"] for payload in tool_events}) == 1
     assert [payload["phase"] for payload in tool_events][-1] == "completed"
-    assert all(payload["conversationId"] == CONVERSATION and payload["toolName"] == "buscar_cardapio" for payload in tool_events)
+    assert all(payload["conversation_id"] == CONVERSATION and payload["tool_name"] == "buscar_cardapio" for payload in tool_events)
 
 
 @pytest.mark.asyncio

@@ -2,6 +2,7 @@
 from datetime import timedelta
 
 import pytest
+import socketio
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 
@@ -150,8 +151,11 @@ async def _handshake(cookie: str | None, auth, monkeypatch, db):
 
     monkeypatch.setattr(server, "save_session", save_session)
     environ = {"HTTP_COOKIE": cookie} if cookie is not None else {}
-    refused = await server.handlers["/"]["connect"]("sid-teste", environ, auth) is False
-    return False if refused else saved
+    try:
+        await server.handlers["/"]["connect"]("sid-teste", environ, auth)
+    except socketio.exceptions.ConnectionRefusedError:
+        return False
+    return saved
 
 
 @pytest.mark.asyncio

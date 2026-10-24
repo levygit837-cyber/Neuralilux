@@ -85,8 +85,8 @@ async def handle_incoming(
         trigger_at=received_at or utc_now(),  # quando chegou a Message que dispara o Turn
     )
     events = TurnEvents(
-        instance_name=instance.name or instance.evolution_instance_id or "",
-        conversation_id=conversation.remote_jid,
+        instance_id=instance.id,
+        conversation_id=conversation.id,
         request_id=uuid.uuid4().hex,
     )
 

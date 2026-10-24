@@ -469,16 +469,17 @@ def test_socket_subscription_follows_the_owner_rule(client, db, socket_service):
     make_user(client, db, "alice@example.com")
     make_user(client, db, "bob@example.com")
     make_user(client, db, "admin@example.com", superuser=True)
-    make_instance(db, "inst-alice", "alice@example.com")
-    make_instance(db, "inst-legado", None)
+    alice_instance = make_instance(db, "inst-alice", "alice@example.com")
+    legacy_instance = make_instance(db, "inst-legado", None)
     alice, bob, admin = (user_id(db, e) for e in ("alice@example.com", "bob@example.com", "admin@example.com"))
 
     can = socket_service._user_can_access_instance
-    assert can(alice, "inst-alice") is True
-    assert can(bob, "inst-alice") is False
-    assert can(admin, "inst-alice") is True
-    assert can(alice, "inst-legado") is False  # sem dono: só superusuário
-    assert can(bob, "inst-legado") is False
-    assert can(admin, "inst-legado") is True
+    assert can(alice, alice_instance.id) is True
+    assert can(bob, alice_instance.id) is False
+    assert can(admin, alice_instance.id) is True
+    assert can(alice, legacy_instance.id) is False  # sem dono: só superusuário
+    assert can(bob, legacy_instance.id) is False
+    assert can(admin, legacy_instance.id) is True
     assert can(alice, "nao-existe") is False  # sem Instance mapeada não há fallback
-    assert can("id-inexistente", "inst-alice") is False
+    assert can(alice, "inst-alice") is False  # o nome não resolve: só o id da Instance
+    assert can("id-inexistente", alice_instance.id) is False
