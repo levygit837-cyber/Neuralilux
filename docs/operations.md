@@ -139,7 +139,7 @@ O `finalizar` recusa em código, e o Agent repassa o motivo ao Contact. Os erros
 
 ### A app não sobe
 
-- `Configuração recusada com ENVIRONMENT='production' (sem ENVIRONMENT definido vale 'production')…`: sem `ENVIRONMENT=development` explícito a app recusa `SECRET_KEY`, `EVOLUTION_WEBHOOK_TOKEN` e `GATEWAY_ENCRYPTION_KEY` vazios ou de exemplo (e exige `GATEWAY_ENCRYPTION_KEY` diferente da `SECRET_KEY`). Em dev local, ponha `ENVIRONMENT=development` no `backend/.env`. Fora dele, defina valores fortes e distintos (`python3 -c "import secrets; print(secrets.token_urlsafe(48))"`).
+- `Configuração recusada com ENVIRONMENT='production' (sem ENVIRONMENT definido vale 'production')…`: sem `ENVIRONMENT=development` explícito a app recusa `SECRET_KEY`, `EVOLUTION_WEBHOOK_TOKEN` e `GATEWAY_ENCRYPTION_KEY` vazios ou de exemplo (e exige `GATEWAY_ENCRYPTION_KEY` diferente da `SECRET_KEY`, as duas com 32+ caracteres). Em dev local, ponha `ENVIRONMENT=development` no `backend/.env`. Fora dele, defina valores fortes e distintos (`python3 -c "import secrets; print(secrets.token_urlsafe(48))"`).
 - Erro de migração com mais de uma head: veja [agents/migrations.md](agents/migrations.md).
 - O worker sai com `Failed to connect to RabbitMQ`: confira `RABBITMQ_URL`, o vhost `neuralilux` e `docker compose --env-file backend/.env ps`.
 
@@ -147,10 +147,11 @@ O `finalizar` recusa em código, e o Agent repassa o motivo ao Contact. Os erros
 
 Passo único e obrigatório ao atualizar um banco que já tem Gateways com chave de API, **antes de subir a app**:
 
-1. No `backend/.env`, defina `GATEWAY_ENCRYPTION_KEY` (valor novo e forte, diferente da `SECRET_KEY`) e mantenha a `SECRET_KEY` atual.
-2. `cd backend && python scripts/reencrypt_gateway_secrets.py`. Imprime quantas chaves converteu.
+1. Backup: `pg_dump -t inference_gateways "$DATABASE_URL" > inference_gateways.sql` (URL `postgresql://…`, sem o `+psycopg`). O script regrava os tokens e não tem volta.
+2. No `backend/.env`, defina `GATEWAY_ENCRYPTION_KEY` (valor **real**, com 32+ caracteres e diferente da `SECRET_KEY`) e mantenha a `SECRET_KEY` atual. Com a chave vazia ou de exemplo o script recusa rodar (exit 1) e não altera nada, mesmo em `development`.
+3. `cd backend && python scripts/reencrypt_gateway_secrets.py`. Imprime quantas chaves converteu.
 
-O script abre cada chave com a `SECRET_KEY` (HKDF ou SHA-256 antigo) e regrava com a `GATEWAY_ENCRYPTION_KEY`. Idempotente: a segunda execução imprime 0 e não altera nada. Chaves que nenhuma das duas abre ficam intactas (regrave-as pela API). Depois disso a `SECRET_KEY` pode ser rotacionada sem tocar nos Gateways; já trocar a `GATEWAY_ENCRYPTION_KEY` invalida as chaves salvas.
+O script abre cada chave com a `SECRET_KEY` (HKDF ou SHA-256 antigo) e regrava com a `GATEWAY_ENCRYPTION_KEY`. Idempotente: a segunda execução imprime 0 e não altera nada. Chaves que nenhuma das duas abre ficam intactas (regrave-as pela API). Depois disso a `SECRET_KEY` pode ser rotacionada sem tocar nos Gateways; já trocar a `GATEWAY_ENCRYPTION_KEY` invalida as chaves salvas. Só o script re-criptografa; seed, API e worker nunca mexem nos tokens.
 
 ### Agrupamento e prefetch
 

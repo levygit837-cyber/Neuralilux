@@ -3,8 +3,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
 
 
-_EXAMPLE_PREFIX = "change-me"  # todo valor de exemplo do repo (.env.example e defaults) começa assim
+EXAMPLE_SECRET_PREFIX = "change-me"  # todo valor de exemplo do repo (.env.example e defaults) começa assim
 _DEVELOPMENT = "development"
+_MIN_KEY_LENGTH = 32
 _GENERATE_HINT = 'python3 -c "import secrets; print(secrets.token_urlsafe(48))"'
 
 
@@ -79,7 +80,12 @@ class Settings(BaseSettings):
                 ("EVOLUTION_WEBHOOK_TOKEN", self.EVOLUTION_WEBHOOK_TOKEN),
                 ("GATEWAY_ENCRYPTION_KEY", self.GATEWAY_ENCRYPTION_KEY),
             )
-            if not value or value.startswith(_EXAMPLE_PREFIX)
+            if not value or value.startswith(EXAMPLE_SECRET_PREFIX)
+        ]
+        problems += [
+            f"{name} com menos de {_MIN_KEY_LENGTH} caracteres"
+            for name, value in (("SECRET_KEY", self.SECRET_KEY), ("GATEWAY_ENCRYPTION_KEY", self.GATEWAY_ENCRYPTION_KEY))
+            if value and not value.startswith(EXAMPLE_SECRET_PREFIX) and len(value) < _MIN_KEY_LENGTH
         ]
         if self.SECRET_KEY and self.SECRET_KEY == self.GATEWAY_ENCRYPTION_KEY:
             problems.append("GATEWAY_ENCRYPTION_KEY igual à SECRET_KEY (devem ser valores diferentes)")
@@ -89,7 +95,7 @@ class Settings(BaseSettings):
                 + "; ".join(problems)
                 + ". Em desenvolvimento local, defina ENVIRONMENT=development no backend/.env. "
                 f"Fora dele, defina valores fortes e distintos para SECRET_KEY, EVOLUTION_WEBHOOK_TOKEN e "
-                f"GATEWAY_ENCRYPTION_KEY (gere cada um com: {_GENERATE_HINT})"
+                f"GATEWAY_ENCRYPTION_KEY, as duas chaves com ao menos {_MIN_KEY_LENGTH} caracteres (gere cada um com: {_GENERATE_HINT})"
             )
         return self
 

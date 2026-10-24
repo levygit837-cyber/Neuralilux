@@ -39,6 +39,13 @@ def test_empty_or_example_secret_is_refused_outside_development(environment, nam
         _settings(ENVIRONMENT=environment, **{**STRONG, name: bad})
 
 
+@pytest.mark.parametrize("name", ["SECRET_KEY", "GATEWAY_ENCRYPTION_KEY"])
+def test_keys_shorter_than_32_characters_are_refused_outside_development(name):
+    with pytest.raises(ValidationError, match=f"{name} com menos de 32"):
+        _settings(ENVIRONMENT="production", **{**STRONG, name: "k" * 31})
+    assert _settings(ENVIRONMENT="production", **{**STRONG, name: "k" * 32}).ENVIRONMENT == "production"
+
+
 def test_gateway_encryption_key_must_differ_from_secret_key():
     with pytest.raises(ValidationError, match="GATEWAY_ENCRYPTION_KEY igual"):
         _settings(ENVIRONMENT="production", **{**STRONG, "GATEWAY_ENCRYPTION_KEY": STRONG["SECRET_KEY"]})

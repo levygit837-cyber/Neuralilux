@@ -477,13 +477,14 @@ Arquivo novo da #53. 2 testes: 2 keep.
 |`test_records_with_unexpected_args_pass_through`|`redundant`|Apesar do nome, usa tupla de `str` sem `token=` (não exercita args não-tuple/não-str); mesmo caminho e asserção de `tests/core/test_access_log_redaction.py::test_other_paths_are_left_untouched`. **Removido na #53.**|
 
 #### `tests/core/test_config_secret_key.py`
-6 testes (alguns parametrizados): 6 keep (reescritos na #84: `ENVIRONMENT` sem padrão de dev, `GATEWAY_ENCRYPTION_KEY`).
+7 testes (alguns parametrizados): 7 keep (reescritos na #84: `ENVIRONMENT` sem padrão de dev, `GATEWAY_ENCRYPTION_KEY`).
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
 |`test_without_environment_the_example_secrets_are_refused_and_the_message_says_what_to_set`|`keep`|Sem `ENVIRONMENT` a app recusa os segredos de exemplo e a mensagem diz o que definir.|
 |`test_without_environment_and_strong_secrets_the_app_boots_as_production`|`keep`|Sem `ENVIRONMENT` e com segredos fortes sobe como produção.|
 |`test_empty_or_example_secret_is_refused_outside_development` (×18 casos)|`keep`|`SECRET_KEY`, `EVOLUTION_WEBHOOK_TOKEN` e `GATEWAY_ENCRYPTION_KEY` vazios ou de exemplo recusados fora de dev.|
+|`test_keys_shorter_than_32_characters_are_refused_outside_development` (×2 casos)|`keep`|`SECRET_KEY` e `GATEWAY_ENCRYPTION_KEY` com menos de 32 caracteres recusadas fora de dev; 32 passa.|
 |`test_gateway_encryption_key_must_differ_from_secret_key`|`keep`|As duas chaves não podem ser iguais fora de dev.|
 |`test_real_secrets_are_accepted_in_production`|`keep`|Evita bloqueio indevido de config válida em produção.|
 |`test_example_secrets_and_empty_webhook_token_are_allowed_in_explicit_development`|`keep`|Fronteira: `development` explícito continua subindo com os exemplos.|
@@ -1296,6 +1297,15 @@ Arquivo novo da #53. 2 testes: 2 keep.
 |`test_cli_reads_email_and_password_from_env_and_never_prints_the_password`|`keep`|CLI lê env e não imprime a senha|
 |`test_cli_args_override_env_and_missing_email_fails_without_leaking`|`keep`|E-mail ausente retorna 2 sem vazar senha; args funcionam|
 |`test_seed_keeps_dev_user_non_superuser_unless_opted_in`|`keep`|Usuário dev só vira superuser com `SEED_DEV_SUPERUSER=1`|
+
+#### `tests/scripts/test_reencrypt_gateway_secrets.py`
+4 testes (um parametrizado): 4 keep.
+
+| Teste | Categoria | Motivo / equivalente |
+|---|---|---|
+|`test_script_refuses_the_example_key_and_leaves_every_token_untouched` (×2 casos)|`keep`|Chave de exemplo ou vazia: exit 1 e nenhum token muda, mesmo em development (#84)|
+|`test_script_with_a_real_key_migrates_and_a_second_run_changes_nothing`|`keep`|Chave real migra 1; a segunda execução migra 0 e deixa o token igual|
+|`test_seed_leaves_existing_gateway_tokens_alone`|`keep`|O seed não re-criptografa tokens (só o script)|
 
 #### `tests/scripts/test_seed_company_agents.py`
 6 testes: 6 keep.
