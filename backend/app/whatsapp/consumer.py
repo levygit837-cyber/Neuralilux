@@ -309,7 +309,7 @@ class WhatsAppMessageConsumer:
             conversation_id = conversation.id
             turn = partial(run_agent_turn, SessionLocal, instance.id, conversation_id, contact.id, agent.id, self._spawn_summary)
             db.rollback()  # a líder espera a pausa do Contact: não segura a conexão do pool enquanto isso
-            await self._batcher.submit(conversation_id, entry, turn, settings.DEBOUNCE_SECONDS, hold)
+            await self._batcher.submit(conversation_id, entry, turn, settings.DEBOUNCE_SECONDS, hold, settings.DEBOUNCE_MAX_WAIT_SECONDS)
         except Exception:
             # Nunca derruba o worker: o erro fica no log e a próxima Message tenta de novo.
             log.exception("Unexpected error processing message with agent")

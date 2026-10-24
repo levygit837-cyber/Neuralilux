@@ -268,3 +268,60 @@ async def test_zero_window_runs_one_turn_per_message_in_arrival_order(batcher):
 
     assert runs.texts == ["oi", "quero", "uma calabresa"]
     assert runs.max_running == 1
+
+
+# --- max_wait: teto do debounce ------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_a_continuous_burst_runs_one_turn_after_max_wait(batcher, clock):
+    runs = Runs()
+    max_wait = 10.0
+    tasks = []
+    for second, word in enumerate(["a", "b", "c", "d", "e"]):  # uma Message a cada 2 s: nunca há pausa de 3 s
+        tasks.append(asyncio.create_task(batcher.submit("c1", entry(word), runs, WINDOW, max_wait=max_wait)))
+        await settle()
+        if second < 4:
+            await clock.advance(2)
+    assert runs.texts == []  # t=8: ainda dentro do teto
+
+    await clock.advance(2)  # t=10: o teto vence com o Contact ainda escrevendo
+    await asyncio.gather(*tasks)
+
+    assert runs.texts == ["a\nb\nc\nd\ne"]
+
+
+@pytest.mark.asyncio
+async def test_messages_after_the_max_wait_turn_start_a_new_wait(batcher, clock):
+    runs = Runs()
+    runs.gate = asyncio.Event()
+    leader = asyncio.create_task(batcher.submit("c1", entry("a"), runs, WINDOW, max_wait=4.0))
+    await settle()
+    await clock.advance(2)
+    follower = asyncio.create_task(batcher.submit("c1", entry("b"), runs, WINDOW, max_wait=4.0))
+    await settle()
+    await clock.advance(2)  # t=4: teto
+    assert runs.texts == ["a\nb"]
+
+    late = asyncio.create_task(batcher.submit("c1", entry("c"), runs, WINDOW, max_wait=4.0))  # chega durante o Turn
+    await settle()
+    runs.gate.set()
+    await settle()
+    await clock.advance(WINDOW)  # pausa normal do Turn seguinte; o teto dele conta da chegada de "c"
+    await asyncio.gather(leader, follower, late)
+
+    assert runs.texts == ["a\nb", "c"]
+
+
+@pytest.mark.asyncio
+async def test_without_max_wait_a_continuous_burst_keeps_waiting(batcher, clock):
+    runs = Runs()
+    tasks = []
+    for _ in range(8):  # 16 s de rajada contínua
+        tasks.append(submit(batcher, "c1", f"m{len(tasks)}", runs))
+        await settle()
+        await clock.advance(2)
+    assert runs.texts == []
+
+    await clock.advance(WINDOW)
+    await asyncio.gather(*tasks)
+    assert len(runs.texts) == 1
