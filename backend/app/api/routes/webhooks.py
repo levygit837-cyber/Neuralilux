@@ -93,6 +93,6 @@ async def evolution_webhook(
 
 
 @router.get("/evolution/test")
-async def test_webhook():
+def test_webhook():
     """Test endpoint to verify webhook is accessible"""
     return {"status": "webhook endpoint is accessible"}

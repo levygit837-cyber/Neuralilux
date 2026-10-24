@@ -8,6 +8,7 @@ from app.core.config import settings
 from app.models import Agent, BusinessType, Company, Instance
 from app.whatsapp import consumer as consumer_module
 from app.whatsapp.evolution_client import evolution_api
+from tests.clock_helpers import track_threads
 from tests.conftest import TestingSessionLocal
 
 
@@ -55,6 +56,12 @@ def world(db, monkeypatch):
 def no_debounce(monkeypatch):
     """Sem janela de agrupamento por padrão: cada Message vira um Turn; os testes de agrupamento ligam a janela."""
     monkeypatch.setattr(settings, "DEBOUNCE_SECONDS", 0.0)
+
+
+@pytest.fixture(autouse=True)
+def threads_tracked_by_settle(monkeypatch):
+    """O `settle` dos testes de agrupamento espera as chamadas de `asyncio.to_thread` em voo (ver `clock_helpers`)."""
+    track_threads(monkeypatch)
 
 
 @pytest.fixture(autouse=True)

@@ -11,6 +11,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.api.access import get_instance_for_user
 from app.api.deps import get_current_user, get_db
@@ -61,6 +62,32 @@ def _response(
     )
 
 
+def _take(db: Session, conversation_id: str, user: User, reason: Optional[str]):
+    """Assume a Conversation (bloqueante: roda em thread). Devolve os objetos já recarregados: o `announce` roda no
+    event loop e lê só atributos, então nada pode estar expirado (o commit de `assume` expira tudo)."""
+    conversation, instance = _load(db, conversation_id, user)
+    try:
+        ticket = handoff_service.assume(db, conversation, user, reason)
+    except handoff_service.HeldByAnotherAttendant:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Outro atendente já assumiu esta conversa")
+    db.refresh(conversation)
+    db.refresh(instance)
+    db.refresh(ticket)
+    return conversation, instance, ticket
+
+
+def _release(db: Session, conversation_id: str, user: User):
+    """Devolve a Conversation ao Agent (bloqueante: roda em thread); mesmo contrato de objetos recarregados."""
+    conversation, instance = _load(db, conversation_id, user)
+    released = handoff_service.release(db, conversation)
+    db.refresh(conversation)
+    if released is not None:
+        db.refresh(instance)
+        if released.ticket is not None:  # Handoff antigo pode não ter Ticket (contrato de `Released.ticket`)
+            db.refresh(released.ticket)
+    return conversation, instance, released
+
+
 @router.post("/conversations/{conversation_id}/take-control", response_model=HumanControlResponse)
 async def take_conversation_control(
     conversation_id: str,
@@ -69,14 +96,10 @@ async def take_conversation_control(
     current_user: User = Depends(get_current_user),
 ):
     """O Attendant assume a Conversation: o Agent para de responder até o Attendant devolver ou o timeout vencer."""
-    conversation, instance = _load(db, conversation_id, current_user)
-    try:
-        ticket = handoff_service.assume(db, conversation, current_user, request.reason)
-    except handoff_service.HeldByAnotherAttendant:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Outro atendente já assumiu esta conversa")
-    db.refresh(conversation)
+    user_id = current_user.id  # lido antes: o commit do Handoff expira o usuário e a leitura iria ao banco, no loop
+    conversation, instance, ticket = await run_in_threadpool(_take, db, conversation_id, current_user, request.reason)
     await handoff_service.announce(instance, conversation, "assumed", ticket)
-    logger.info("Attendant took control", conversation_id=conversation.id, user_id=current_user.id, ticket_id=ticket.id)
+    logger.info("Attendant took control", conversation_id=conversation.id, user_id=user_id, ticket_id=ticket.id)
     return _response(conversation, ticket, "Atendimento assumido. O Agent está pausado nesta conversa.")
 
 
@@ -87,20 +110,19 @@ async def release_conversation_control(
     current_user: User = Depends(get_current_user),
 ):
     """Devolve a Conversation ao Agent e fecha o Ticket. Sem Handoff em curso, não muda nada."""
-    conversation, instance = _load(db, conversation_id, current_user)
-    released = handoff_service.release(db, conversation)
-    db.refresh(conversation)
+    user_id = current_user.id  # lido antes: o commit do Handoff expira o usuário e a leitura iria ao banco, no loop
+    conversation, instance, released = await run_in_threadpool(_release, db, conversation_id, current_user)
     if released is None:  # já estava com o Agent, ou o timeout devolveu antes: nada mudou, nada a anunciar
         return _response(conversation, None, "A conversa já está com o Agent.")
     await handoff_service.announce(instance, conversation, "released", released.ticket)
-    logger.info("Attendant released control", conversation_id=conversation.id, user_id=current_user.id)
+    logger.info("Attendant released control", conversation_id=conversation.id, user_id=user_id)
     return _response(
         conversation, released.ticket, "Conversa devolvida ao Agent. Ele volta a responder na próxima mensagem."
     )
 
 
 @router.get("/conversations/{conversation_id}/human-control-status", response_model=HumanControlResponse)
-async def get_human_control_status(
+def get_human_control_status(
     conversation_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),

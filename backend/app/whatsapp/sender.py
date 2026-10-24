@@ -1,6 +1,7 @@
 """
 Saída do Agent: envia a resposta pela Evolution, grava a Message `from_me` e avisa a UI ao vivo.
 """
+import asyncio
 from datetime import datetime, timezone
 
 import structlog
@@ -13,6 +14,53 @@ from app.whatsapp.evolution_client import evolution_api
 from app.whatsapp.status_events import publish_message, touch_conversation
 
 logger = structlog.get_logger()
+
+
+def _persist_reply(
+    db: Session,
+    instance: Instance,
+    conversation: Conversation,
+    contact: Contact,
+    sent_id: str | None,
+    text: str,
+    sent_by: str | None,
+    timestamp: datetime,
+) -> None:
+    """Grava a Message `from_me` e confirma. Bloqueante: roda em thread. Recarrega Conversation e Contact depois do
+    commit (que expira os atributos) para o `publish_message` não ir ao banco de dentro do event loop."""
+    db.add(
+        Message(
+            instance_id=instance.id,
+            conversation_id=conversation.id,
+            remote_jid=conversation.remote_jid,
+            message_id=sent_id,
+            message_type="text",
+            content=text,
+            direction="outgoing",
+            status="sent",
+            is_from_me=True,
+            sent_by=sent_by,
+            timestamp=timestamp,
+        )
+    )
+    touch_conversation(conversation, text, timestamp, unread=False)
+    db.commit()
+    db.refresh(conversation)
+    db.refresh(contact)
+
+
+async def _wait_persist(persist: "asyncio.Future[None]", db: Session) -> None:
+    """Espera a gravação em thread acabar mesmo sob cancelamento; falha dela só é logada e desfeita."""
+    while not persist.done():
+        try:
+            await asyncio.shield(persist)
+        except asyncio.CancelledError:
+            continue  # outro cancel: a thread segue usando a Session, então continua esperando
+        except Exception:
+            break
+    if not persist.cancelled() and persist.exception() is not None:
+        db.rollback()
+        logger.error("Failed to persist the outgoing message after cancellation", error=str(persist.exception()))
 
 
 async def send_and_persist(
@@ -44,24 +92,19 @@ async def send_and_persist(
             logger.warning("Evolution did not return a message id", sent_by=sent_by)
 
         timestamp = datetime.now(timezone.utc)
+        persist = asyncio.ensure_future(
+            asyncio.to_thread(_persist_reply, db, instance, conversation, contact, sent_id, text, sent_by, timestamp)
+        )
         try:
-            db.add(
-                Message(
-                    instance_id=instance.id,
-                    conversation_id=conversation.id,
-                    remote_jid=conversation.remote_jid,
-                    message_id=sent_id,
-                    message_type="text",
-                    content=text,
-                    direction="outgoing",
-                    status="sent",
-                    is_from_me=True,
-                    sent_by=sent_by,
-                    timestamp=timestamp,
-                )
-            )
-            touch_conversation(conversation, text, timestamp, unread=False)
-            db.commit()
+            # Em thread, e termina antes de publicar: quem lê a Message `from_me` como prova de envio (recuperação do
+            # Turn) a encontra commitada antes de a UI receber o evento.
+            await asyncio.shield(persist)
+        except asyncio.CancelledError:
+            # Turn cancelado (timeout, shutdown) com a thread ainda gravando: a thread não é cancelável. Soltar o lock
+            # agora deixaria o eco ler a Message `from_me` sem commit, e o `db.close()` do Turn rodaria com a thread
+            # usando a mesma Session. Espera a gravação terminar (curta, limitada pelo banco) e só então propaga.
+            await _wait_persist(persist, db)
+            raise
         except Exception:
             # A saída já saiu; falhar ao gravar não pode reenviar nem derrubar o Turn.
             db.rollback()

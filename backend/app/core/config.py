@@ -98,6 +98,9 @@ class Settings(BaseSettings):
     LOCK_SAVE_WAIT_SECONDS: float = 45.0  # quanto o webhook e o envio esperam o lock de gravação da Conversation; maior que o timeout de 30 s do envio pela Evolution
     TURN_LOCK_WAIT_SECONDS: float = 120.0  # quanto um Turn espera o Turn de outra réplica da mesma Conversation (#92); acima de TURN_TIMEOUT_SECONDS
 
+    # Importação de histórico (issue #93)
+    HISTORY_REIMPORT_MIN_INTERVAL_SECONDS: int = 300  # intervalo mínimo entre reimportações da mesma Instance (0 desliga)
+
     # Realtime
     REALTIME_REDIS_CHANNEL: str = "neuralilux:realtime:events"
     REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS: float = 2.0

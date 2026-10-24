@@ -20,6 +20,7 @@ import httpx
 import structlog
 
 from app.agent.contracts import ContentBlock, MessagesRequest, MessagesResponse
+from app.core import http_clients
 from app.llm.errors import LLMProviderError, LLMRateLimitError, LLMTimeoutError
 from app.llm.retry import RetryBudget
 
@@ -86,6 +87,7 @@ class GatewayMessagesClient:
         self._backoff = backoff_seconds
         self._max_attempts = max_attempts
         self._transport = transport
+        self._own_http: httpx.AsyncClient | None = None
         self._sleep = sleep
         self._uniform = uniform
 
@@ -227,10 +229,20 @@ class GatewayMessagesClient:
             return retry_after + self._uniform(0.0, self._backoff)
         return self._uniform(0.0, min(self._backoff * 2 ** (attempt - 1), MAX_BACKOFF_SECONDS))
 
+    def _http(self) -> httpx.AsyncClient:
+        """Cliente HTTP do destino, compartilhado pelo processo (`http_clients`). Com `transport` (testes) o cliente é
+        próprio desta instância, sobre o transporte injetado."""
+        if self._transport is None:
+            return http_clients.get(f"gateway:{self._root}")
+        if self._own_http is None:
+            self._own_http = httpx.AsyncClient(transport=self._transport)
+        return self._own_http
+
     async def _send_once(self, method: str, path: str, body: dict[str, Any] | None) -> Any:
         try:
-            async with httpx.AsyncClient(timeout=self._timeout, transport=self._transport) as http:
-                response = await http.request(method, f"{self._root}{path}", headers=self._headers(), json=body)
+            response = await self._http().request(
+                method, f"{self._root}{path}", headers=self._headers(), json=body, timeout=self._timeout
+            )
         except httpx.TimeoutException as exc:
             raise LLMTimeoutError(f"{self._name}: timeout apos {self._timeout:g}s") from exc
         except httpx.HTTPError as exc:

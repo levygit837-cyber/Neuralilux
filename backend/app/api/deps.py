@@ -36,7 +36,7 @@ def _token_of(request: Request, bearer: str | None) -> str | None:
     return bearer or request.cookies.get(AUTH_COOKIE_NAME)
 
 
-async def get_current_user(
+def get_current_user(
     request: Request,
     bearer: str | None = Depends(bearer_scheme),
     db: Session = Depends(get_db),
@@ -52,7 +52,7 @@ async def get_current_user(
     return _user_from_token(token, db)
 
 
-async def get_optional_user(
+def get_optional_user(
     request: Request,
     bearer: str | None = Depends(bearer_scheme),
     db: Session = Depends(get_db),
@@ -64,7 +64,7 @@ async def get_optional_user(
     return _user_from_token(token, db)
 
 
-async def require_superuser(current_user=Depends(get_current_user)):
+def require_superuser(current_user=Depends(get_current_user)):
     """Usuário do JWT, só se for superusuário; 403 para os demais."""
     if not current_user.is_superuser:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only a superuser can do this")

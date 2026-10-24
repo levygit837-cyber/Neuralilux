@@ -4,6 +4,8 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta
 
+from starlette.concurrency import run_in_threadpool
+
 from app.api.deps import get_current_user, get_db, get_optional_user
 from app.core.auth_cookie import clear_auth_cookie, set_auth_cookie
 from app.core.config import settings
@@ -40,7 +42,7 @@ async def register(
             detail="Only a superuser can register a user into a Company",
         )
     try:
-        return create_user(db, user)
+        return await run_in_threadpool(create_user, db, user)
     except EmailAlreadyRegistered:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
     except CompanyNotFound:
@@ -54,7 +56,7 @@ async def register(
 
 
 @router.post("/login", response_model=Token, response_model_exclude_none=True, dependencies=[Depends(limit_login)])
-async def login(
+def login(
     request: Request,
     response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
@@ -90,12 +92,12 @@ async def login(
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-async def logout(response: Response):
+def logout(response: Response):
     """Encerra a sessão do navegador apagando o cookie. Sem autenticação: sair com cookie vencido tem de funcionar."""
     clear_auth_cookie(response)
 
 
 @router.get("/me", response_model=UserResponse)
-async def read_users_me(current_user = Depends(get_current_user)):
+def read_users_me(current_user = Depends(get_current_user)):
     """Get current user information"""
     return current_user

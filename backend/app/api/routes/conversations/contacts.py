@@ -17,7 +17,7 @@ router = APIRouter()
 
 
 @router.get("/contacts", response_model=PaginatedContacts)
-async def list_contacts(
+def list_contacts(
     instance_id: Optional[str] = Query(None, description="Filter by instance ID"),
     is_blocked: Optional[bool] = Query(None, description="Filter blocked contacts"),
     is_business: Optional[bool] = Query(None, description="Filter business contacts"),

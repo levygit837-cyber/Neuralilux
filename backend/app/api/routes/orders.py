@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session, selectinload
+from starlette.concurrency import run_in_threadpool
 
 from app.api.access import instance_ids_for_user
 from app.api.deps import get_current_user, get_db
@@ -180,11 +181,13 @@ async def change_order_status(
     current_user: User = Depends(get_current_user),
 ):
     """Move o Order na máquina de status e avisa o Contact. Falha no aviso não desfaz a mudança (`notification`)."""
-    order = _scoped_orders(db, current_user).filter(CustomerOrder.id == order_id).first()
+    order = await run_in_threadpool(lambda: _scoped_orders(db, current_user).filter(CustomerOrder.id == order_id).first())
     if order is None:
         raise HTTPException(status_code=404, detail="Pedido não encontrado")
     try:
         notification = await change_status(db, order, body.status)
     except TransitionError as exc:
         raise HTTPException(status_code=409, detail=exc.message) from exc
-    return {"order": _panel_row(order, _refund_statuses(db, [order.id])), "notification": notification}
+    # O commit e o rollback expiram o Order: recarregá-lo para montar a resposta é banco, então vai para a thread.
+    row = await run_in_threadpool(lambda: _panel_row(order, _refund_statuses(db, [order.id])))
+    return {"order": row, "notification": notification}

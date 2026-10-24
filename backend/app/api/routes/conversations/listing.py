@@ -4,6 +4,7 @@ Usa o cliente da Evolution API para buscar e enviar Messages.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import datetime, timezone
@@ -29,7 +30,7 @@ router = APIRouter()
 
 
 @router.get("/conversations", response_model=PaginatedConversations)
-async def list_conversations(
+def list_conversations(
     instance_id: Optional[str] = Query(None, description="Filter by instance ID"),
     contact_id: Optional[str] = Query(None, description="Filter by contact ID"),
     is_active: Optional[bool] = Query(None, description="Filter active/inactive conversations"),
@@ -95,7 +96,7 @@ async def list_conversations(
 
 
 @router.get("/conversations/{conversation_id}/messages", response_model=PaginatedMessages)
-async def get_conversation_messages(
+def get_conversation_messages(
     conversation_id: str,
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
@@ -142,19 +143,10 @@ async def get_conversation_messages(
     )
 
 
-@router.post("/conversations/{conversation_id}/messages", response_model=SendMessageResponse)
-async def send_conversation_message(
-    conversation_id: str,
-    request: ConversationSendMessageRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """
-    Send a message in a specific conversation via WhatsApp.
+def _prepare_send(db: Session, conversation_id: str, user: User, request: ConversationSendMessageRequest) -> tuple[str, str, str]:
+    """Fase 1 do envio (bloqueante: roda em thread): autoriza e valida. Devolve `(instance.id, nome na Evolution, JID)`.
 
-    - **conversation_id**: The ID of the conversation.
-    - **request**: Message details including content and type.
-    """
+    Só valores simples saem daqui: a Session não fica segurando conexão durante a chamada de rede da fase 2."""
     conversation = db.query(Conversation).filter(
         Conversation.id == conversation_id,
     ).first()
@@ -166,7 +158,7 @@ async def send_conversation_message(
         )
 
     # Validate ownership through instance
-    instance = get_instance_for_user(db, conversation.instance_id, current_user)
+    instance = get_instance_for_user(db, conversation.instance_id, user)
 
     if instance.status != "connected":
         raise HTTPException(
@@ -180,12 +172,59 @@ async def send_conversation_message(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Only text messages are supported.",
         )
+    result = (instance.id, instance.evolution_instance_id, conversation.remote_jid)
+    db.rollback()  # leitura só: devolve a conexão ao pool antes de falar com a Evolution, sem expulsar objetos da Session
+    return result
 
+
+def _record_sent(db: Session, conversation_id: str, instance_id: str, content: str, message_id: Optional[str]) -> None:
+    """Fase 3 do envio (bloqueante: roda em thread): grava a Message `from_me` e reinicia o timeout do Handoff."""
+    conversation = db.get(Conversation, conversation_id)
+    db_message = Message(
+        instance_id=instance_id,
+        conversation_id=conversation.id,
+        remote_jid=conversation.remote_jid,
+        message_id=message_id,
+        message_type="text",
+        content=content,
+        direction="outgoing",
+        status="sent",
+        is_from_me=True,
+        timestamp=datetime.now(timezone.utc),
+    )
+    db.add(db_message)
+
+    # Update conversation last message info
+    conversation.last_message_at = datetime.now(timezone.utc)
+    conversation.last_message_preview = content[:200] if content else None
+    db.commit()
+    # Um Attendant escreveu pelo painel: reinicia o timeout do Handoff.
+    handoff_service.record_attendant_activity(db, conversation)
+
+
+@router.post("/conversations/{conversation_id}/messages", response_model=SendMessageResponse)
+async def send_conversation_message(
+    conversation_id: str,
+    request: ConversationSendMessageRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Send a message in a specific conversation via WhatsApp.
+
+    - **conversation_id**: The ID of the conversation.
+    - **request**: Message details including content and type.
+
+    Três fases: validar (banco, em thread), enviar (Evolution, no loop) e gravar (banco, em thread).
+    """
+    instance_id, evolution_name, remote_jid = await run_in_threadpool(
+        _prepare_send, db, conversation_id, current_user, request
+    )
     try:
         # Send message via Evolution API
         result = await evolution_api.send_text_message(
-            instance_name=instance.evolution_instance_id,
-            remote_jid=conversation.remote_jid,
+            instance_name=evolution_name,
+            remote_jid=remote_jid,
             text=request.content,
         )
 
@@ -198,41 +237,20 @@ async def send_conversation_message(
                 or result.get("id")
             )
 
-        # Save message to database
-        db_message = Message(
-            instance_id=instance.id,
-            conversation_id=conversation.id,
-            remote_jid=conversation.remote_jid,
-            message_id=evolution_message_id,
-            message_type="text",
-            content=request.content,
-            direction="outgoing",
-            status="sent",
-            is_from_me=True,
-            timestamp=datetime.now(timezone.utc),
-        )
-        db.add(db_message)
-
-        # Update conversation last message info
-        conversation.last_message_at = datetime.now(timezone.utc)
-        conversation.last_message_preview = request.content[:200] if request.content else None
-        db.commit()
-        # Um Attendant escreveu pelo painel: reinicia o timeout do Handoff.
-        handoff_service.record_attendant_activity(db, conversation)
-        db.refresh(db_message)
+        await run_in_threadpool(_record_sent, db, conversation_id, instance_id, request.content, evolution_message_id)
 
         logger.info(
             "Message sent successfully",
             conversation_id=conversation_id,
             message_id=evolution_message_id,
-            instance_id=instance.id,
+            instance_id=instance_id,
         )
 
         return SendMessageResponse(
             success=True,
             message_id=evolution_message_id,
-            instance_id=instance.id,
-            remote_jid=conversation.remote_jid,
+            instance_id=instance_id,
+            remote_jid=remote_jid,
             status="sent",
             message="Message sent successfully",
         )

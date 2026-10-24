@@ -25,7 +25,7 @@ router = APIRouter()
 
 
 @router.get("", response_model=MenuManagementResponse)
-async def read_active_menu(
+def read_active_menu(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -33,7 +33,7 @@ async def read_active_menu(
 
 
 @router.post("/categories", response_model=MenuCategoryResponse, status_code=status.HTTP_201_CREATED)
-async def create_category(
+def create_category(
     payload: MenuCategoryCreate,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
@@ -42,7 +42,7 @@ async def create_category(
 
 
 @router.patch("/categories/{category_id}", response_model=MenuCategoryResponse)
-async def update_category(
+def update_category(
     category_id: str,
     payload: MenuCategoryUpdate,
     db: Session = Depends(get_db),
@@ -52,7 +52,7 @@ async def update_category(
 
 
 @router.delete("/categories/{category_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_category(
+def delete_category(
     category_id: str,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
@@ -62,7 +62,7 @@ async def delete_category(
 
 
 @router.post("/items", response_model=MenuItemResponse, status_code=status.HTTP_201_CREATED)
-async def create_item(
+def create_item(
     payload: MenuItemCreate,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
@@ -71,7 +71,7 @@ async def create_item(
 
 
 @router.patch("/items/{item_id}", response_model=MenuItemResponse)
-async def update_item(
+def update_item(
     item_id: str,
     payload: MenuItemUpdate,
     db: Session = Depends(get_db),
@@ -81,7 +81,7 @@ async def update_item(
 
 
 @router.delete("/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_item(
+def delete_item(
     item_id: str,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),

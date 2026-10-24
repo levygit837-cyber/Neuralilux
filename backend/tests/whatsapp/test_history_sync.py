@@ -7,7 +7,8 @@ from types import SimpleNamespace
 import pytest
 
 from app.models import Contact, Conversation, Message
-from app.whatsapp import evolution_history, history_sync
+from app.whatsapp import history_sync
+from app.whatsapp.evolution_client import evolution_api
 from tests.conftest import TestingSessionLocal
 
 PHONE = "5511999990001@s.whatsapp.net"
@@ -71,10 +72,10 @@ def evolution(monkeypatch, world):
         data["pages_read"].append(page)
         return data["pages"][page - 1], len(data["pages"])
 
-    monkeypatch.setattr(evolution_history, "find_chats", find_chats)
-    monkeypatch.setattr(evolution_history, "find_contacts", find_contacts)
-    monkeypatch.setattr(evolution_history, "fetch_all_groups", fetch_all_groups)
-    monkeypatch.setattr(evolution_history, "find_messages_page", find_messages_page)
+    monkeypatch.setattr(evolution_api, "fetch_chats", find_chats)
+    monkeypatch.setattr(evolution_api, "fetch_contacts", find_contacts)
+    monkeypatch.setattr(evolution_api, "fetch_groups", fetch_all_groups)
+    monkeypatch.setattr(evolution_api, "fetch_messages_page", find_messages_page)
     return data
 
 
@@ -105,7 +106,7 @@ async def test_sync_imports_one_to_one_lid_and_group_with_names(db, world, evolu
 @pytest.mark.asyncio
 async def test_sync_writes_page_by_page_without_holding_the_whole_history(db, world, evolution, monkeypatch):
     """Quando a página 2 é lida na passada de escrita, as Messages da página 1 já estão confirmadas."""
-    real_page = evolution_history.find_messages_page
+    real_page = evolution_api.fetch_messages_page
     stored_at_fetch = []
 
     async def watching_page(name, page):
@@ -116,7 +117,7 @@ async def test_sync_writes_page_by_page_without_holding_the_whole_history(db, wo
             other.close()
         return await real_page(name, page)
 
-    monkeypatch.setattr(evolution_history, "find_messages_page", watching_page)
+    monkeypatch.setattr(evolution_api, "fetch_messages_page", watching_page)
 
     await history_sync.sync_instance(db, world["instance"])
 
@@ -232,8 +233,8 @@ async def test_sync_survives_groups_and_contacts_failing(db, world, evolution, m
     async def boom(name):
         raise EvolutionAPIError("fora", status_code=500)
 
-    monkeypatch.setattr(evolution_history, "fetch_all_groups", boom)
-    monkeypatch.setattr(evolution_history, "find_contacts", boom)
+    monkeypatch.setattr(evolution_api, "fetch_groups", boom)
+    monkeypatch.setattr(evolution_api, "fetch_contacts", boom)
 
     result = await history_sync.sync_instance(db, world["instance"])
 
@@ -354,3 +355,30 @@ async def test_sync_raises_when_another_process_holds_the_lock(world, monkeypatc
         await history_sync.sync_instance(_postgres_db(connection), world["instance"])
 
     assert all("pg_advisory_unlock" not in sql for sql in connection.statements) and connection.closed
+
+
+@pytest.mark.asyncio
+async def test_sync_batches_do_not_block_the_event_loop(db, world, evolution, monkeypatch):
+    """A escrita do lote é bloqueante (banco): cada uma demora 0,25 s aqui e tem de rodar fora do loop (#93)."""
+    import time
+
+    from tests.loop_helpers import run_watched
+
+    real_write = history_sync._write_batch
+
+    def slow_write(*args, **kwargs):
+        time.sleep(0.25)
+        return real_write(*args, **kwargs)
+
+    monkeypatch.setattr(history_sync, "_write_batch", slow_write)
+
+    def wipe():  # cada tentativa importa do zero
+        db.query(Message).delete()
+        db.query(Conversation).delete()
+        db.query(Contact).delete()
+        db.commit()
+
+    result, slow = await run_watched(lambda: history_sync.sync_instance(db, world["instance"]), reset=wipe)
+
+    assert result == {"conversations": 3, "messages": 5}
+    assert slow == []

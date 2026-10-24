@@ -251,16 +251,30 @@ async def announce(instance: Instance | None, conversation: Conversation, change
     )
 
 
-async def expire_if_due(db: Session, conversation: Conversation, instance: Instance, now: datetime | None = None) -> bool:
-    """Devolve ao Agent uma Conversation cujo Handoff passou do timeout. True só se ESTA chamada devolveu.
+def _expire_if_due(
+    db: Session, conversation: Conversation, instance: Instance, now: datetime | None
+) -> Released | None:
+    """Parte bloqueante de `expire_if_due` (roda em thread): julga o timeout e, vencido, devolve a Conversation.
 
-    Se a API devolveu no meio, `release` não muda nada e nada é anunciado.
+    Depois do commit do `release`, atualiza `conversation` e `instance`: o `announce` os lê no event loop e um
+    atributo expirado viraria um SELECT lá.
     """
     company = db.get(Company, instance.company_id) if instance.company_id else None
     if not is_overdue(db, conversation, company, now):
-        return False
-    judged_ticket_id = conversation.ticket_id
-    released = release(db, conversation, status="expired", now=now, only_ticket_id=judged_ticket_id)
+        return None
+    released = release(db, conversation, status="expired", now=now, only_ticket_id=conversation.ticket_id)
+    if released is not None:
+        db.refresh(conversation)
+        db.refresh(instance)
+    return released
+
+
+async def expire_if_due(db: Session, conversation: Conversation, instance: Instance, now: datetime | None = None) -> bool:
+    """Devolve ao Agent uma Conversation cujo Handoff passou do timeout. True só se ESTA chamada devolveu.
+
+    Se a API devolveu no meio, `release` não muda nada e nada é anunciado. O banco roda em thread; o aviso à UI, no loop.
+    """
+    released = await asyncio.to_thread(_expire_if_due, db, conversation, instance, now)
     if released is None:
         return False
     logger.info("Handoff expired, Conversation back to the Agent", conversation_id=conversation.id)
@@ -268,14 +282,18 @@ async def expire_if_due(db: Session, conversation: Conversation, instance: Insta
     return True
 
 
-async def expire_overdue(db: Session, now: datetime | None = None) -> int:
-    """Expira todos os Handoffs vencidos. Devolve quantos voltaram ao Agent."""
-    rows = (
+def _handoff_rows(db: Session) -> list[tuple[Conversation, Instance]]:
+    return (
         db.query(Conversation, Instance)
         .join(Instance, Instance.id == Conversation.instance_id)
         .filter(Conversation.human_in_loop.is_(True), Instance.company_id.isnot(None))
         .all()
     )
+
+
+async def expire_overdue(db: Session, now: datetime | None = None) -> int:
+    """Expira todos os Handoffs vencidos. Devolve quantos voltaram ao Agent."""
+    rows = await asyncio.to_thread(_handoff_rows, db)
     expired = 0
     for conversation, instance in rows:
         if await expire_if_due(db, conversation, instance, now):
@@ -290,8 +308,8 @@ async def sweep_forever(interval_seconds: int) -> None:
         try:
             await expire_overdue(db)
         except Exception:
-            db.rollback()
+            await asyncio.to_thread(db.rollback)
             logger.exception("Handoff sweep failed")
         finally:
-            db.close()
+            await asyncio.to_thread(db.close)
         await asyncio.sleep(interval_seconds)

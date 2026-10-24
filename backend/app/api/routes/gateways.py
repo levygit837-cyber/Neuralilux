@@ -11,6 +11,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
+from starlette.concurrency import run_in_threadpool
 
 from app.api.deps import get_current_user
 from app.core.crypto import encrypt_secret
@@ -194,16 +195,26 @@ def delete_model(model_id: str, db: Session = Depends(get_db), _: User = Depends
     _commit(db, "Falha ao remover modelo")
 
 
-@router.post("/models/{model_id}/test", response_model=ProbeResponse)
-async def test_model(model_id: str, db: Session = Depends(get_db), _: User = Depends(require_superuser)):
-    """Uma chamada minima (`max_tokens: 8`) ao Gateway com a configuracao salva (URL, chave, modelo, effort)."""
+def _prepare_probe(db: Session, model_id: str):
+    """Fase 1 (bloqueante: roda em thread): lê o modelo e monta o cliente. Devolve `(client, model_name, effort)`, ou
+    a `ProbeResponse` de falha se o Gateway não tem chave utilizável. Fecha a Session no fim (sem conexão na rede)."""
     model = _get_model(db, model_id)
     model_name, effort = model.model_id, model.reasoning_effort
     try:
         client = registry.build_client(model.gateway, **_ADMIN_CALL_OPTIONS)
     except LLMNotConfiguredError as exc:
         return ProbeResponse(ok=False, error=str(exc))
-    db.close()  # libera a conexao durante a chamada de rede
+    db.close()
+    return client, model_name, effort
+
+
+@router.post("/models/{model_id}/test", response_model=ProbeResponse)
+async def test_model(model_id: str, db: Session = Depends(get_db), _: User = Depends(require_superuser)):
+    """Uma chamada minima (`max_tokens: 8`) ao Gateway com a configuracao salva (URL, chave, modelo, effort)."""
+    prepared = await run_in_threadpool(_prepare_probe, db, model_id)
+    if isinstance(prepared, ProbeResponse):
+        return prepared
+    client, model_name, effort = prepared
     try:
         result = await client.probe(model=model_name, effort=effort)
     except LLMError as exc:
@@ -311,11 +322,9 @@ def create_model(
     return model
 
 
-@router.get("/{gateway_id}/remote-models", response_model=RemoteModelsResponse)
-async def list_remote_models(
-    gateway_id: str, db: Session = Depends(get_db), _: User = Depends(require_superuser)
-):
-    """Ids que o Gateway anuncia em `GET {base_url}/v1/models`; sem essa rota (404), os modelos cadastrados."""
+def _prepare_remote_models(db: Session, gateway_id: str):
+    """Fase 1 (bloqueante: roda em thread): lê o Gateway e monta o cliente. Devolve `(client, ids cadastrados)`.
+    Fecha a Session no fim: a chamada de rede da fase 2 não segura conexão do pool."""
     gateway = _get_gateway(db, gateway_id)
     registered = [m.model_id for m in gateway.models]
     try:
@@ -324,6 +333,15 @@ async def list_remote_models(
         logger.warning("Gateway sem chave utilizável ao listar modelos", gateway_id=gateway_id, error=str(exc))
         raise HTTPException(status.HTTP_409_CONFLICT, "Gateway sem chave utilizável: salve a chave de novo")
     db.close()
+    return client, registered
+
+
+@router.get("/{gateway_id}/remote-models", response_model=RemoteModelsResponse)
+async def list_remote_models(
+    gateway_id: str, db: Session = Depends(get_db), _: User = Depends(require_superuser)
+):
+    """Ids que o Gateway anuncia em `GET {base_url}/v1/models`; sem essa rota (404), os modelos cadastrados."""
+    client, registered = await run_in_threadpool(_prepare_remote_models, db, gateway_id)
     try:
         return RemoteModelsResponse(models=await client.list_models())
     except LLMProviderError as exc:

@@ -25,7 +25,7 @@ from app.agent.sessions import roll_session
 from app.models import Company, Conversation, Instance, Message
 from app.packs.registry import packs_for
 from app.services import handoff_service
-from app.whatsapp import history_sync, sent_echo, turn_state
+from app.whatsapp import history_trigger, reimport_guard, sent_echo, turn_state
 from app.whatsapp.message_store import get_or_create_contact, get_or_create_conversation, new_message
 from app.whatsapp.message_queue import message_queue_service
 from app.whatsapp.recovery import Recovery
@@ -53,6 +53,9 @@ logger = structlog.get_logger()
 
 # Eventos da Evolution que anunciam histórico novo: disparam a importação da Instance.
 HISTORY_EVENTS = ("messages.set", "chats.set", "contacts.set", "chats.upsert")
+# Os que a Evolution repete (reconexão, rajada de chats) e por isso respeitam o intervalo mínimo entre reimportações
+# (`reimport_guard`). A carga inicial (`*.set`) não passa pelo guarda.
+REIMPORT_GUARDED_EVENTS = ("chats.upsert", "connection.update")
 
 # Mensagens mais antigas que isto, em relação ao início do consumer, são histórico (backlog de uma
 # queda ou reconexão): ficam gravadas, mas o Agent não responde.
@@ -96,11 +99,11 @@ class WhatsAppMessageConsumer:
             elif event == "connection.update":
                 applied = await update_connection_status(db, data)  # `open` velho reenviado não importa histórico
                 if applied and unwrap_event_payload(data).get("state") == "open":
-                    self._spawn_history_sync(db, data)
+                    await self._spawn_history_sync(db, data, event)
             elif event == "qrcode.updated":
                 await publish_qr_code_update(db, data)
             elif event in HISTORY_EVENTS:
-                self._spawn_history_sync(db, data)
+                await self._spawn_history_sync(db, data, event)
             else:
                 logger.warning("Unknown webhook event", webhook_event=event)
             
@@ -239,7 +242,7 @@ class WhatsAppMessageConsumer:
         """O que o Handoff pede a cada Message gravada: atividade do Attendant e expiração por timeout."""
         if from_me:
             # O eco de uma resposta do Agent já foi adotado (`sent_echo`) e não chega aqui: sobra o Attendant no celular.
-            handoff_service.record_attendant_activity(db, conversation)
+            await asyncio.to_thread(handoff_service.record_attendant_activity, db, conversation)
         else:
             # Rede de segurança do timeout: o sweeper do worker roda a cada minuto, esta checagem é exata.
             await handoff_service.expire_if_due(db, conversation, instance)
@@ -256,28 +259,23 @@ class WhatsAppMessageConsumer:
             return
         roll_session(db, conversation, company, packs_for(company), timestamp)
 
-    def _spawn_history_sync(self, db: Session, data: Dict[str, Any]) -> None:
-        """Importa o histórico da Instance numa task rastreada; no máximo uma por Instance."""
-        instance = find_instance(db, data.get("instance") or "")
+    async def _spawn_history_sync(self, db: Session, data: Dict[str, Any], reason: str) -> None:
+        """Importa o histórico da Instance numa task rastreada; no máximo uma por Instance e uma por intervalo."""
+        instance = await asyncio.to_thread(find_instance, db, data.get("instance") or "")
         if instance is None or instance.id in self._syncing:
             return
-        self._syncing.add(instance.id)
+        self._syncing.add(instance.id)  # antes do await do guarda: um segundo evento não passa enquanto ele responde
+        if reason in REIMPORT_GUARDED_EVENTS and not await reimport_guard.allow(instance.id, reason):
+            self._syncing.discard(instance.id)
+            return
         task = asyncio.create_task(self._run_history_sync(instance.id))
         self._background.add(task)
         task.add_done_callback(self._background.discard)
 
     async def _run_history_sync(self, instance_id: str) -> None:
-        sync_db = SessionLocal()
         try:
-            instance = sync_db.get(Instance, instance_id)
-            if instance is not None:
-                await history_sync.sync_instance(sync_db, instance)
-        except history_sync.SyncAlreadyRunning:
-            logger.info("History sync skipped: another process is already importing", instance_id=instance_id)
-        except Exception:
-            logger.exception("History sync failed", instance_id=instance_id)
+            await history_trigger.run(SessionLocal, instance_id)
         finally:
-            sync_db.close()
             self._syncing.discard(instance_id)
 
     def _spawn_summary(self, conversation_id: str) -> None:
