@@ -14,7 +14,7 @@ import { MessagePane } from './MessagePane'
 import { EmptyChat } from './EmptyChat'
 
 function Banner({ text, tone }: { text: string; tone: 'warning' | 'error' }) {
-  const colors = tone === 'error' ? 'border-error/20 bg-error/10 text-error' : 'border-warning/20 bg-warning/10 text-warning'
+  const colors = tone === 'error' ? 'border-status-error/20 bg-status-error/10 text-status-error' : 'border-status-warning/20 bg-status-warning/10 text-status-warning'
   return (
     <div role="alert" className={`border-b px-6 py-3 text-sm ${colors}`}>
       {text}
@@ -151,7 +151,7 @@ export function WhatsAppChat() {
           role="status"
           className="fixed bottom-4 right-4 rounded-lg bg-brand-card/90 border border-brand-border px-4 py-2 text-sm text-content-muted backdrop-blur-sm"
         >
-          <span aria-hidden="true" className="inline-block w-2 h-2 rounded-full bg-yellow-500 mr-2 animate-pulse" />
+          <span aria-hidden="true" className="inline-block w-2 h-2 rounded-full bg-status-warning mr-2 animate-pulse" />
           Conectando ao servidor...
         </div>
       )}

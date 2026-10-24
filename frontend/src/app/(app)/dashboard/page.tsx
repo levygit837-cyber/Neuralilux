@@ -12,7 +12,6 @@ import type {
   ResolutionMetrics,
   SatisfactionMetrics,
 } from '@/types/dashboard'
-import { Export } from '@phosphor-icons/react'
 
 const DEFAULT_RESOLUTION: ResolutionMetrics = { resolved: 0, pending: 0, escalated: 0 }
 const DEFAULT_SATISFACTION: SatisfactionMetrics = {
@@ -71,7 +70,7 @@ export default function DashboardPage() {
         {dashboard.error && (
           <div
             role="alert"
-            className="flex items-center justify-between gap-4 rounded-2xl border border-error/30 bg-error/10 px-4 py-3 text-sm text-error"
+            className="flex items-center justify-between gap-4 rounded-2xl border border-status-error/30 bg-status-error/10 px-4 py-3 text-sm text-status-error"
           >
             <span>{dashboard.error}</span>
             <button type="button" className="underline" onClick={() => void dashboard.refetch()}>
@@ -85,7 +84,7 @@ export default function DashboardPage() {
           {isLoading ? (
             <div className="col-span-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
               {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="h-40 animate-pulse rounded-2xl bg-card" />
+                <div key={i} className="h-40 animate-pulse rounded-2xl bg-brand-card" />
               ))}
             </div>
           ) : (
@@ -98,14 +97,11 @@ export default function DashboardPage() {
         {/* SECTION DIVIDER */}
         <div className="flex items-center justify-between pt-4 animate-fade-in delay-300">
           <div>
-            <h2 className="text-xl font-semibold text-text-light">Análise de Métricas</h2>
-            <p className="text-sm text-text-muted mt-1">
+            <h2 className="text-xl font-semibold text-content-light">Análise de Métricas</h2>
+            <p className="text-sm text-content-muted mt-1">
               Visão detalhada do desempenho da automação e fluxo de dados.
             </p>
           </div>
-          <button type="button" className="text-sm flex items-center gap-2 bg-card border border-border-color px-4 py-2 rounded-md hover:bg-hover hover:text-text-light transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
-            <Export weight="regular" aria-hidden="true" /> Exportar Relatório
-          </button>
         </div>
 
         {/* BOTTOM SECTION: Charts Grid */}
@@ -129,11 +125,6 @@ export default function DashboardPage() {
             isLoading={isLoading}
           />
         </section>
-
-        {/* Footer */}
-        <div className="text-center text-xs text-text-muted/50 pb-4">
-          Sistema NeuraliLux OS v2.4.1 © 2023. Todos os dados são processados em tempo real.
-        </div>
       </div>
     </div>
   )

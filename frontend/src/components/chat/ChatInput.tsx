@@ -34,7 +34,7 @@ export function ChatInput({ onSendMessage, disabled }: ChatInputProps) {
         <button
           type="button"
           aria-label="Anexar arquivo"
-          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-brand-base text-content-gray transition-colors hover:text-primary border border-brand-border hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-brand-base text-content-gray transition-colors hover:text-primary-light border border-brand-border hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           <Paperclip weight="regular" className="text-lg" aria-hidden="true" />
         </button>
@@ -60,14 +60,14 @@ export function ChatInput({ onSendMessage, disabled }: ChatInputProps) {
         <button
           type="button"
           aria-label="Inserir emoji"
-          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-brand-base text-content-gray transition-colors hover:text-primary border border-brand-border hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-brand-base text-content-gray transition-colors hover:text-primary-light border border-brand-border hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           <Smiley weight="regular" className="text-lg" aria-hidden="true" />
         </button>
         <button
           type="button"
           aria-label="Gravar áudio"
-          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-brand-base text-content-gray transition-colors hover:text-primary border border-brand-border hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-brand-base text-content-gray transition-colors hover:text-primary-light border border-brand-border hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
           <Microphone weight="regular" className="text-lg" aria-hidden="true" />
         </button>

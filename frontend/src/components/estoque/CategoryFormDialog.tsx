@@ -25,7 +25,7 @@ export function CategoryFormDialog({
     >
       <form className="space-y-5" onSubmit={onSubmit}>
         <div className="space-y-2">
-          <label htmlFor="category-name" className="text-sm font-medium text-text-light">Nome da categoria</label>
+          <label htmlFor="category-name" className="text-sm font-medium text-content-light">Nome da categoria</label>
           <Input
             id="category-name"
             data-autofocus
@@ -46,7 +46,7 @@ export function CategoryFormDialog({
         </div>
 
         <div className="space-y-2">
-          <label htmlFor="category-description" className="text-sm font-medium text-text-light">Descrição</label>
+          <label htmlFor="category-description" className="text-sm font-medium text-content-light">Descrição</label>
           <textarea
             id="category-description"
             value={categoryForm.description}
@@ -62,7 +62,7 @@ export function CategoryFormDialog({
             }
             placeholder="Explique o que entra nesta categoria"
             rows={4}
-            className="w-full rounded-2xl border border-border-color bg-dark px-4 py-3 text-sm text-text-light placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary"
+            className="w-full rounded-2xl border border-brand-border bg-brand-base px-4 py-3 text-sm text-content-light placeholder:text-content-muted focus:outline-none focus:ring-2 focus:ring-primary"
           />
         </div>
 

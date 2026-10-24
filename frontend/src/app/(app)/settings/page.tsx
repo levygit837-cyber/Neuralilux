@@ -5,7 +5,6 @@ import { CompanyProfileCard } from '@/components/settings/CompanyProfileCard'
 import { AIAgentCard } from '@/components/settings/AIAgentCard'
 import { InferenceProviderCard } from '@/components/settings/InferenceProviderCard'
 import { WhatsAppConnectionCard } from '@/components/settings/WhatsAppConnectionCard'
-import { ThemeAppearanceCard } from '@/components/settings/ThemeAppearanceCard'
 import { GatewaysPanel } from '@/components/settings/GatewaysPanel'
 import { useCompanySettings } from '@/hooks/useCompanySettings'
 import { useSettingsStore } from '@/stores/useSettingsStore'
@@ -24,7 +23,6 @@ export default function SettingsPage() {
             <CompanyProfileCard settings={companySettings} />
             <InferenceProviderCard />
             <AIAgentCard settings={companySettings} />
-            <ThemeAppearanceCard />
           </div>
         )}
 

@@ -83,7 +83,7 @@ export function ChatSidebar({
             aria-busy={isSyncing}
             aria-label="Sincronizar histórico"
             title="Sincronizar histórico"
-            className="w-8 h-8 rounded-full bg-brand-base flex items-center justify-center hover:text-primary transition-colors border border-brand-border disabled:cursor-wait disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="w-8 h-8 rounded-full bg-brand-base flex items-center justify-center hover:text-primary-light transition-colors border border-brand-border disabled:cursor-wait disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             <ArrowsClockwise weight="regular" aria-hidden="true" className={cn('text-lg', isSyncing && 'animate-spin')} />
           </button>
@@ -91,7 +91,7 @@ export function ChatSidebar({
 
         {/* Search */}
         <div className="relative group">
-          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-content-muted group-focus-within:text-primary transition-colors">
+          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-content-muted group-focus-within:text-primary-light transition-colors">
             <MagnifyingGlass weight="regular" aria-hidden="true" className="text-lg" />
           </div>
           <input
@@ -118,7 +118,7 @@ export function ChatSidebar({
                 className={cn(
                   'px-4 py-1.5 rounded-full border text-sm font-medium whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
                   isActive
-                    ? 'bg-primary/20 text-primary border-primary/30'
+                    ? 'bg-primary/20 text-primary-light border-primary/30'
                     : 'bg-brand-base text-content-gray border-brand-border hover:bg-brand-hover'
                 )}
               >

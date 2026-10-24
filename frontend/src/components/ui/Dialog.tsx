@@ -61,16 +61,16 @@ export function Dialog({ onClose, title, description, children }: DialogProps) {
         event.preventDefault()
         onClose()
       }}
-      className="m-auto w-[calc(100%-2rem)] max-w-2xl rounded-3xl border border-border-color bg-card p-0 text-text-light shadow-2xl backdrop:bg-dark/80 backdrop:backdrop-blur-sm"
+      className="m-auto w-[calc(100%-2rem)] max-w-2xl rounded-3xl border border-brand-border bg-brand-card p-0 text-content-light shadow-2xl backdrop:bg-brand-base/80 backdrop:backdrop-blur-sm"
     >
       <div className="flex max-h-[90vh] flex-col">
-        <div className="flex items-start justify-between border-b border-border-color px-6 py-5">
+        <div className="flex items-start justify-between border-b border-brand-border px-6 py-5">
           <div>
-            <h2 id={titleId} className="text-xl font-semibold text-text-light">
+            <h2 id={titleId} className="text-xl font-semibold text-content-light">
               {title}
             </h2>
             {description && (
-              <p id={descriptionId} className="mt-1 text-sm text-text-muted">
+              <p id={descriptionId} className="mt-1 text-sm text-content-muted">
                 {description}
               </p>
             )}
@@ -79,7 +79,7 @@ export function Dialog({ onClose, title, description, children }: DialogProps) {
             type="button"
             aria-label="Fechar"
             onClick={onClose}
-            className="rounded-full bg-hover p-2 text-text-muted transition-colors hover:bg-border-color hover:text-text-light focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+            className="rounded-full bg-brand-hover p-2 text-content-muted transition-colors hover:bg-brand-border hover:text-content-light focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>

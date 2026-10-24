@@ -70,8 +70,8 @@ export function AreaChart({ metrics, isLoading, className }: AreaChartProps) {
 
       <div className="flex justify-between items-start mb-6 relative z-10">
         <div>
-          <h3 className="font-medium text-text-light">Satisfação (CSAT)</h3>
-          <p className="text-xs text-text-muted mt-1">Evolução do score por semestre</p>
+          <h3 className="font-medium text-content-light">Satisfação (CSAT)</h3>
+          <p className="text-xs text-content-muted mt-1">Evolução do score por semestre</p>
         </div>
         <div className="text-xs px-2 py-1 bg-accent/10 text-accent rounded border border-accent/20 flex items-center gap-1 font-medium">
           <Target weight="regular" /> Meta: {metrics.target_score}
@@ -80,7 +80,7 @@ export function AreaChart({ metrics, isLoading, className }: AreaChartProps) {
 
       <div className="flex-1 relative w-full mt-4 flex flex-col justify-end">
         {/* Y Axis Markers */}
-        <div className="absolute left-0 inset-y-0 w-6 flex flex-col justify-between text-[0.6rem] text-text-muted font-medium pb-6 z-10">
+        <div className="absolute left-0 inset-y-0 w-6 flex flex-col justify-between text-[0.6rem] text-content-muted font-medium pb-6 z-10">
           {yLabels.map((label) => (
             <span key={label}>{label}</span>
           ))}
@@ -94,8 +94,8 @@ export function AreaChart({ metrics, isLoading, className }: AreaChartProps) {
           ) : metrics.history.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full pb-6 gap-2">
               <Target weight="thin" className="text-accent/40 text-4xl" />
-              <p className="text-xs text-text-muted">Sem avaliações registradas ainda</p>
-              <p className="text-[0.65rem] text-text-muted/60">
+              <p className="text-xs text-content-muted">Sem avaliações registradas ainda</p>
+              <p className="text-[0.65rem] text-content-muted/60">
                 As avaliações aparecerão aqui assim que os clientes responderem
               </p>
             </div>
@@ -103,12 +103,12 @@ export function AreaChart({ metrics, isLoading, className }: AreaChartProps) {
             <>
               <svg
                 viewBox={`0 0 ${VIEWPORT_WIDTH} ${VIEWPORT_HEIGHT}`}
-                className="w-full h-full preserve-3d overflow-visible"
+                className="w-full h-full overflow-visible"
               >
                 <defs>
                   <linearGradient id="pinkGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#EC4899" stopOpacity="0.4" />
-                    <stop offset="100%" stopColor="#EC4899" stopOpacity="0.0" />
+                    <stop offset="0%" stopColor="rgb(var(--color-accent))" stopOpacity="0.4" />
+                    <stop offset="100%" stopColor="rgb(var(--color-accent))" stopOpacity="0.0" />
                   </linearGradient>
                 </defs>
 
@@ -118,7 +118,7 @@ export function AreaChart({ metrics, isLoading, className }: AreaChartProps) {
                   y1={targetY}
                   x2={VIEWPORT_WIDTH}
                   y2={targetY}
-                  stroke="#EC4899"
+                  stroke="rgb(var(--color-accent))"
                   strokeWidth="1"
                   strokeDasharray="4 4"
                   className="opacity-50"
@@ -135,10 +135,10 @@ export function AreaChart({ metrics, isLoading, className }: AreaChartProps) {
                 <path
                   d={line}
                   fill="none"
-                  stroke="#EC4899"
+                  stroke="rgb(var(--color-accent))"
                   strokeWidth="3"
                   strokeLinecap="round"
-                  className="chart-path filter drop-shadow-[0_2px_4px_rgba(236,72,153,0.4)]"
+                  className="chart-path filter drop-shadow-[0_2px_4px_rgb(var(--color-accent)/0.4)]"
                 />
 
                 {/* Nodes */}
@@ -152,12 +152,12 @@ export function AreaChart({ metrics, isLoading, className }: AreaChartProps) {
                       cx={x}
                       cy={y}
                       r={isLast ? 4 : 3}
-                      fill={isLast ? '#EC4899' : '#0F0A1E'}
-                      stroke="#EC4899"
+                      fill={isLast ? 'rgb(var(--color-accent))' : 'rgb(var(--color-brand-base))'}
+                      stroke="rgb(var(--color-accent))"
                       strokeWidth="2"
                       className={
                         isLast
-                          ? 'shadow-[0_0_10px_rgba(236,72,153,0.8)]'
+                          ? 'shadow-[0_0_10px_rgb(var(--color-accent)/0.8)]'
                           : ''
                       }
                     />
@@ -166,7 +166,7 @@ export function AreaChart({ metrics, isLoading, className }: AreaChartProps) {
               </svg>
 
               {/* X Axis Labels */}
-              <div className="absolute bottom-0 w-full flex justify-between text-[0.65rem] text-text-muted font-medium pt-2">
+              <div className="absolute bottom-0 w-full flex justify-between text-[0.65rem] text-content-muted font-medium pt-2">
                 {metrics.history.map((h) => (
                   <span key={h.month}>{formatMonth(h.month)}</span>
                 ))}
@@ -178,8 +178,8 @@ export function AreaChart({ metrics, isLoading, className }: AreaChartProps) {
 
       {/* Current score badge */}
       {!isLoading && metrics.current_score > 0 && (
-        <div className="mt-4 pt-3 border-t border-border-color/50 flex items-center justify-between relative z-10">
-          <span className="text-xs text-text-muted">Score atual</span>
+        <div className="mt-4 pt-3 border-t border-brand-border/50 flex items-center justify-between relative z-10">
+          <span className="text-xs text-content-muted">Score atual</span>
           <span className="text-sm font-bold text-accent">{metrics.current_score} / 5.0</span>
         </div>
       )}

@@ -32,7 +32,7 @@ export function NavList({ onNavigate }: NavListProps) {
             className={cn(
               'group relative flex items-center gap-4 overflow-hidden rounded-xl px-4 py-3 text-sm font-medium transition-all duration-200',
               isActive
-                ? 'border border-primary/20 bg-brand-hover text-white shadow-[inset_4px_0_0_0_#8B5CF6]'
+                ? 'border border-primary/20 bg-brand-hover text-white shadow-active-bar'
                 : 'text-content-muted hover:bg-brand-hover/50 hover:text-content-light'
             )}
           >
@@ -41,8 +41,8 @@ export function NavList({ onNavigate }: NavListProps) {
               className={cn(
                 'text-xl',
                 isActive
-                  ? 'text-primary drop-shadow-[0_0_8px_rgba(139,92,246,0.6)]'
-                  : 'transition-colors group-hover:text-primary'
+                  ? 'text-primary-light drop-shadow-[0_0_8px_rgb(var(--color-primary)/0.6)]'
+                  : 'transition-colors group-hover:text-primary-light'
               )}
             />
             <span className="font-medium">{item.label}</span>

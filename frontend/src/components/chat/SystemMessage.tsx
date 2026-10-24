@@ -10,8 +10,8 @@ export function SystemMessage({ metadata }: SystemMessageProps) {
     return (
       <div className="flex justify-center my-6">
         <div className="flex items-center gap-2 bg-primary/10 border border-primary/30 px-4 py-2 rounded-full">
-          <Robot weight="fill" className="text-primary text-sm" />
-          <span className="text-sm text-primary font-medium">
+          <Robot weight="fill" className="text-primary-light text-sm" />
+          <span className="text-sm text-primary-light font-medium">
             {metadata.agentName || 'Agente IA'} assumiu a conversa
           </span>
           <Sparkle weight="fill" className="text-accent text-xs" />

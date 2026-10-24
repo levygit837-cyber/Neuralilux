@@ -62,7 +62,7 @@ export function MessageBubble({ message, showSender = false, onRetry }: MessageB
       )}
       <div className={cn('flex flex-col gap-1', message.isOutgoing ? 'items-end' : 'items-start')}>
         {showSender && !message.isOutgoing && message.sender && (
-          <span className="ml-1 text-xs font-semibold text-primary">{message.sender.name}</span>
+          <span className="ml-1 text-xs font-semibold text-primary-light">{message.sender.name}</span>
         )}
         <div
           className={cn(
@@ -77,12 +77,12 @@ export function MessageBubble({ message, showSender = false, onRetry }: MessageB
         <div className={cn('flex items-center gap-1', message.isOutgoing ? 'mr-1' : 'ml-1')}>
           <span className="text-[11px] text-content-muted opacity-0 group-hover:opacity-100 transition-opacity">{time}</span>
           {message.isOutgoing && message.status === 'failed' && (
-            <div className="flex items-center gap-2 text-xs text-error">
+            <div className="flex items-center gap-2 text-xs text-status-error">
               <span role="alert">Não enviada</span>
               <button
                 type="button"
                 onClick={() => onRetry?.(message.id)}
-                className="rounded px-1.5 py-0.5 font-semibold underline hover:bg-error/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                className="rounded px-1.5 py-0.5 font-semibold underline hover:bg-status-error/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
                 Tentar novamente
               </button>
@@ -91,14 +91,14 @@ export function MessageBubble({ message, showSender = false, onRetry }: MessageB
           {message.isOutgoing && message.status !== 'failed' && (
             <div className="flex items-center gap-0.5">
               {message.status === 'read' ? (
-                <Check weight="fill" className="text-blue-400 text-sm" />
+                <Check weight="fill" className="text-status-info text-sm" />
               ) : message.status === 'delivered' ? (
                 <Check weight="fill" className="text-content-muted text-sm" />
               ) : (
                 <Check weight="regular" className="text-content-muted text-sm" />
               )}
               {(message.status === 'read' || message.status === 'delivered') && (
-                <Check weight="fill" className={message.status === 'read' ? 'text-blue-400 text-sm' : 'text-content-muted text-sm'} />
+                <Check weight="fill" className={message.status === 'read' ? 'text-status-info text-sm' : 'text-content-muted text-sm'} />
               )}
             </div>
           )}

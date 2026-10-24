@@ -1,5 +1,5 @@
 import { Avatar } from '@/components/ui/Avatar'
-import { ArrowLeft, Phone, VideoCamera, MagnifyingGlass, DotsThreeVertical, Robot, Check, HandPalm, ArrowUUpLeft } from '@phosphor-icons/react'
+import { ArrowLeft, Robot, Check, HandPalm, ArrowUUpLeft } from '@phosphor-icons/react'
 import type { AgentListItem } from '@/types/chat'
 
 interface ChatHeaderProps {
@@ -63,7 +63,7 @@ export function ChatHeader({
             type="button"
             onClick={onBack}
             aria-label="Voltar para as conversas"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-content-gray hover:bg-brand-hover hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary lg:hidden"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-content-gray hover:bg-brand-hover hover:text-primary-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary lg:hidden"
           >
             <ArrowLeft weight="regular" className="text-xl" aria-hidden="true" />
           </button>
@@ -75,15 +75,15 @@ export function ChatHeader({
             size="md"
           />
           {isOnline && (
-            <div className="absolute bottom-0 right-0 w-3 h-3 bg-status-success border-[2.5px] border-[#1A1333] rounded-full" />
+            <div className="absolute bottom-0 right-0 w-3 h-3 bg-status-success border-[2.5px] border-brand-card rounded-full" />
           )}
         </div>
         <div>
-          <h2 className="font-semibold text-lg text-content-light leading-tight group-hover:text-primary transition-colors">{name}</h2>
+          <h2 className="font-semibold text-lg text-content-light leading-tight group-hover:text-primary-light transition-colors">{name}</h2>
           {status && (
             <p className="text-[13px] text-content-muted flex items-center gap-1.5">
               {isOnline && (
-                <span className="w-1.5 h-1.5 rounded-full bg-status-success shadow-[0_0_5px_#10B981]" />
+                <span className="w-1.5 h-1.5 rounded-full bg-status-success shadow-glow-success" />
               )}
               {status}
             </p>
@@ -94,7 +94,7 @@ export function ChatHeader({
       {/* Actions */}
       <div className="flex flex-wrap items-center gap-2">
         {humanHandoff && (
-          <span className="rounded-full border border-warning/30 bg-warning/10 px-3 py-1 text-xs font-semibold text-warning">
+          <span className="rounded-full border border-status-warning/30 bg-status-warning/10 px-3 py-1 text-xs font-semibold text-status-warning">
             Atendimento humano
           </span>
         )}
@@ -103,7 +103,7 @@ export function ChatHeader({
             type="button"
             onClick={onTakeControl}
             disabled={isHandoffPending}
-            className="flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-sm font-medium text-primary-light transition-colors hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <HandPalm weight="regular" className="text-lg" aria-hidden="true" />
             Assumir
@@ -165,37 +165,6 @@ export function ChatHeader({
             ))}
           </select>
         )}
-
-        <button
-          type="button"
-          aria-label="Buscar na conversa"
-          className="hidden lg:flex w-10 h-10 rounded-full items-center justify-center text-content-gray hover:text-primary hover:bg-brand-hover transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        >
-          <MagnifyingGlass weight="regular" className="text-xl" aria-hidden="true" />
-        </button>
-        <div className="hidden lg:block w-px h-6 bg-brand-border mx-1" />
-        <button
-          type="button"
-          aria-label="Chamada de voz"
-          className="hidden lg:flex w-10 h-10 rounded-full items-center justify-center text-content-gray hover:bg-brand-hover transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        >
-          <Phone weight="regular" className="text-xl" aria-hidden="true" />
-        </button>
-        <button
-          type="button"
-          aria-label="Chamada de vídeo"
-          className="hidden lg:flex w-10 h-10 rounded-full items-center justify-center text-content-gray hover:bg-brand-hover transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        >
-          <VideoCamera weight="regular" className="text-xl" aria-hidden="true" />
-        </button>
-        <div className="hidden lg:block w-px h-6 bg-brand-border mx-1" />
-        <button
-          type="button"
-          aria-label="Mais opções"
-          className="hidden lg:flex w-10 h-10 rounded-full items-center justify-center text-content-gray hover:text-white hover:bg-brand-hover transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        >
-          <DotsThreeVertical weight="regular" className="text-xl" aria-hidden="true" />
-        </button>
       </div>
     </header>
   )

@@ -15,7 +15,7 @@ export function GatewaysPanel() {
   return (
     <div className="space-y-6">
       {c.error && (
-        <div role="alert" className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+        <div role="alert" className="rounded-xl border border-status-error/40 bg-status-error/10 px-4 py-3 text-sm text-status-error">
           {c.error}
         </div>
       )}
@@ -23,7 +23,7 @@ export function GatewaysPanel() {
       {c.readOnly && (
         <p
           role="status"
-          className="flex items-center gap-2 rounded-xl border border-border-color bg-hover px-4 py-3 text-sm text-text-gray"
+          className="flex items-center gap-2 rounded-xl border border-brand-border bg-brand-hover px-4 py-3 text-sm text-content-gray"
         >
           <Lock className="h-4 w-4 shrink-0" aria-hidden />
           {READ_ONLY_MESSAGE}. Você pode consultar, mas não editar nem testar.
@@ -40,15 +40,15 @@ export function GatewaysPanel() {
 
       {/* Lista de gateways */}
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-text-light">Gateways</h2>
+        <h2 className="text-lg font-semibold text-content-light">Gateways</h2>
         <Button size="sm" disabled={c.readOnly} onClick={c.openNewGateway}>
           <Plus className="h-4 w-4" aria-hidden /> Novo gateway
         </Button>
       </div>
 
-      {c.loading && <p className="text-sm text-text-gray">Carregando…</p>}
+      {c.loading && <p className="text-sm text-content-gray">Carregando…</p>}
       {!c.loading && c.gateways.length === 0 && (
-        <p className="rounded-xl border border-dashed border-border-color p-6 text-center text-sm text-text-gray">
+        <p className="rounded-xl border border-dashed border-brand-border p-6 text-center text-sm text-content-gray">
           Nenhum gateway cadastrado. Adicione a URL de um Gateway que fale o protocolo Anthropic Messages.
         </p>
       )}

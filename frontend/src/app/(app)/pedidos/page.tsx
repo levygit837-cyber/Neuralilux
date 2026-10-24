@@ -7,9 +7,9 @@ import { Button } from '@/components/ui/Button'
 import { useOrderPanel } from '@/hooks/useOrderPanel'
 
 const FEEDBACK_STYLES = {
-  success: 'border-success/30 bg-success/10 text-success',
-  warning: 'border-warning/30 bg-warning/10 text-warning',
-  error: 'border-error/30 bg-error/10 text-error',
+  success: 'border-status-success/30 bg-status-success/10 text-status-success',
+  warning: 'border-status-warning/30 bg-status-warning/10 text-status-warning',
+  error: 'border-status-error/30 bg-status-error/10 text-status-error',
 } as const
 
 const FILTERS = [
@@ -38,7 +38,7 @@ export default function PedidosPage() {
     <div className="p-4 sm:p-8">
       <div className="mx-auto flex max-w-5xl flex-col gap-6">
         <div className="flex items-center justify-between gap-4">
-          <p className="text-sm text-text-muted">
+          <p className="text-sm text-content-muted">
             Acompanhe os pedidos confirmados. A cada mudança de status o cliente recebe um aviso no WhatsApp.
           </p>
           <Button type="button" variant="secondary" size="sm" onClick={() => void reload()}>
@@ -71,15 +71,15 @@ export default function PedidosPage() {
         </div>
 
         {displayedError && (
-          <div role="alert" className="rounded-2xl border border-error/30 bg-error/10 px-4 py-3 text-sm text-error">
+          <div role="alert" className="rounded-2xl border border-status-error/30 bg-status-error/10 px-4 py-3 text-sm text-status-error">
             {displayedError}
           </div>
         )}
 
         {showSkeleton ? (
-          <div className="h-64 animate-pulse rounded-3xl bg-card" />
+          <div className="h-64 animate-pulse rounded-3xl bg-brand-card" />
         ) : orders.length === 0 ? (
-          <p className="rounded-3xl border border-border-color bg-card p-8 text-center text-sm text-text-muted">
+          <p className="rounded-3xl border border-brand-border bg-brand-card p-8 text-center text-sm text-content-muted">
             {filter === 'active' ? 'Nenhum pedido em andamento.' : 'Nenhum pedido finalizado ainda.'}
           </p>
         ) : (
@@ -97,7 +97,7 @@ export default function PedidosPage() {
 
         {!showSkeleton && orders.length > 0 && (
           <div className="flex flex-col items-center gap-2">
-            <p className="text-xs text-text-muted">
+            <p className="text-xs text-content-muted">
               Mostrando {orders.length} de {total}
             </p>
             {hasMore && (

@@ -13,11 +13,11 @@ interface Props {
 export function Field({ id, label, error, hint, children }: Props) {
   return (
     <div className="space-y-1.5">
-      <label htmlFor={id} className="text-sm font-medium text-text-light">
+      <label htmlFor={id} className="text-sm font-medium text-content-light">
         {label}
       </label>
       {children}
-      {hint && !error && <p className="text-xs text-text-gray">{hint}</p>}
+      {hint && !error && <p className="text-xs text-content-gray">{hint}</p>}
       <FieldError id={`${id}-error`} message={error} />
     </div>
   )

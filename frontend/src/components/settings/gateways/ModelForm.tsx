@@ -26,14 +26,14 @@ export function ModelForm({
 }: ModelFormProps) {
   return (
     <form
-      className="space-y-4 rounded-2xl border border-primary/50 bg-card p-6"
+      className="space-y-4 rounded-2xl border border-primary/50 bg-brand-card p-6"
       aria-label={modelDraft.id ? 'Editar modelo' : 'Novo modelo'}
       onSubmit={(e) => {
         e.preventDefault()
         onSubmit()
       }}
     >
-      <h3 className="text-base font-semibold text-text-light">
+      <h3 className="text-base font-semibold text-content-light">
         {modelDraft.id ? 'Editar modelo' : 'Novo modelo'}
       </h3>
       <div className="grid gap-4 md:grid-cols-2">
@@ -90,7 +90,7 @@ export function ModelForm({
             } />
           <FieldError id="gm-temp-error" message={modelErrors.temperature} />
         </div>
-        <div className="flex flex-col justify-end gap-2 pb-3 text-sm text-text-light">
+        <div className="flex flex-col justify-end gap-2 pb-3 text-sm text-content-light">
           <label className="flex items-center gap-2">
             <input type="checkbox" checked={modelDraft.supports_tools}
               onChange={(e) => patchModel({ supports_tools: e.target.checked })} />

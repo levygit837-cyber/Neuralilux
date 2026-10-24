@@ -1,68 +1,67 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
   content: [
-    './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
     './src/components/**/*.{js,ts,jsx,tsx,mdx}',
     './src/app/**/*.{js,ts,jsx,tsx,mdx}',
   ],
   darkMode: 'class',
   theme: {
+    // Paleta fechada: `theme.colors` (e não `extend`) tira red-500, emerald-500 etc.; classe de cor fora dos tokens vira erro no lint.
+    colors: {
+      transparent: "transparent",
+      current: "currentColor",
+      inherit: "inherit",
+      white: "#fff",
+      black: "#000",
+      brand: {
+        base: "rgb(var(--color-brand-base) / <alpha-value>)",
+        deep: "rgb(var(--color-brand-deep) / <alpha-value>)",
+        card: "rgb(var(--color-brand-card) / <alpha-value>)",
+        hover: "rgb(var(--color-brand-hover) / <alpha-value>)",
+        border: "rgb(var(--color-brand-border) / <alpha-value>)",
+        line: "rgb(var(--color-brand-line) / <alpha-value>)",
+      },
+      primary: {
+        DEFAULT: "rgb(var(--color-primary) / <alpha-value>)",
+        dark: "rgb(var(--color-primary-dark) / <alpha-value>)",
+        light: "rgb(var(--color-primary-light) / <alpha-value>)",
+        soft: "rgb(var(--color-primary-soft) / <alpha-value>)",
+        pale: "rgb(var(--color-primary-pale) / <alpha-value>)",
+        deep: "rgb(var(--color-primary-deep) / <alpha-value>)",
+        strong: "rgb(var(--color-primary-strong) / <alpha-value>)",
+        edge: "rgb(var(--color-primary-edge) / <alpha-value>)",
+      },
+      secondary: "rgb(var(--color-secondary) / <alpha-value>)",
+      accent: "rgb(var(--color-accent) / <alpha-value>)",
+      content: {
+        light: "rgb(var(--color-content-light) / <alpha-value>)",
+        soft: "rgb(var(--color-content-soft) / <alpha-value>)",
+        gray: "rgb(var(--color-content-gray) / <alpha-value>)",
+        subtle: "rgb(var(--color-content-subtle) / <alpha-value>)",
+        muted: "rgb(var(--color-content-muted) / <alpha-value>)",
+      },
+      status: {
+        success: "rgb(var(--color-status-success) / <alpha-value>)",
+        error: "rgb(var(--color-status-error) / <alpha-value>)",
+        warning: "rgb(var(--color-status-warning) / <alpha-value>)",
+        info: "rgb(var(--color-status-info) / <alpha-value>)",
+      },
+    },
     extend: {
-      colors: {
-        // Brand colors
-        brand: {
-          base: '#0F0A1E',
-          card: '#1A1333',
-          hover: '#251B47',
-          border: '#2D2447',
-        },
-        // Primary colors
-        primary: {
-          DEFAULT: '#8B5CF6',
-          dark: '#7C3AED',
-          light: '#A78BFA',
-        },
-        // Secondary
-        secondary: '#6D28D9',
-        // Accent
-        accent: '#EC4899',
-        // Content colors
-        content: {
-          light: '#F9FAFB',
-          gray: '#D1D5DB',
-          muted: '#9CA3AF',
-        },
-        // Border
-        'border-color': '#2D2447',
-        // Legacy text colors (mapped to content)
-        'text-light': '#F9FAFB',
-        'text-gray': '#D1D5DB',
-        'text-muted': '#9CA3AF',
-        // Legacy background colors (mapped to brand)
-        'dark': '#0F0A1E',
-        'card': '#1A1333',
-        'hover': '#251B47',
-        'primary-dark': '#7C3AED',
-        'primary-light': '#A78BFA',
-        // Status colors
-        status: {
-          success: '#10B981',
-          error: '#EF4444',
-          warning: '#F59E0B',
-        },
-        // Legacy status colors
-        'success': '#10B981',
-        'error': '#EF4444',
-        'warning': '#F59E0B',
+      backgroundImage: {
+        "gradient-radial": "radial-gradient(circle, var(--tw-gradient-stops))",
       },
       fontFamily: {
         sans: ['Inter', 'sans-serif'],
         inter: ['Inter', 'sans-serif'],
       },
       boxShadow: {
-        'glow': '0 0 20px -5px rgba(139, 92, 246, 0.4)',
-        'glow-strong': '0 0 25px -2px rgba(139, 92, 246, 0.6)',
+        'glow': '0 0 20px -5px rgb(var(--color-primary) / 0.4)',
+        'glow-strong': '0 0 25px -2px rgb(var(--color-primary) / 0.6)',
         'panel': '4px 0 24px -10px rgba(0, 0, 0, 0.5)',
+        "glow-primary": "0 0 10px rgb(var(--color-primary))",
+        "glow-success": "0 0 5px rgb(var(--color-status-success))",
+        "active-bar": "inset 4px 0 0 0 rgb(var(--color-primary))",
       },
       animation: {
         'float': 'float 6s ease-in-out infinite',
@@ -96,9 +95,9 @@ module.exports = {
           '100%': { opacity: '1' },
         },
         'pulse-ring': {
-          '0%': { transform: 'scale(0.8)', boxShadow: '0 0 0 0 rgba(16, 185, 129, 0.7)' },
-          '70%': { transform: 'scale(1)', boxShadow: '0 0 0 4px rgba(16, 185, 129, 0)' },
-          '100%': { transform: 'scale(0.8)', boxShadow: '0 0 0 0 rgba(16, 185, 129, 0)' },
+          '0%': { transform: 'scale(0.8)', boxShadow: '0 0 0 0 rgb(var(--color-status-success) / 0.7)' },
+          '70%': { transform: 'scale(1)', boxShadow: '0 0 0 4px rgb(var(--color-status-success) / 0)' },
+          '100%': { transform: 'scale(0.8)', boxShadow: '0 0 0 0 rgb(var(--color-status-success) / 0)' },
         },
         'typing-dot': {
           '0%, 20%': { transform: 'translateY(0)', opacity: '0.5' },

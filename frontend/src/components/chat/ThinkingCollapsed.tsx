@@ -10,7 +10,7 @@ interface ThinkingCollapsedProps {
 export function ThinkingCollapsed({ summary, onExpand }: ThinkingCollapsedProps) {
   return (
     <div className="flex items-start gap-3 py-2">
-      <div className="flex w-full max-w-[480px] items-start justify-between gap-3 rounded-[16px] border border-[#8B5CF630] bg-[#120F27] px-3.5 py-3">
+      <div className="flex w-full max-w-[480px] items-start justify-between gap-3 rounded-[16px] border border-primary/20 bg-brand-deep px-3.5 py-3">
         <div className="flex min-w-0 flex-1 items-start gap-3">
           {/* Icon with 3 dots */}
           <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-primary">
@@ -23,8 +23,8 @@ export function ThinkingCollapsed({ summary, onExpand }: ThinkingCollapsedProps)
 
           {/* Text group */}
           <div className="flex min-w-0 flex-1 flex-col">
-            <span className="text-sm font-semibold text-text-light">Pensamento oculto</span>
-            <p className="mt-1 text-xs leading-relaxed text-[#A7A1C5]">
+            <span className="text-sm font-semibold text-content-light">Pensamento oculto</span>
+            <p className="mt-1 text-xs leading-relaxed text-content-subtle">
               {summary || 'Resumo do raciocínio disponível para expandir.'}
             </p>
           </div>
@@ -35,7 +35,7 @@ export function ThinkingCollapsed({ summary, onExpand }: ThinkingCollapsedProps)
           onClick={onExpand}
           type="button"
           aria-label="Expandir raciocínio"
-          className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-[#3A2C70] bg-[#221A44] text-[#E9D5FF] transition-colors hover:bg-[#2D2255]"
+          className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-primary-edge bg-primary-deep text-primary-pale transition-colors hover:bg-primary-strong"
         >
           <CaretDown weight="bold" className="text-lg transition-transform duration-200" />
         </button>

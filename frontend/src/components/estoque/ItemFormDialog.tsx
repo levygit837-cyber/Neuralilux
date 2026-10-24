@@ -27,7 +27,7 @@ export function ItemFormDialog({
       <form className="space-y-5" onSubmit={onSubmit}>
         <div className="grid gap-5 md:grid-cols-2">
           <div className="space-y-2">
-            <label htmlFor="item-name" className="text-sm font-medium text-text-light">Nome do item</label>
+            <label htmlFor="item-name" className="text-sm font-medium text-content-light">Nome do item</label>
             <Input
               id="item-name"
               data-autofocus
@@ -48,7 +48,7 @@ export function ItemFormDialog({
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="item-price" className="text-sm font-medium text-text-light">Preço</label>
+            <label htmlFor="item-price" className="text-sm font-medium text-content-light">Preço</label>
             <Input
               id="item-price"
               value={itemForm.price}
@@ -68,7 +68,7 @@ export function ItemFormDialog({
         </div>
 
         <div className="space-y-2">
-          <label htmlFor="item-description" className="text-sm font-medium text-text-light">Descrição</label>
+          <label htmlFor="item-description" className="text-sm font-medium text-content-light">Descrição</label>
           <textarea
             id="item-description"
             value={itemForm.description}
@@ -84,11 +84,11 @@ export function ItemFormDialog({
             }
             placeholder="Conte um pouco sobre o item"
             rows={4}
-            className="w-full rounded-2xl border border-border-color bg-dark px-4 py-3 text-sm text-text-light placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary"
+            className="w-full rounded-2xl border border-brand-border bg-brand-base px-4 py-3 text-sm text-content-light placeholder:text-content-muted focus:outline-none focus:ring-2 focus:ring-primary"
           />
         </div>
 
-        <label htmlFor="item-available" className="flex items-center gap-3 rounded-2xl border border-border-color bg-dark px-4 py-3">
+        <label htmlFor="item-available" className="flex items-center gap-3 rounded-2xl border border-brand-border bg-brand-base px-4 py-3">
           <input
             id="item-available"
             type="checkbox"
@@ -103,21 +103,21 @@ export function ItemFormDialog({
                   : current
               )
             }
-            className="h-4 w-4 rounded border-border-color bg-dark text-primary focus:ring-primary"
+            className="h-4 w-4 rounded border-brand-border bg-brand-base text-primary focus:ring-primary"
           />
           <div>
-            <p className="text-sm font-medium text-text-light">Item disponível</p>
-            <p className="text-xs text-text-muted">
+            <p className="text-sm font-medium text-content-light">Item disponível</p>
+            <p className="text-xs text-content-muted">
               Desmarque se o item deve ficar temporariamente indisponível.
             </p>
           </div>
         </label>
 
-        <div className="space-y-3 rounded-3xl border border-border-color bg-dark p-4">
+        <div className="space-y-3 rounded-3xl border border-brand-border bg-brand-base p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-semibold text-text-light">Variáveis extras</p>
-              <p className="text-xs text-text-muted">
+              <p className="text-sm font-semibold text-content-light">Variáveis extras</p>
+              <p className="text-xs text-content-muted">
                 Ex.: tamanho, ponto da carne, observação, tempo médio.
               </p>
             </div>
@@ -200,7 +200,7 @@ export function ItemFormDialog({
                 </div>
               ))
             ) : (
-              <p className="text-sm text-text-muted">
+              <p className="text-sm text-content-muted">
                 Nenhuma variável cadastrada para este item.
               </p>
             )}
