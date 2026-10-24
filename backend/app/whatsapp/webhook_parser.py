@@ -45,6 +45,21 @@ class ParsedContent:
     is_media: bool = False
 
 
+def webhook_message_ids(payload: Dict[str, Any]) -> list[str]:
+    """Ids das Messages do payload (`data.key.id`, ou `data.data.key.id` no envelope do consumer) para logar falhas."""
+    data = payload.get("data")
+    if isinstance(data, dict) and isinstance(data.get("data"), dict):
+        data = data["data"]
+    items = data if isinstance(data, list) else [data]
+    ids = []
+    for item in items:
+        key = item.get("key") if isinstance(item, dict) else None
+        message_id = key.get("id") if isinstance(key, dict) else None
+        if message_id:
+            ids.append(str(message_id))
+    return ids
+
+
 def _unwrap(message_data: Dict[str, Any]) -> Dict[str, Any]:
     """Desembrulha `ephemeralMessage`, `viewOnce*` etc. até a mensagem de verdade."""
     for _ in range(len(_WRAPPERS)):

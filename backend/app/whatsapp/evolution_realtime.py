@@ -13,6 +13,7 @@ import structlog
 
 from app.core.config import settings
 from app.whatsapp.message_queue import message_queue_service
+from app.whatsapp.webhook_parser import webhook_message_ids
 
 logger = structlog.get_logger()
 
@@ -26,6 +27,10 @@ def _ensure_aiohttp_ws_timeout_compat() -> None:
         return float(ws_close or 10)
 
     aiohttp.ClientWSTimeout = _client_ws_timeout  # type: ignore[attr-defined]
+
+
+class WebhookPublishError(RuntimeError):
+    """O evento do socket da Evolution não entrou na fila (RabbitMQ fora): a Message se perderia sem rastro."""
 
 
 class EvolutionRealtimeService:
@@ -93,7 +98,14 @@ class EvolutionRealtimeService:
             "event": event_name,
             "source": "websocket",
         }
-        await message_queue_service.publish_webhook_event(normalized_payload)
+        if not await message_queue_service.publish_webhook_event(normalized_payload):
+            logger.error(
+                "Evolution realtime event lost: publish to RabbitMQ failed",
+                event_type=event_name,
+                instance=payload.get("instance"),
+                message_ids=webhook_message_ids(normalized_payload),
+            )
+            raise WebhookPublishError(f"publish of {event_name} failed")
 
 
 evolution_realtime_service = EvolutionRealtimeService()

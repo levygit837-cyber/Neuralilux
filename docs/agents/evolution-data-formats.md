@@ -251,6 +251,18 @@ No `WebhookController.emit` do dist, o webhook **global** dispara quando `WEBHOO
 - Sem elas, valem os defaults do arquivo `/evolution/.env` da imagem (`dotenv`), que deixa `true`: `QRCODE_UPDATED`, `MESSAGES_SET/UPSERT/EDITED/UPDATE/DELETE`, `SEND_MESSAGE(_UPDATE)`, `CONTACTS_SET/UPSERT/UPDATE`, `PRESENCE_UPDATE`, `CHATS_SET/UPSERT/UPDATE/DELETE`, `GROUPS_UPSERT/UPDATE`, `GROUP_PARTICIPANTS_UPDATE`, `CONNECTION_UPDATE`, `LABELS_EDIT/ASSOCIATION`, `CALL`; e `false`: `APPLICATION_STARTUP`, `REMOVE_INSTANCE`, `LOGOUT_INSTANCE`, `ERRORS`. Ou seja, **hoje o webhook recebe quase tudo**, inclusive eventos que o consumer não usa.
 - `WEBHOOK_REQUEST_TIMEOUT_MS=60000`, retry até 10 tentativas com backoff exponencial (5 s a 300 s). Status 400, 401, 403, 404, 422 não são repetidos.
 
+### Resposta não-2xx: a Evolution reenvia? [fonte]
+
+Sim, no webhook HTTP. Lido em `WebhookController.retryWebhookRequest` da tag `2.3.7` ([webhook.controller.ts](https://github.com/EvolutionAPI/evolution-api/blob/2.3.7/src/api/integrations/event/webhook/webhook.controller.ts)), com os defaults de [`.env.example`](https://github.com/EvolutionAPI/evolution-api/blob/2.3.7/.env.example) (linhas `WEBHOOK_REQUEST_TIMEOUT_MS` e `WEBHOOK_RETRY_*`):
+
+- Qualquer erro do `axios.post` (status fora de 2xx, timeout de `WEBHOOK_REQUEST_TIMEOUT_MS`, conexão recusada) entra no retry, **exceto** os status de `WEBHOOK_RETRY_NON_RETRYABLE_STATUS_CODES` (padrão `400,401,403,404,422`), que abortam na hora. Um **503 é reenviado**; o 401 do token errado não é.
+- Até `WEBHOOK_RETRY_MAX_ATTEMPTS=10` tentativas, espera inicial de 5 s, dobrando a cada falha até 300 s, com jitter de ±20 %. No pior caso a Evolution insiste por mais de 20 minutos; esgotadas as tentativas, loga o erro e **descarta o evento**.
+- O corpo reenviado é o mesmo envelope, então um evento que o Neuralilux já aceitou e depois recebe de novo cai na deduplicação por `message_id` do consumer.
+- **Não vale para o caminho do websocket** (`EvolutionRealtimeService`): o socket não tem ack nem retry. Se o publish no RabbitMQ falha ali, o evento só fica registrado no log (`Evolution realtime event lost`, com `event_type`, `instance` e `message_ids`) e se perde.
+- Não conferi em runtime com o container: a conclusão vem do código da tag e dos defaults do `.env.example`; este ambiente não define nenhuma variável `WEBHOOK_RETRY_*`.
+
+Por isso o webhook responde **503** quando o publish no RabbitMQ falha (`routes/webhooks.py`): a Evolution reenvia enquanto o broker volta. Sinal de alerta: o log `Evolution webhook event lost: publish to RabbitMQ failed` (ou `Evolution realtime event lost`). No webhook, ele repetido ao longo de minutos significa broker fora; se o broker não voltar em ~20 min, as Messages daquele período estão perdidas e só a History Sync recupera.
+
 ### Envelope [fonte, medido no websocket]
 
 ```json
