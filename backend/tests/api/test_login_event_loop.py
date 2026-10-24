@@ -20,7 +20,9 @@ pytestmark = pytest.mark.asyncio
 
 LOGIN = "/api/v1/auth/login"
 PASSWORD = "testpass123"
-HEALTH_CEILING_SECONDS = 0.5  # sem o bcrypt fora do loop, 10 logins seguram o loop por ~2 s seguidos
+# Sem o bcrypt fora do loop, 10 logins seguram o loop por ~1,7 s seguidos (medido). Um host carregado descalona o prober
+# em centenas de ms (0,61 s com load average 41), então o teto fica entre os dois: separa o bloqueio real do ruído.
+HEALTH_CEILING_SECONDS = 1.0
 
 
 @pytest_asyncio.fixture
