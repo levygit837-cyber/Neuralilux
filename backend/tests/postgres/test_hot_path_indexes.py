@@ -6,7 +6,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import create_engine, inspect, select, text
+from sqlalchemy import create_engine, func, insert, inspect, select, text
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 
@@ -38,6 +38,17 @@ def _message(conversation: Conversation, message_id: str, minutes: int) -> Messa
         remote_jid=conversation.remote_jid, message_id=message_id, message_type="text", content=f"texto {message_id}",
         direction="incoming", timestamp=T0 + timedelta(minutes=minutes),
     )
+
+
+def _insert_messages(db: Session, *messages: Message) -> None:
+    """Grava as Messages só com as colunas que existem na 0014: o modelo atual já tem as `turn_*` da 0016."""
+    for message in messages:
+        values = {
+            c.name: getattr(message, c.key)
+            for c in Message.__table__.columns
+            if not c.name.startswith("turn_") and getattr(message, c.key) is not None
+        }
+        db.execute(insert(Message.__table__).values(**values))
 
 
 def _seed_duplicates(engine) -> dict:
@@ -101,8 +112,9 @@ def _seed_duplicates(engine) -> dict:
         )
         messages = [_message(old_conv, "a1", 1), _message(old_conv, "a2", 2), _message(new_conv, "b1", 10),
                     _message(new_conv, "b2", 11), _message(new_conv, "b3", 12), _message(other_conv, "z1", 3)]
-        db.add_all([order, orphan, *messages])
+        db.add(order)
         db.flush()
+        _insert_messages(db, orphan, *messages)
 
         # Duas Conversations duplicadas do mesmo Contact, cada uma com Summary (filho de chave única).
         twin_contact = Contact(
@@ -121,8 +133,7 @@ def _seed_duplicates(engine) -> dict:
         db.add_all(twins)
         db.flush()
         twin_messages = [_message(twin, f"t{n}", n) for n, twin in enumerate(twins, start=20)]
-        db.add_all(twin_messages)
-        db.flush()
+        _insert_messages(db, *twin_messages)
         db.add_all([
             ConversationMemorySummary(
                 conversation_id=twin.id, summary=f"resumo {twin.id}", covered_until_message_id=twin_message.id,
@@ -159,7 +170,7 @@ def _seed_duplicates(engine) -> dict:
         for conv, ticket in zip(ho_convs, tickets):
             conv.human_in_loop, conv.human_handoff_reason, conv.ticket_id = True, ticket.reason, ticket.id
         db.commit()
-        return {"messages": db.query(Message).count()}
+        return {"messages": db.query(func.count(Message.id)).scalar()}
 
 
 def test_migration_0015_merges_duplicates_without_losing_messages(make_database):
@@ -188,8 +199,8 @@ def test_migration_0015_merges_duplicates_without_losing_messages(make_database)
             )
 
             # Nenhuma Message se perdeu; as da Conversation duplicada foram para a que ficou.
-            assert db.query(Message).count() == before["messages"]
-            by_conversation = {m.message_id: m.conversation_id for m in db.query(Message)}
+            assert db.query(func.count(Message.id)).scalar() == before["messages"]
+            by_conversation = dict(db.query(Message.message_id, Message.conversation_id))
             assert {by_conversation[i] for i in ("a1", "a2", "b1", "b2", "b3")} == {"k-old"}
             assert by_conversation["orphan"] is None and by_conversation["z1"] == "k-other"
 
@@ -229,7 +240,7 @@ def test_migration_0015_merges_duplicates_without_losing_messages(make_database)
         assert {c["name"] for c in inspector.get_unique_constraints("contacts")} == set()
         assert "ix_messages_conversation_timestamp" not in {i["name"] for i in inspector.get_indexes("messages")}
         with Session(engine) as db:
-            assert db.query(Message).count() == before["messages"]
+            assert db.query(func.count(Message.id)).scalar() == before["messages"]
             assert db.query(Contact).filter(Contact.remote_jid == JID).count() == 1
     finally:
         engine.dispose()

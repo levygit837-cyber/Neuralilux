@@ -27,7 +27,7 @@ def clock(monkeypatch):
 @pytest.fixture
 def consumer(clock):
     instance = WhatsAppMessageConsumer()
-    instance._batcher = TurnBatcher(monotonic=clock.monotonic, sleep=clock.sleep)
+    instance.runner.batcher = TurnBatcher(monotonic=clock.monotonic, sleep=clock.sleep)
     return instance
 
 
@@ -62,11 +62,13 @@ async def test_followers_are_stored_while_the_leader_waits(db, world, consumer, 
     follower = deliver(consumer, text="quero", message_id="in-2")
     await settle()
 
-    assert follower.done() and not leader.done()
+    # A entrega só grava e confirma: nenhuma espera a pausa do Contact nem o Turn.
+    assert follower.done() and leader.done() and world["turns"] == []
     assert [m.content for m in messages(db)] == ["oi", "quero"]
 
     await clock.advance(3)
-    await leader
+    await consumer.drain()
+    assert world["turns"] == ["oi\nquero"]
 
 
 async def test_message_arriving_during_a_turn_is_answered_in_the_next_turn_without_overlap(
@@ -138,6 +140,7 @@ async def test_typing_is_shown_while_the_turn_runs_and_stops_after_the_reply(db,
     await settle()
     await clock.advance(3)
     await task
+    await consumer.drain()
 
     assert seen_during_turn == [1]
     assert presence[0] == {"instance_name": "evo-t7", "remote_jid": upsert()["data"]["data"]["key"]["remoteJid"], "presence": "composing"}

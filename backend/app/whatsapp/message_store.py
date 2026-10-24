@@ -132,7 +132,9 @@ def new_message(
     timestamp: datetime,
     *,
     sender_name: Optional[str] = None,
+    turn: Optional[dict] = None,
 ) -> Message:
+    """`turn`: colunas `turn_*` iniciais (`turn_state.initial_state`); sem elas a Message não tem Turn a fazer."""
     return Message(
         id=generate_uuid(),
         instance_id=instance.id,
@@ -146,4 +148,5 @@ def new_message(
         is_from_me=from_me,
         sender_name=sender_name,
         timestamp=timestamp,
+        **(turn or {}),
     )

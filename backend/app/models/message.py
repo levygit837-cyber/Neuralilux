@@ -53,6 +53,12 @@ class Message(Base):
     timestamp = Column(DateTime(timezone=True), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+    # Turn do Agent para esta Message do Contact (#91, migração 0016). NULL: não há Turn a fazer (mensagem do próprio
+    # número, grupo, histórico importado ou gravada antes da 0016). Valores e regras em `app/whatsapp/turn_state.py`.
+    turn_state = Column(String(16))  # pending, answered, skipped
+    turn_reason = Column(String(32))  # skipped/answered: o motivo; pending: como terminou a última tentativa (released, failed)
+    turn_claimed_at = Column(DateTime(timezone=True))  # início da tentativa em curso; o claim atômico da recuperação
+
     # History Search (ADR 0003). A expressão tem de ser idêntica à de `memory.search_history` e à da
     # migração 0004; declarada aqui para o autogenerate do Alembic não propor remover o índice.
     # Os dois compostos (migração 0015) servem a Recent Window, o Summary, as Sessions e o Handoff
@@ -65,6 +71,13 @@ class Message(Base):
         ).ddl_if(dialect="postgresql"),
         Index("ix_messages_conversation_timestamp", "conversation_id", "timestamp", "id"),
         Index("ix_messages_instance_timestamp", "instance_id", "timestamp"),
+        # Só as pendentes: poucas e de vida curta, então o índice fica minúsculo (a recuperação lê por aqui).
+        Index(
+            "ix_messages_turn_pending",
+            "timestamp",
+            postgresql_where=text("turn_state = 'pending'"),
+            sqlite_where=text("turn_state = 'pending'"),
+        ),
     )
 
     # Relationships

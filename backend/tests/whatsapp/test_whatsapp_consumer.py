@@ -5,7 +5,9 @@ import pytest
 
 from app.models import Agent, Company, Contact, Conversation, Instance, Message
 from app.whatsapp import consumer as consumer_module
-from app.whatsapp.consumer import MEDIA_REPLY, WhatsAppMessageConsumer
+from app.whatsapp.consumer import WhatsAppMessageConsumer
+from app.whatsapp import turn_runner as turn_runner_module
+from app.whatsapp.turn_runner import MEDIA_REPLY
 from app.whatsapp.evolution_client import evolution_api
 from consumer_helpers import messages, process, upsert
 
@@ -240,7 +242,7 @@ async def test_missing_agent_logs_one_clear_error_and_never_answers(db, world, m
     db.query(Instance).update({"agent_id": None})
     db.commit()
     errors = []
-    monkeypatch.setattr(consumer_module.logger, "bind", lambda **_: type("L", (), {
+    monkeypatch.setattr(turn_runner_module.logger, "bind", lambda **_: type("L", (), {
         "info": lambda *a, **k: None,
         "error": lambda self, msg, **k: errors.append(msg),
         "exception": lambda *a, **k: None,

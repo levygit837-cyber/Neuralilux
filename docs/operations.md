@@ -184,14 +184,30 @@ Passo único e obrigatório ao atualizar um banco que já tem Gateways com chave
 
 O script abre cada chave com a `SECRET_KEY` (HKDF ou SHA-256 antigo) e regrava com a `GATEWAY_ENCRYPTION_KEY`. Idempotente: a segunda execução imprime 0 e não altera nada. Chaves que nenhuma das duas abre ficam intactas (regrave-as pela API). Depois disso a `SECRET_KEY` pode ser rotacionada sem tocar nos Gateways; já trocar a `GATEWAY_ENCRYPTION_KEY` invalida as chaves salvas. Só o script re-criptografa; seed, API e worker nunca mexem nos tokens.
 
-### Agrupamento e prefetch
+### Agrupamento, concorrência e prefetch
 
-A Message que abre uma rajada (a líder) segura a entrega do RabbitMQ durante a janela (`DEBOUNCE_SECONDS`, padrão 3 s) e todos os Turns da rajada, que levam segundos com o modelo. As seguidoras voltam logo depois de gravadas. Cada líder ocupa, portanto, um slot do `RABBITMQ_PREFETCH` (padrão 8) por esse tempo.
+A entrega do RabbitMQ só grava a Message e confirma (`ack`); o Turn roda depois, numa task do worker. Por isso o `RABBITMQ_PREFETCH` (padrão 8) limita só quantas Messages estão sendo **gravadas** ao mesmo tempo, e um Gateway lento não atrasa um `connection.update` nem a gravação das Messages seguintes.
 
-- **Teto.** No máximo `RABBITMQ_PREFETCH` Conversations em rajada ao mesmo tempo por worker. Com todos os slots ocupados por líderes, as Messages seguintes de qualquer Conversation esperam na fila até um Turn terminar: o Contact vê atraso, não perda.
-- **Dimensionar.** `RABBITMQ_PREFETCH` deve ser no mínimo o número de Conversations que você espera ver em atendimento ao mesmo tempo por worker, mais uma folga para as seguidoras (cada uma ocupa um slot só até ser gravada). O pool do banco (`pool_size=10`, `max_overflow=20` em `app/core/database.py`) precisa acompanhar: a líder devolve a conexão do consumer antes de esperar a janela, mas o Turn abre a própria Session e a segura até a resposta sair.
-- **Desligar.** `DEBOUNCE_SECONDS=0` volta a um Turn por Message e libera o slot assim que o Turn termina.
-- **Sintoma de prefetch curto.** Resposta atrasada com o worker ocioso e Messages prontas na fila `webhooks.evolution`: suba `RABBITMQ_PREFETCH` e reinicie o worker.
+- **Concorrência dos Turns.** `TURN_CONCURRENCY` (padrão 8) é o máximo de Turns falando com o Gateway ao mesmo tempo por worker. A pausa do debounce (`DEBOUNCE_SECONDS`, 3 s) não ocupa vaga. Os Turns acima do limite esperam, com a Message `pending` no banco. Suba o valor se o Gateway aguenta mais paralelismo; o pool do banco (`pool_size=10`, `max_overflow=20` em `app/core/database.py`) precisa acompanhar, porque cada Turn abre a própria Session e a segura até a resposta sair.
+- **Desligar o agrupamento.** `DEBOUNCE_SECONDS=0` volta a um Turn por Message.
+- **Sintoma de Turns acumulando.** Resposta atrasada com o Gateway lento: veja quantas Messages estão `pending` (consulta abaixo) e ajuste `TURN_CONCURRENCY`.
+
+### Mensagens pendentes e recuperação
+
+Garantia e estados: [architecture.md](architecture.md#resposta-durável). Variáveis (todas em segundos, exceto `TURN_CONCURRENCY`):
+
+| Variável | Padrão | Efeito |
+|---|---|---|
+| `TURN_CONCURRENCY` | 8 | Turns simultâneos por worker. |
+| `TURN_RECOVERY_INTERVAL_SECONDS` | 60 | Intervalo da varredura de pendentes (também roda na subida). |
+| `TURN_RECOVERY_MAX_AGE_SECONDS` | 900 | Idade máxima de uma pendente a ser retomada; mais velha vira `skipped: stale`. Responder meia hora depois seria estranho para o Contact. |
+| `TURN_CLAIM_LEASE_SECONDS` | 180 | Quanto tempo a posse de um worker protege a Message de outro. Maior que `DEBOUNCE_MAX_WAIT_SECONDS + TURN_TIMEOUT_SECONDS`. |
+| `SHUTDOWN_TIMEOUT_SECONDS` | 20 | Prazo do shutdown para os Turns em voo. |
+
+- **Deploy e reinício.** O `SIGTERM` para de consumir, espera os Turns até `SHUTDOWN_TIMEOUT_SECONDS` e cancela o resto; as Messages desses Turns seguem `pending` e o worker novo as retoma na subida. Mantenha o `stop_grace_period` do orquestrador pelo menos 10 s acima de `SHUTDOWN_TIMEOUT_SECONDS`.
+- **Vários workers.** Podem rodar juntos: cada Message é tomada por um UPDATE condicional atômico, então só um worker responde. Um worker que cai sem `SIGTERM` (kill -9, falta de energia) deixa a Message com a posse até vencer em `TURN_CLAIM_LEASE_SECONDS`; só então outro a retoma.
+- **Ver o que está pendente.** `SELECT turn_reason, count(*), min(timestamp) FROM messages WHERE turn_state = 'pending' GROUP BY 1;` (usa o índice parcial). Pendente antiga que não sai: o worker está parado, ou a Message passa de `TURN_RECOVERY_MAX_AGE_SECONDS` e vira `stale` na próxima varredura.
+- **Duplicidade.** A garantia é pelo menos uma resposta; ver "Limites" em architecture.md para a janela em que um crash entre o envio e a gravação da resposta pode repetir a resposta.
 
 ### Memória
 

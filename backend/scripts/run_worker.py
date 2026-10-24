@@ -3,6 +3,8 @@ WhatsApp Message Queue Worker
 Run this script to start consuming messages from RabbitMQ
 
 Um único event loop persistente atende todas as mensagens (até RABBITMQ_PREFETCH em paralelo).
+No SIGTERM/SIGINT o consumer para de consumir, espera os Turns em voo até SHUTDOWN_TIMEOUT_SECONDS e cancela o resto:
+as Messages desses Turns continuam `pending` e a recuperação do próximo worker as retoma.
 """
 import sys
 import signal
@@ -47,7 +49,7 @@ async def run() -> int:
             return 1
         return 0
     finally:
-        await whatsapp_consumer.stop()  # espera as entregas e os Summaries em andamento
+        await whatsapp_consumer.stop()  # espera os Turns e os Summaries até SHUTDOWN_TIMEOUT_SECONDS
         sweeping.cancel()
         await asyncio.gather(consuming, sweeping, return_exceptions=True)
         waiting.cancel()

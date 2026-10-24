@@ -20,7 +20,7 @@ nos dois.
 """
 import asyncio
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -34,6 +34,7 @@ class Entry:
     message_id: str  # Message.id da linha gravada
     text: str
     received_at: datetime
+    claim: datetime | None = None  # `turn_claimed_at` que o consumer viu ao pegar a Message (compare-and-set do Turn)
 
 
 @dataclass(frozen=True)
@@ -134,33 +135,41 @@ class TurnBatcher:
     async def submit(
         self,
         key: str,
-        entry: Entry,
+        entry: Entry | Sequence[Entry],
         run: TurnRunner,
         window: float,
         hold: Hold | None = None,
         max_wait: float | None = None,
+        grouped: bool | None = None,
     ) -> None:
-        """Enfileira `entry`. Quem abre a rajada só volta depois que os Turns dela terminam; as demais voltam na hora.
+        """Enfileira `entry` (ou várias, de uma vez). Quem abre a rajada só volta depois que os Turns dela terminam; as
+        demais voltam na hora.
+
+        `grouped` força (ou desliga) o agrupamento de quem abre a rajada; por padrão, só há agrupamento com `window > 0`.
+        A recuperação passa `grouped=True, window=0`: Messages que já esperaram viram um único Turn, sem nova pausa.
 
         `run` recebe o `Group` com as Messages juntas. `hold`, se houver, é solto junto com a entrada, sem `await`
         entre as duas coisas. Erro do Turn é logado e não sobe: a entrega não deve ser reprocessada (a resposta pode
         já ter saído), e as Messages que chegaram durante o Turn seguem para o próximo. `max_wait`: ver o topo do módulo.
         """
+        entries = (entry,) if isinstance(entry, Entry) else tuple(entry)
         batch = self._batches.get(key)
         if batch is not None:
-            batch.add(entry, self._monotonic())
+            for item in entries:
+                batch.add(item, self._monotonic())
             if hold is not None:
                 hold.release()
             return
 
         batch = self._batches[key] = _Batch()
-        batch.add(entry, self._monotonic())
+        for item in entries:
+            batch.add(item, self._monotonic())
         if hold is not None:
             hold.release()
         try:
             while batch.entries:
                 await self._wait_until_quiet(key, batch, window, max_wait)
-                group = batch.take(window > 0)
+                group = batch.take(window > 0 if grouped is None else grouped)
                 try:
                     await run(group)
                 except Exception:

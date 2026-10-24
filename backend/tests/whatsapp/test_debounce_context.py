@@ -14,7 +14,8 @@ from app.core.config import settings
 from app.models import Agent, Contact, Conversation, CustomerOrder, Ticket
 from app.realtime.event_bus import realtime_event_bus
 from app.whatsapp import consumer as consumer_module
-from app.whatsapp.consumer import MEDIA_REPLY, WhatsAppMessageConsumer
+from app.whatsapp.consumer import WhatsAppMessageConsumer
+from app.whatsapp.turn_runner import MEDIA_REPLY
 from app.whatsapp.evolution_client import evolution_api
 from app.whatsapp.turn_batcher import TurnBatcher
 from tests.conftest import TestingSessionLocal
@@ -43,7 +44,7 @@ def model(world, monkeypatch):
 @pytest.fixture
 def consumer(clock, model):
     instance = WhatsAppMessageConsumer()
-    instance._batcher = TurnBatcher(monotonic=clock.monotonic, sleep=clock.sleep)
+    instance.runner.batcher = TurnBatcher(monotonic=clock.monotonic, sleep=clock.sleep)
     instance._started_at = datetime.now(timezone.utc) - timedelta(days=2)  # nenhuma Message é backlog
     return instance
 
