@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-me-in-production-use-strong-secret-key-here"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    # Cookie de login do navegador (ADR 0008). Vazio = cookie só do host da API; defina o domínio pai
+    # (ex.: ".exemplo.com") só se o frontend e a API ficarem em subdomínios diferentes do mesmo site.
+    AUTH_COOKIE_DOMAIN: str | None = None
 
     # Superfície pública (#85). Cadastro anônimo desligado por padrão: usuários saem do `create_superuser.py` ou de
     # um superusuário autenticado. Limites por IP em /auth/login e /auth/register (janela fixa no Redis; o que
