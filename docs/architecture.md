@@ -114,9 +114,9 @@ Detalhes do loop, da memória e dos eventos estão em [agent.md](agent.md).
 
 ## Event loop livre
 
-A API e o worker rodam num event loop que só espera rede. Nada bloqueante roda nele ([ADR 0009](adr/0009-event-loop-livre-sqlalchemy-sincrono-em-thread.md)):
+A API e o worker rodam num event loop que só espera rede nos caminhos cobertos pela [ADR 0009](adr/0009-event-loop-livre-sqlalchemy-sincrono-em-thread.md): rotas da API, Socket.IO, Gateway e history sync. Fora desses caminhos ainda há SQL síncrono no loop do worker (`executor.build_context`, `_handle_message`, `get_or_create_*`) e a transação do `change_status` de pedido fica aberta durante o aviso; a ADR lista os limites.
 
-- O SQLAlchemy segue síncrono. Rota sem `await` é `def` (o FastAPI a roda no threadpool). Rota que mistura banco e rede (Evolution, Gateway) faz o banco em thread, a rede no loop, e não segura a Session durante o `await` longo.
+- O SQLAlchemy segue síncrono. Rota sem `await` é `def` (o FastAPI a roda no threadpool). Rota que mistura banco e rede (Evolution, Gateway) faz o banco em thread, a rede no loop, e não segura a Session durante o `await` longo: a fase de banco copia os escalares e termina com `rollback()`.
 - Handlers do Socket.IO, `resolve_gateway`, o `send_and_persist` e as escritas do history sync usam `asyncio.to_thread`. O bcrypt só roda fora do loop.
 - `app/core/http_clients.py` mantém um `httpx.AsyncClient` por destino (Evolution; cada Gateway), com keep-alive, durante o processo todo. A API o fecha no `lifespan`; o worker, ao parar.
 - A importação de histórico respeita um intervalo mínimo por Instance (`HISTORY_REIMPORT_MIN_INTERVAL_SECONDS`), controlado por uma chave no Redis (`SET NX EX`) que vale para todos os workers. Veja [operations.md](operations.md).
