@@ -5,7 +5,8 @@
 - Redis fora do ar (ou mais lento que os timeouts do cliente): **falha fechada**, 503. Quem não consegue contar
   tentativas não pode deixar o login aberto a força bruta. O custo é o login indisponível enquanto o Redis cai, o
   que já derruba o resto do atendimento (event bus, debounce).
-- IP do cliente: o do peer TCP. `X-Forwarded-For` só é lido quando o peer está em `TRUSTED_PROXIES`.
+- IP do cliente: o do peer TCP. `X-Forwarded-For` (todas as linhas do cabeçalho) só é lido quando o peer está em
+  `TRUSTED_PROXIES`. IPv6 conta por prefixo /64.
 """
 from __future__ import annotations
 
@@ -16,6 +17,7 @@ from typing import Optional
 import structlog
 from fastapi import HTTPException, Request, status
 from redis.asyncio import Redis
+from redis.exceptions import ResponseError
 
 from app.core.config import settings
 
@@ -25,6 +27,7 @@ _KEY_PREFIX = "neuralilux:ratelimit"
 
 _redis: Optional[Redis] = None
 _redis_loop: Optional[asyncio.AbstractEventLoop] = None
+_closing: set[asyncio.Task] = set()  # fechamentos de clientes descartados, em background
 
 
 def _new_client() -> Redis:
@@ -49,11 +52,28 @@ def _client() -> Redis:
     return _redis
 
 
+async def _close_quietly(client: Redis) -> None:
+    try:
+        await asyncio.wait_for(client.aclose(), timeout=settings.REDIS_SOCKET_TIMEOUT_SECONDS)
+    except Exception:
+        pass
+
+
 def _discard_client() -> None:
-    """Descarta o cliente depois de uma falha: a próxima tentativa reconecta do zero."""
+    """Descarta o cliente depois de uma falha (a próxima tentativa reconecta do zero) e o fecha em background.
+
+    Sem o `aclose()`, cada falha com o Redis fora do ar deixaria um pool de conexões aberto. Um cliente de outro
+    loop não é fechado: o `aclose()` falharia no loop morto (mesma regra do event bus).
+    """
     global _redis, _redis_loop
+    client, loop = _redis, _redis_loop
     _redis = None
     _redis_loop = None
+    if client is None or loop is not asyncio.get_running_loop():
+        return
+    task = asyncio.create_task(_close_quietly(client))
+    _closing.add(task)  # referência forte: o loop só guarda referência fraca da task
+    task.add_done_callback(_closing.discard)
 
 
 def _trusted_networks() -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
@@ -78,7 +98,14 @@ def client_ip(request: Request) -> str:
     networks = _trusted_networks()
     if not networks or not _is_trusted(peer, networks):
         return peer
-    forwarded = [part.strip() for part in request.headers.get("x-forwarded-for", "").split(",") if part.strip()]
+    # `getlist`: o proxy pode mandar o cabeçalho em várias linhas (o HAProxy anexa uma linha nova por padrão), e
+    # `get` leria só a primeira, que é a do cliente.
+    forwarded = [
+        part.strip()
+        for line in request.headers.getlist("x-forwarded-for")
+        for part in line.split(",")
+        if part.strip()
+    ]
     for hop in reversed(forwarded):
         try:
             address = ipaddress.ip_address(hop)
@@ -87,6 +114,20 @@ def client_ip(request: Request) -> str:
         if not _is_trusted(hop, networks):
             return str(address)
     return str(ipaddress.ip_address(forwarded[0])) if forwarded else peer
+
+
+def _bucket(ip: str) -> str:
+    """Chave do contador: IPv4 como está; IPv6 pelo prefixo /64, porque um cliente recebe um /64 inteiro (ou mais)
+    e trocar o sufixo daria bilhões de contadores novos. IPv4 mapeado em IPv6 vira o IPv4."""
+    try:
+        address = ipaddress.ip_address(ip)
+    except ValueError:
+        return ip
+    if isinstance(address, ipaddress.IPv6Address):
+        if address.ipv4_mapped is not None:
+            return str(address.ipv4_mapped)
+        return str(ipaddress.IPv6Network((address, 64), strict=False))
+    return ip
 
 
 async def _hit(key: str, window_seconds: int) -> tuple[int, int]:
@@ -104,12 +145,21 @@ async def enforce_rate_limit(request: Request, scope: str, attempts: int, window
     """Conta a tentativa deste IP em `scope`. 429 + Retry-After acima de `attempts` na janela; 503 se o Redis falha."""
     ip = client_ip(request)
     try:
-        count, retry_after = await _hit(f"{_KEY_PREFIX}:{scope}:{ip}", window_seconds)
+        count, retry_after = await _hit(f"{_KEY_PREFIX}:{scope}:{_bucket(ip)}", window_seconds)
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # inclui TimeoutError do teto
         _discard_client()
-        logger.error("Rate limit unavailable: refusing the request", scope=scope, error=repr(exc))
+        if isinstance(exc, ResponseError):
+            reason = "Redis rejected the rate limit command (EXPIRE NX needs Redis >= 7.0)"
+        else:
+            reason = "Redis unavailable or too slow"
+        logger.error(
+            f"Rate limit failed closed: {reason}; refusing the request",
+            scope=scope,
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="Service temporarily unavailable")
     if count > attempts:
         logger.warning("Rate limit exceeded", scope=scope, ip=ip, attempts=count)

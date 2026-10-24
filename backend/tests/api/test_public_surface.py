@@ -41,8 +41,10 @@ def _payload(email: str) -> dict:
     return {"email": email, "password": "testpass123", "full_name": "Novo"}
 
 
-def _request(peer: str | None, forwarded: str | None = None) -> Request:
-    headers = [(b"x-forwarded-for", forwarded.encode())] if forwarded is not None else []
+def _request(peer: str | None, forwarded: str | list[str] | None = None) -> Request:
+    """`forwarded` em lista vira uma linha de cabeçalho por item, como o HAProxy faz ao anexar."""
+    lines = [forwarded] if isinstance(forwarded, str) else forwarded or []
+    headers = [(b"x-forwarded-for", line.encode()) for line in lines]
     return Request({"type": "http", "headers": headers, "client": (peer, 5000) if peer else None})
 
 
@@ -300,3 +302,110 @@ def test_trusted_proxies_rejects_a_value_that_is_not_a_network(monkeypatch):
 
     with pytest.raises(ValidationError):
         Settings(TRUSTED_PROXIES=["nao-e-rede"])
+
+
+# --- X-Forwarded-For em várias linhas, IPv6 por /64, defaults, cliente descartado ------------------------------
+
+
+def test_forwarded_header_split_over_several_lines_cannot_forge_the_ip(monkeypatch):
+    monkeypatch.setattr(settings, "TRUSTED_PROXIES", ["10.0.0.0/8"])
+
+    # Linha 1 é do cliente (forjada); o proxy confiável anexou a linha 2 com o IP real.
+    assert rate_limit.client_ip(_request("10.1.2.3", ["1.1.1.1", "198.51.100.7"])) == "198.51.100.7"
+    assert rate_limit.client_ip(_request("10.1.2.3", ["1.1.1.1, 2.2.2.2", "198.51.100.7, 10.9.9.9"])) == "198.51.100.7"
+
+
+@pytest.mark.asyncio
+async def test_rotating_a_forged_first_line_does_not_escape_the_counter(monkeypatch):
+    monkeypatch.setattr(settings, "TRUSTED_PROXIES", ["10.0.0.0/8"])
+
+    for forged in ("1.1.1.1", "2.2.2.2"):
+        await rate_limit.enforce_rate_limit(_request("10.0.0.1", [forged, "198.51.100.7"]), "login", 2, 60)
+    with pytest.raises(Exception) as caught:
+        await rate_limit.enforce_rate_limit(_request("10.0.0.1", ["3.3.3.3", "198.51.100.7"]), "login", 2, 60)
+
+    assert caught.value.status_code == 429
+
+
+def test_ipv6_clients_are_counted_by_their_64_prefix():
+    same_prefix = {rate_limit._bucket("2001:db8:1:2::1"), rate_limit._bucket("2001:db8:1:2:aaaa:bbbb:cccc:dddd")}
+    assert same_prefix == {"2001:db8:1:2::/64"}
+    assert rate_limit._bucket("2001:db8:1:3::1") != rate_limit._bucket("2001:db8:1:2::1")
+    assert rate_limit._bucket("::ffff:203.0.113.9") == "203.0.113.9"  # IPv4 mapeado conta como o IPv4
+    assert rate_limit._bucket("203.0.113.9") == "203.0.113.9"
+    assert rate_limit._bucket("unknown") == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_changing_the_ipv6_suffix_does_not_reset_the_counter():
+    for suffix in ("1", "2"):
+        await rate_limit.enforce_rate_limit(_request(f"2001:db8:1:2::{suffix}"), "login", 2, 60)
+    with pytest.raises(Exception) as caught:
+        await rate_limit.enforce_rate_limit(_request("2001:db8:1:2:dead:beef:0:3"), "login", 2, 60)
+
+    assert caught.value.status_code == 429
+    await rate_limit.enforce_rate_limit(_request("2001:db8:1:9::1"), "login", 2, 60)  # outro /64 tem contador próprio
+
+
+def test_shipped_defaults_of_the_limits():
+    from app.core.config import Settings
+
+    fields = Settings.model_fields
+    assert (fields["LOGIN_RATE_LIMIT_ATTEMPTS"].default, fields["LOGIN_RATE_LIMIT_WINDOW_SECONDS"].default) == (10, 60)
+    assert (fields["REGISTER_RATE_LIMIT_ATTEMPTS"].default, fields["REGISTER_RATE_LIMIT_WINDOW_SECONDS"].default) == (
+        5,
+        3600,
+    )
+    assert fields["TRUSTED_PROXIES"].default == []
+
+
+@pytest.mark.asyncio
+async def test_failed_client_is_closed_in_background_not_leaked(monkeypatch):
+    import asyncio
+
+    class Broken:
+        closed = False
+
+        def pipeline(self, *args, **kwargs):
+            raise ConnectionError("redis down")
+
+        async def aclose(self):
+            Broken.closed = True
+
+    monkeypatch.setattr(rate_limit, "_new_client", lambda: Broken())
+    monkeypatch.setattr(rate_limit, "_redis", None)
+    monkeypatch.setattr(rate_limit, "_redis_loop", None)
+
+    with pytest.raises(Exception) as caught:
+        await rate_limit.enforce_rate_limit(_request("10.0.0.1"), "login", 5, 60)
+    assert caught.value.status_code == 503
+    await asyncio.gather(*rate_limit._closing)
+
+    assert Broken.closed is True
+    assert rate_limit._redis is None and not rate_limit._closing
+
+
+@pytest.mark.asyncio
+async def test_a_close_that_hangs_never_blocks_the_503(monkeypatch):
+    import asyncio
+
+    class Hung:
+        def pipeline(self, *args, **kwargs):
+            raise ConnectionError("redis down")
+
+        async def aclose(self):
+            await asyncio.sleep(30)
+
+    monkeypatch.setattr(rate_limit, "_new_client", lambda: Hung())
+    monkeypatch.setattr(rate_limit, "_redis", None)
+    monkeypatch.setattr(rate_limit, "_redis_loop", None)
+    monkeypatch.setattr(settings, "REDIS_SOCKET_TIMEOUT_SECONDS", 0.05)
+
+    started = real_time.monotonic()
+    with pytest.raises(Exception) as caught:
+        await rate_limit.enforce_rate_limit(_request("10.0.0.1"), "login", 5, 60)
+    assert caught.value.status_code == 503
+    assert real_time.monotonic() - started < 1  # o fechamento roda em background
+
+    await asyncio.gather(*rate_limit._closing)  # e o teto de fechamento o encerra
+    assert not rate_limit._closing

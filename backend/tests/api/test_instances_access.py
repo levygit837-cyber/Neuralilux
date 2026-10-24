@@ -177,6 +177,22 @@ def _owner(client, db, email: str) -> dict:
     return make_user(client, db, email, company=make_company(db, f"Company de {email}"))
 
 
+def test_create_response_never_carries_the_evolution_instance_token(client, db, evolution):
+    headers = _owner(client, db, "dono@example.com")
+    evolution["create_instance"].return_value = {
+        "instance": {"instanceName": "inst-novo", "status": "created"},
+        "hash": "token-secreto-da-instance",
+        "apikey": "token-secreto-da-instance",
+    }
+
+    response = client.post("/api/v1/instances/inst-novo", headers=headers)
+
+    assert response.status_code == 200
+    assert "token-secreto-da-instance" not in response.text
+    assert "raw" not in response.json()
+    assert response.json()["instance_id"] == "inst-novo"
+
+
 def test_local_row_is_written_only_after_evolution_created_the_instance(client, db, evolution):
     headers = _owner(client, db, "dono@example.com")
     rows_when_evolution_ran = []

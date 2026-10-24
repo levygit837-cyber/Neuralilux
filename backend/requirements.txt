@@ -42,9 +42,6 @@ jsonschema==4.25.1
 email-validator==2.3.0
 phonenumbers==9.0.41
 
-# Rate Limiting
-slowapi==0.1.10
-
 # Monitoring
 prometheus-client==0.26.0
 

@@ -122,7 +122,8 @@ async def create_or_connect_instance(
 
         created_here = True  # só esta requisição criou a Instance na Evolution (não foi "já existe")
         try:
-            create_result = await evolution_api.create_instance(instance_id)
+            # O retorno traz o `hash` (token da Instance na Evolution): não vai para a resposta nem para o log.
+            await evolution_api.create_instance(instance_id)
         except EvolutionAPIError as e:
             if not _is_already_exists(e):
                 raise
@@ -131,7 +132,6 @@ async def create_or_connect_instance(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=f"Instance {instance_id} already exists",
                 )
-            create_result = {"status": "ALREADY_EXISTS"}
             created_here = False
 
         instance = upsert_instance_for_user(db, instance_id, current_user)
@@ -163,7 +163,6 @@ async def create_or_connect_instance(
             "status": "created",
             "qr_code": qr_code,
             "message": "Instance created. Scan QR code to connect." if qr_code else "Instance created. Use /connect to get QR code.",
-            "raw": create_result,
         }
 
     except HTTPException:
