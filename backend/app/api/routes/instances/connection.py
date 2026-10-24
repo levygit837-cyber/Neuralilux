@@ -46,8 +46,24 @@ async def _delete_orphan_in_evolution(instance_name: str) -> None:
         )
 
 
-def _deactivate(db: Session, instance: Instance) -> None:
+def _delete_target(db: Session, instance_ref: str, user: User) -> tuple[str, str]:
+    """(id local, nome na Evolution) da Instance do usuário (bloqueante: roda em thread). Termina com `rollback`:
+    a chamada à Evolution que vem depois não segura conexão do pool nem lê ORM expirado."""
+    instance = get_instance_for_user(db, instance_ref, user)
+    target = instance.id, evolution_name(instance)
+    db.rollback()
+    return target
+
+
+def _check_create(db: Session, name: str, user: User) -> None:
+    """`check_create_access` sem segurar a conexão do pool durante a chamada à Evolution que vem depois."""
+    check_create_access(db, name, user)
+    db.rollback()
+
+
+def _deactivate(db: Session, local_id: str) -> None:
     """Desativa a linha local (bloqueante: roda em thread); a linha fica, pois Conversations e Messages a referenciam."""
+    instance = db.get(Instance, local_id)
     instance.is_active = False
     instance.agent_enabled = False
     instance.status = "disconnected"
@@ -68,8 +84,7 @@ async def delete_instance_endpoint(
       (the row stays, since Conversations and Messages reference it). If the Evolution no longer
       has it (404), the local Instance is still deactivated.
     """
-    instance = await run_in_threadpool(get_instance_for_user, db, instance_id, current_user)
-    name_in_evolution = evolution_name(instance)
+    local_id, name_in_evolution = await run_in_threadpool(_delete_target, db, instance_id, current_user)
     try:
         try:
             result = await evolution_api.delete_instance(name_in_evolution)
@@ -80,7 +95,7 @@ async def delete_instance_endpoint(
             logger.info("Instance already gone from Evolution API", instance_id=instance_id)
             result = {"status": "NOT_FOUND"}
 
-        await run_in_threadpool(_deactivate, db, instance)
+        await run_in_threadpool(_deactivate, db, local_id)
 
         return {
             "instance_id": instance_id,
@@ -138,7 +153,7 @@ async def create_or_connect_instance(
     """
     is_superuser = current_user.is_superuser  # lido antes de qualquer commit: depois dele a leitura iria ao banco
     try:
-        await run_in_threadpool(check_create_access, db, instance_id, current_user)
+        await run_in_threadpool(_check_create, db, instance_id, current_user)
 
         created_here = True  # só esta requisição criou a Instance na Evolution (não foi "já existe")
         try:

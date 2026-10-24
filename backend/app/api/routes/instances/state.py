@@ -33,13 +33,35 @@ def _evolution_instance_name(inst: dict) -> str:
     return inst.get("name") or inst.get("instanceName") or nested.get("instanceName") or ""
 
 
-def _active_instances(db: Session, user: User) -> list[Instance]:
-    """Instances ativas do usuário (bloqueante: roda em thread), na ordem de criação."""
+def _local_rows(db: Session, user: User) -> list[dict]:
+    """Instances ativas do usuário, na ordem de criação (bloqueante: roda em thread). Copia os escalares e termina
+    com `rollback`: a chamada à Evolution que vem depois não segura conexão do pool nem lê ORM expirado."""
     query = db.query(Instance).filter(Instance.is_active == True)  # noqa: E712
     user_instance_ids = instance_ids_for_user(db, user)
     if user_instance_ids is not None:
         query = query.filter(Instance.id.in_(user_instance_ids))
-    return query.order_by(Instance.created_at, Instance.id).all()
+    rows = [
+        {
+            "id": local.id,
+            "name": evolution_name(local),
+            "status": local.status,
+            "owner_id": local.owner_id,
+            "company_id": local.company_id,
+            "agent_id": local.agent_id,
+            "agent_enabled": bool(local.agent_enabled),
+        }
+        for local in query.order_by(Instance.created_at, Instance.id).all()
+    ]
+    db.rollback()
+    return rows
+
+
+def instance_evolution_name(db: Session, instance_ref: str, user: User) -> str:
+    """Nome da Instance do usuário na Evolution (bloqueante: roda em thread). 404/403 como `get_instance_for_user`.
+    Termina com `rollback`: a chamada à Evolution que vem depois não segura conexão do pool."""
+    name = evolution_name(get_instance_for_user(db, instance_ref, user))
+    db.rollback()
+    return name
 
 
 @router.get("/")
@@ -54,30 +76,30 @@ async def list_instances(
     nunca é devolvido.
     """
     try:
-        local_instances = await run_in_threadpool(_active_instances, db, current_user)
+        local_rows = await run_in_threadpool(_local_rows, db, current_user)
 
         evolution_by_name: dict[str, dict] = {}
-        if local_instances:
+        if local_rows:
             for inst in await evolution_api.fetch_instances():
                 if isinstance(inst, dict):
                     evolution_by_name[_evolution_instance_name(inst)] = inst
 
         instances_list = []
-        for local in local_instances:
-            name = evolution_name(local)
+        for local in local_rows:
+            name = local["name"]
             inst = evolution_by_name.get(name, {})
             nested = inst.get("instance") or {}
             profile = inst.get("profile") or {}
             instances_list.append({
-                "id": local.id,
+                "id": local["id"],
                 "instance_id": name,
                 "name": name,
-                "status": inst.get("status") or inst.get("connectionStatus") or nested.get("state") or local.status or "unknown",
+                "status": inst.get("status") or inst.get("connectionStatus") or nested.get("state") or local["status"] or "unknown",
                 "owner": inst.get("owner") or inst.get("ownerJid", ""),
-                "owner_id": local.owner_id,
-                "company_id": local.company_id,
-                "agent_id": local.agent_id,
-                "agent_enabled": bool(local.agent_enabled),
+                "owner_id": local["owner_id"],
+                "company_id": local["company_id"],
+                "agent_id": local["agent_id"],
+                "agent_enabled": local["agent_enabled"],
                 "profile_name": inst.get("profileName") or profile.get("name", ""),
                 "profile_pic_url": inst.get("profilePicUrl") or profile.get("pictureUrl", ""),
                 "server_url": inst.get("serverUrl", ""),
@@ -114,9 +136,9 @@ async def get_instance_status(
     - **instance_id**: The instance id, Evolution instance name or name.
     - Returns the current connection state (open, close, connecting, etc.).
     """
-    instance = await run_in_threadpool(get_instance_for_user, db, instance_id, current_user)
+    name_in_evolution = await run_in_threadpool(instance_evolution_name, db, instance_id, current_user)
     try:
-        result = await evolution_api.get_instance_status(evolution_name(instance))
+        result = await evolution_api.get_instance_status(name_in_evolution)
 
         evolution_state = (
             result.get("instance", {}).get("state")
@@ -168,8 +190,7 @@ async def connect_instance(
     - **instance_id**: The instance id, Evolution instance name or name.
     - Returns QR code (base64) for scanning with WhatsApp mobile app.
     """
-    instance = await run_in_threadpool(get_instance_for_user, db, instance_id, current_user)
-    name_in_evolution = evolution_name(instance)
+    name_in_evolution = await run_in_threadpool(instance_evolution_name, db, instance_id, current_user)
     try:
         result = await evolution_api.get_instance_qrcode(name_in_evolution)
 
@@ -223,9 +244,9 @@ async def logout_instance(
     - **instance_id**: The instance id, Evolution instance name or name.
     - Logs out the WhatsApp session.
     """
-    instance = await run_in_threadpool(get_instance_for_user, db, instance_id, current_user)
+    name_in_evolution = await run_in_threadpool(instance_evolution_name, db, instance_id, current_user)
     try:
-        result = await evolution_api.disconnect_instance(evolution_name(instance))
+        result = await evolution_api.disconnect_instance(name_in_evolution)
 
         return {
             "instance_id": instance_id,
