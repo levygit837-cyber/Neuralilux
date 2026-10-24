@@ -92,7 +92,7 @@ async def handle_incoming(
         summary, history = build_context(db, conversation, exclude_ids=[*message_ids, *deferred_ids])
         await events.thinking_start()
         history = _with_incoming(history, text)
-        client, model, effort = resolve_gateway(AGENT_TYPE)
+        client, model, effort = await asyncio.to_thread(resolve_gateway, AGENT_TYPE)
         now = utc_now()
         when = time_context(company, now, previous_message_at(db, conversation.id, message_ids, deferred_ids), conversation.session_started_at)
         system = build_system_prompt(
@@ -183,7 +183,7 @@ async def refresh_summary(conversation_id: str) -> None:
         conversation = db.get(Conversation, conversation_id)
         if conversation is None:
             return
-        client, model, _effort = resolve_gateway(AGENT_TYPE)
+        client, model, _effort = await asyncio.to_thread(resolve_gateway, AGENT_TYPE)
         await maybe_refresh_summary(db, client, model, conversation)
     except Exception:
         db.rollback()

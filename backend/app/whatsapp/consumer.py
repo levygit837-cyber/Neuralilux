@@ -239,7 +239,7 @@ class WhatsAppMessageConsumer:
         """O que o Handoff pede a cada Message gravada: atividade do Attendant e expiração por timeout."""
         if from_me:
             # O eco de uma resposta do Agent já foi adotado (`sent_echo`) e não chega aqui: sobra o Attendant no celular.
-            handoff_service.record_attendant_activity(db, conversation)
+            await asyncio.to_thread(handoff_service.record_attendant_activity, db, conversation)
         else:
             # Rede de segurança do timeout: o sweeper do worker roda a cada minuto, esta checagem é exata.
             await handoff_service.expire_if_due(db, conversation, instance)
