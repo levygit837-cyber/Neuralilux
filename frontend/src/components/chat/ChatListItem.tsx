@@ -21,6 +21,7 @@ export function ChatListItem({ conversation, isActive, onClick }: ChatListItemPr
     <div
       role="button"
       tabIndex={0}
+      data-conversation-id={conversation.id}
       aria-current={isActive ? 'true' : undefined}
       onClick={onClick}
       onKeyDown={(e) => {

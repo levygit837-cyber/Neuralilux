@@ -1,5 +1,6 @@
 'use client'
 
+import { useCallback, useEffect, useRef } from 'react'
 import { selectActiveConversation, useChatStore } from '@/stores/useChatStore'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useResolvedInstance } from '@/hooks/useResolvedInstance'
@@ -30,6 +31,7 @@ export function WhatsAppChat() {
   const error = useChatStore((state) => state.error)
   const openConversationJid = useChatStore((state) => selectActiveConversation(state)?.remoteJid)
   const setActiveConversation = useChatStore((state) => state.setActiveConversation)
+  const isActiveExplicit = useChatStore((state) => state.isActiveExplicit)
   const category = useChatStore((state) => state.category)
   const search = useChatStore((state) => state.search)
   const counts = useChatStore((state) => state.counts)
@@ -53,6 +55,24 @@ export function WhatsAppChat() {
     resolvedInstance?.id,
     isConnected
   )
+
+  // Abaixo de `lg` a lista e a conversa alternam: só a escolha do usuário abre a conversa (a primeira,
+  // aberta sozinha no desktop, não esconde a lista).
+  const showConversation = Boolean(activeConversation) && isActiveExplicit
+  const returnFocusId = useRef<string | null>(null)
+
+  const backToList = useCallback(() => {
+    returnFocusId.current = useChatStore.getState().activeConversationId
+    setActiveConversation(null)
+  }, [setActiveConversation])
+
+  // Devolve o foco ao item de onde a conversa foi aberta, quando a lista volta a aparecer.
+  useEffect(() => {
+    const id = returnFocusId.current
+    if (showConversation || !id) return
+    returnFocusId.current = null
+    document.querySelector<HTMLElement>(`[data-conversation-id="${CSS.escape(id)}"]`)?.focus()
+  }, [showConversation, conversations])
 
   if (isResolvingInstance && !resolvedInstance) {
     return (
@@ -80,8 +100,11 @@ export function WhatsAppChat() {
         hasMore={hasMore}
         isLoadingMore={isLoadingMore}
         onLoadMore={() => void loadMoreConversations()}
+        hiddenOnMobile={showConversation}
       />
-      <div className="flex-1 flex flex-col min-h-0 relative overflow-hidden">
+      <div
+        className={`flex-1 flex-col min-h-0 min-w-0 relative overflow-hidden ${showConversation ? 'flex' : 'hidden lg:flex'}`}
+      >
         <div className="absolute inset-0 chat-pattern opacity-80 pointer-events-none z-0" />
         <div className="relative z-10 flex flex-col h-full">
           {resolveError && <Banner tone="error" text={resolveError} />}
@@ -106,6 +129,7 @@ export function WhatsAppChat() {
                 onToggleAgent={agent.toggleAgent}
                 isAgentLoading={agent.isAgentLoading}
                 isAgentBindingLoading={agent.isBindingLoading}
+                onBack={backToList}
               />
               {agent.error && <Banner tone="warning" text={agent.error} />}
               {handoff.error && <Banner tone="error" text={handoff.error} />}

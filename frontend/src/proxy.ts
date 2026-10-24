@@ -1,9 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { isTokenExpired } from '@/lib/authToken'
-
-// Protected routes that require authentication
-const PROTECTED_ROUTES = ['/dashboard', '/chat', '/instances', '/qr', '/estoque', '/pedidos', '/settings']
+import { POST_LOGIN_ROUTE } from '@/lib/constants'
 
 // Public routes that should redirect authenticated users
 const AUTH_ROUTES = ['/login']
@@ -29,8 +27,8 @@ export function proxy(request: NextRequest) {
 
   const redirectToLogin = () => {
     const loginUrl = new URL('/login', request.url)
-    if (pathname !== '/login') {
-      loginUrl.searchParams.set('callbackUrl', pathname)
+    if (pathname !== '/login' && pathname !== '/') {
+      loginUrl.searchParams.set('callbackUrl', `${pathname}${request.nextUrl.search}`)
     }
 
     const response = NextResponse.redirect(loginUrl)
@@ -43,31 +41,28 @@ export function proxy(request: NextRequest) {
   // Root route - redirect based on auth state
   if (pathname === '/') {
     if (isAuthenticated) {
-      return NextResponse.redirect(new URL('/instances', request.url))
+      return NextResponse.redirect(new URL(POST_LOGIN_ROUTE, request.url))
     } else {
       return redirectToLogin()
     }
   }
 
-  // Protect dashboard, chat, instances, and qr routes
-  const isProtectedRoute = PROTECTED_ROUTES.some(route => 
-    pathname.startsWith(route)
-  )
-  
-  if (isProtectedRoute && !isAuthenticated) {
+  // Tudo fora de /login exige sessão, inclusive URLs desconhecidas (o 404 com Sidebar é só para logado).
+  const isAuthRoute = AUTH_ROUTES.some(route => pathname.startsWith(route))
+
+  if (!isAuthRoute && !isAuthenticated) {
     return redirectToLogin()
   }
 
-  // Redirect to dashboard if already authenticated and trying to access login
-  const isAuthRoute = AUTH_ROUTES.some(route => pathname.startsWith(route))
-  
+  // Redirect to the post-login route if already authenticated and trying to access login
   if (isAuthRoute && isAuthenticated) {
-    return NextResponse.redirect(new URL('/instances', request.url))
+    return NextResponse.redirect(new URL(POST_LOGIN_ROUTE, request.url))
   }
 
   return NextResponse.next()
 }
 
 export const config = {
-  matcher: ['/', '/dashboard/:path*', '/chat/:path*', '/login', '/instances/:path*', '/qr/:path*', '/estoque/:path*', '/pedidos/:path*', '/settings/:path*'],
+  // Exclui estáticos do Next e arquivos com extensão (favicon, imagens).
+  matcher: ['/((?!_next/|api/|.*\\..*).*)'],
 }

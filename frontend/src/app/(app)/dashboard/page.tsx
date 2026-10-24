@@ -1,8 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Sidebar } from '@/components/layout/Sidebar'
-import { Header } from '@/components/layout/Header'
 import { MetricCard } from '@/components/dashboard/MetricCard'
 import { LineChart } from '@/components/dashboard/LineChart'
 import { BarChart } from '@/components/dashboard/BarChart'
@@ -129,69 +127,63 @@ export default function DashboardPage() {
   ]
 
   return (
-    <div className="flex min-h-screen bg-dark">
-      <Sidebar />
-      <div className="flex flex-1 flex-col">
-        <Header title="Dashboard" showOnlineBadge={true} />
-        <main className="flex-1 overflow-y-auto w-full bg-grid-pattern">
-          <div className="max-w-[1400px] mx-auto p-8 space-y-8 pb-12">
+    <div className="w-full bg-grid-pattern">
+      <div className="max-w-[1400px] mx-auto p-4 sm:p-8 space-y-8 pb-12">
 
-            {/* TOP SECTION: Metrics Cards */}
-            <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-              {isLoading ? (
-                <div className="col-span-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-                  {[1, 2, 3, 4].map((i) => (
-                    <div key={i} className="h-40 animate-pulse rounded-2xl bg-card" />
-                  ))}
-                </div>
-              ) : (
-                dashboardMetrics.map((metric, index) => (
-                  <MetricCard key={index} metric={metric} index={index} />
-                ))
-              )}
-            </section>
-
-            {/* SECTION DIVIDER */}
-            <div className="flex items-center justify-between pt-4 animate-fade-in delay-300">
-              <div>
-                <h2 className="text-xl font-semibold text-text-light">Análise de Métricas</h2>
-                <p className="text-sm text-text-muted mt-1">
-                  Visão detalhada do desempenho da automação e fluxo de dados.
-                </p>
-              </div>
-              <button className="text-sm flex items-center gap-2 bg-card border border-border-color px-4 py-2 rounded-md hover:bg-hover hover:text-text-light transition">
-                <Export weight="regular" /> Exportar Relatório
-              </button>
+        {/* TOP SECTION: Metrics Cards */}
+        <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+          {isLoading ? (
+            <div className="col-span-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="h-40 animate-pulse rounded-2xl bg-card" />
+              ))}
             </div>
+          ) : (
+            dashboardMetrics.map((metric, index) => (
+              <MetricCard key={index} metric={metric} index={index} />
+            ))
+          )}
+        </section>
 
-            {/* BOTTOM SECTION: Charts Grid */}
-            <section className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-12">
-              <LineChart
-                data={conversationsOverTime}
-                period={timePeriod}
-                onPeriodChange={handlePeriodChange}
-                isLoading={isTimeSeriesLoading}
-              />
-              <BarChart
-                channels={channelMetrics}
-                isLoading={isLoading}
-              />
-              <DonutChart
-                data={resolutionMetrics}
-                isLoading={isLoading}
-              />
-              <AreaChart
-                metrics={satisfactionMetrics}
-                isLoading={isLoading}
-              />
-            </section>
-
-            {/* Footer */}
-            <div className="text-center text-xs text-text-muted/50 pb-4">
-              Sistema NeuraliLux OS v2.4.1 © 2023. Todos os dados são processados em tempo real.
-            </div>
+        {/* SECTION DIVIDER */}
+        <div className="flex items-center justify-between pt-4 animate-fade-in delay-300">
+          <div>
+            <h2 className="text-xl font-semibold text-text-light">Análise de Métricas</h2>
+            <p className="text-sm text-text-muted mt-1">
+              Visão detalhada do desempenho da automação e fluxo de dados.
+            </p>
           </div>
-        </main>
+          <button className="text-sm flex items-center gap-2 bg-card border border-border-color px-4 py-2 rounded-md hover:bg-hover hover:text-text-light transition">
+            <Export weight="regular" /> Exportar Relatório
+          </button>
+        </div>
+
+        {/* BOTTOM SECTION: Charts Grid */}
+        <section className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-12">
+          <LineChart
+            data={conversationsOverTime}
+            period={timePeriod}
+            onPeriodChange={handlePeriodChange}
+            isLoading={isTimeSeriesLoading}
+          />
+          <BarChart
+            channels={channelMetrics}
+            isLoading={isLoading}
+          />
+          <DonutChart
+            data={resolutionMetrics}
+            isLoading={isLoading}
+          />
+          <AreaChart
+            metrics={satisfactionMetrics}
+            isLoading={isLoading}
+          />
+        </section>
+
+        {/* Footer */}
+        <div className="text-center text-xs text-text-muted/50 pb-4">
+          Sistema NeuraliLux OS v2.4.1 © 2023. Todos os dados são processados em tempo real.
+        </div>
       </div>
     </div>
   )

@@ -14,6 +14,9 @@ export const ROUTES = {
   SETTINGS: '/settings',
 } as const
 
+// Único destino após login (e para quem já está autenticado em /login ou /).
+export const POST_LOGIN_ROUTE = ROUTES.DASHBOARD
+
 export const POLLING_INTERVAL = 3000 // 3 seconds for polling fallback
 export const MESSAGE_PAGE_SIZE = 50
 export const CONVERSATION_PAGE_SIZE = 100

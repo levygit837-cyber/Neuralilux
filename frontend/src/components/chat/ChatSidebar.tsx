@@ -31,6 +31,8 @@ interface ChatSidebarProps {
   hasMore: boolean
   isLoadingMore: boolean
   onLoadMore: () => void
+  /** Abaixo de `lg` a lista e a conversa alternam; com a conversa aberta, a lista some. */
+  hiddenOnMobile: boolean
 }
 
 export function ChatSidebar({
@@ -48,6 +50,7 @@ export function ChatSidebar({
   hasMore,
   isLoadingMore,
   onLoadMore,
+  hiddenOnMobile,
 }: ChatSidebarProps) {
   const [draft, setDraft] = useState(search)
 
@@ -62,7 +65,13 @@ export function ChatSidebar({
     : (FILTERS.find((filter) => filter.category === category)?.empty ?? 'Nenhuma conversa encontrada')
 
   return (
-    <section className="w-[380px] bg-brand-card border-r border-brand-border flex flex-col z-10 flex-shrink-0">
+    <section
+      aria-label="Conversas"
+      className={cn(
+        'w-full lg:w-[380px] bg-brand-card border-r border-brand-border flex-col z-10 flex-shrink-0 min-h-0',
+        hiddenOnMobile ? 'hidden lg:flex' : 'flex'
+      )}
+    >
       {/* Header */}
       <div className="px-6 pt-6 pb-4">
         <div className="flex justify-between items-center mb-5">
@@ -96,7 +105,7 @@ export function ChatSidebar({
         </div>
 
         {/* Filters */}
-        <div role="group" aria-label="Filtrar conversas" className="flex gap-2 mt-4 overflow-x-auto pb-1 scrollbar-hide">
+        <div role="group" aria-label="Filtrar conversas" className="relative flex gap-2 mt-4 overflow-x-auto pb-1 scrollbar-hide">
           {FILTERS.map(({ category: value, label }) => {
             const isActive = value === category
             const count = counts?.[value] ?? 0

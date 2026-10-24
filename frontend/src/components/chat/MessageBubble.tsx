@@ -39,7 +39,7 @@ export function MessageBubble({ message, showSender = false, onRetry }: MessageB
   return (
     <div
       className={cn(
-        'flex gap-3 max-w-[70%] group',
+        'flex gap-3 max-w-[85%] sm:max-w-[70%] group',
         message.isOutgoing ? 'self-end justify-end' : 'justify-start'
       )}
     >
