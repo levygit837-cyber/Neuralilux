@@ -1,9 +1,9 @@
 #!/bin/bash
 set -e
 
-# Senha do usuário da Evolution: EVOLUTION_DB_PASSWORD (a mesma do compose da Evolution).
-# O default é só de desenvolvimento; defina a variável em qualquer outro ambiente.
-EVOLUTION_DB_PASSWORD="${EVOLUTION_DB_PASSWORD:-Ev0lution_S3cur3_P@ssw0rd!}"
+# Senha do usuário da Evolution: EVOLUTION_DB_PASSWORD (a mesma da URI do banco no compose). Obrigatória: sem valor
+# padrão, para nenhum ambiente subir com uma senha conhecida.
+: "${EVOLUTION_DB_PASSWORD:?defina EVOLUTION_DB_PASSWORD}"
 
 # Create evolution user for Evolution API (a senha vai como variável do psql, sem interpolar no SQL)
 psql -v ON_ERROR_STOP=1 -v evo_pass="$EVOLUTION_DB_PASSWORD" --username "$POSTGRES_USER" <<-'EOSQL'

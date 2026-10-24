@@ -41,7 +41,6 @@ ENV/
 # Database
 *.db
 *.sqlite3
-*.sql
 # Logs
 *.log
 logs/
@@ -78,9 +77,6 @@ evolution-api/store/
 # ============================
 # Portfolio protection rules
 # Logs e arquivos temporários
-*.txt
-!requirements.txt
-!requirements-dev.txt
 # Arquivos de IA / Assistants
 .aidesigner/
 .aider/
@@ -126,11 +122,11 @@ pytest_fail_details.txt
 *.doc
 *.xlsx
 *.pdf
-*.png
 *.jpg
 *.jpeg
 *.gif
-*.svg
+# Imagens do painel são código: o que estiver em frontend/public nunca é ignorado.
+!frontend/public/**
 output/
 # IDE / Local
 # Secrets / Configs locais
