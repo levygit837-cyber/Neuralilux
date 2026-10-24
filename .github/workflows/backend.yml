@@ -103,6 +103,6 @@ jobs:
           alembic downgrade base
           alembic upgrade head
 
-      # Models x schema migrado (autogenerate) e queries só de Postgres (FTS, índice parcial do Payment Record, to_char).
+      # Models x schema migrado (autogenerate) e queries só de Postgres (FTS, índice parcial do Payment Record, agregação do dashboard).
       - name: Testes Postgres
         run: python -m pytest tests/postgres -m postgres -q -p no:cacheprovider

@@ -1,271 +1,106 @@
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
-from sqlalchemy import func, cast, Date
-from datetime import datetime, timedelta, timezone
+"""Dashboard: números do atendimento nas Instances do usuário. Definições em `docs/dashboard.md`.
+
+Falha de banco não vira zero: `logger.exception` registra o traceback e a resposta é um 500 genérico, que o
+frontend mostra no widget que falhou.
+"""
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from typing import Iterator, Literal
+
 import structlog
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from app.api.access import instance_ids_for_user
 from app.api.deps import get_current_user, get_db
-from app.models import User, Instance, Contact, Conversation, Message
+from app.models import User
+from app.schemas.dashboard import (
+    ConversationsOverTime,
+    ConversationsPerDay,
+    DashboardOverview,
+    HandoffsByStatus,
+    InstanceMessages,
+    MessagesByInstance,
+)
+from app.services import dashboard_service as service
 
 logger = structlog.get_logger()
 
 router = APIRouter()
 
+PeriodParam = Query("7d", description="Últimos N dias, contando hoje (fuso da Company)")
+Period = Literal["7d", "30d", "90d"]
 
-@router.get("/stats")
-async def get_dashboard_stats(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Get dashboard statistics"""
+
+@contextmanager
+def _database_errors(widget: str) -> Iterator[None]:
     try:
-        user_instance_ids = instance_ids_for_user(db, current_user)
-
-        # Total conversations
-        conv_query = db.query(Conversation)
-        if user_instance_ids is not None:
-            conv_query = conv_query.filter(Conversation.instance_id.in_(user_instance_ids))
-        total_conversations = conv_query.count()
-
-        # Total messages
-        msg_query = db.query(Message)
-        if user_instance_ids is not None:
-            msg_query = msg_query.filter(Message.instance_id.in_(user_instance_ids))
-        total_messages = msg_query.count()
-
-        # Active instances (connected status)
-        instance_query = db.query(Instance).filter(Instance.status == "connected")
-        if user_instance_ids is not None:
-            instance_query = instance_query.filter(Instance.id.in_(user_instance_ids))
-        active_instances = instance_query.count()
-
-        # Total contacts
-        contact_query = db.query(Contact)
-        if user_instance_ids is not None:
-            contact_query = contact_query.filter(Contact.instance_id.in_(user_instance_ids))
-        total_contacts = contact_query.count()
-
-        return {
-            "total_conversations": total_conversations,
-            "total_messages": total_messages,
-            "active_instances": active_instances,
-            "total_contacts": total_contacts,
-        }
-    except Exception as e:
-        logger.error("Error getting dashboard stats", error=str(e))
-        return {
-            "total_conversations": 0,
-            "total_messages": 0,
-            "active_instances": 0,
-            "total_contacts": 0,
-        }
-
-
-@router.get("/metrics")
-async def get_dashboard_metrics(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Get dashboard metrics"""
-    try:
-        now = datetime.now(timezone.utc)
-        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        week_start = today_start - timedelta(days=7)
-
-        user_instance_ids = instance_ids_for_user(db, current_user)
-
-        def apply_instance_filter(query):
-            if user_instance_ids is not None:
-                return query.filter(Message.instance_id.in_(user_instance_ids))
-            return query
-
-        # Messages today
-        messages_today = apply_instance_filter(
-            db.query(Message).filter(Message.timestamp >= today_start)
-        ).count()
-
-        # Messages this week
-        messages_this_week = apply_instance_filter(
-            db.query(Message).filter(Message.timestamp >= week_start)
-        ).count()
-
-        # Response rate (outgoing messages / total messages) * 100
-        outgoing_count = apply_instance_filter(
-            db.query(Message).filter(Message.direction == "outgoing")
-        ).count()
-        total_count = apply_instance_filter(db.query(Message)).count()
-        response_rate = (outgoing_count / total_count * 100) if total_count > 0 else 0
-
-        return {
-            "messages_today": messages_today,
-            "messages_this_week": messages_this_week,
-            "response_rate": round(response_rate, 1),
-            "avg_response_time": None,  # Future implementation
-        }
-    except Exception as e:
-        logger.error("Error getting dashboard metrics", error=str(e))
-        return {
-            "messages_today": 0,
-            "messages_this_week": 0,
-            "response_rate": 0,
-            "avg_response_time": None,
-        }
-
-
-@router.get("/conversations-over-time")
-async def get_conversations_over_time(
-    period: str = "7d",
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Get conversation count grouped by day for the given period (7d, 30d, 90d)."""
-    try:
-        days = {"7d": 7, "30d": 30, "90d": 90}.get(period, 7)
-        since = datetime.now(timezone.utc) - timedelta(days=days)
-
-        user_instance_ids = instance_ids_for_user(db, current_user)
-
-        query = (
-            db.query(
-                cast(Conversation.created_at, Date).label("date"),
-                func.count(Conversation.id).label("count"),
-            )
-            .filter(Conversation.created_at >= since)
-        )
-        if user_instance_ids is not None:
-            query = query.filter(Conversation.instance_id.in_(user_instance_ids))
-
-        rows = (
-            query
-            .group_by(cast(Conversation.created_at, Date))
-            .order_by(cast(Conversation.created_at, Date))
-            .all()
+        yield
+    except SQLAlchemyError:
+        logger.exception("Error computing dashboard widget", widget=widget)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Erro ao carregar os dados do dashboard"
         )
 
-        return {
-            "data": [{"date": str(r.date), "count": r.count} for r in rows],
-            "period": period,
-        }
-    except Exception as e:
-        logger.error("Error getting conversations over time", error=str(e))
-        return {"data": [], "period": period}
+
+def _window(db: Session, user: User, period: str) -> service.Window:
+    return service.window_for(period, service.user_zone(db, user), datetime.now(timezone.utc))
 
 
-@router.get("/channel-metrics")
-async def get_channel_metrics(
+@router.get("/overview", response_model=DashboardOverview)
+def get_overview(
+    period: Period = PeriodParam,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get message volume grouped by instance (top-3), mapped to channel labels."""
-    try:
-        user_instance_ids = instance_ids_for_user(db, current_user)
-
-        query = (
-            db.query(Instance.name, func.count(Message.id).label("count"))
-            .join(Instance, Message.instance_id == Instance.id)
-        )
-        if user_instance_ids is not None:
-            query = query.filter(Instance.id.in_(user_instance_ids))
-
-        rows = (
-            query
-            .group_by(Instance.name)
-            .order_by(func.count(Message.id).desc())
-            .limit(3)
-            .all()
-        )
-
-        # Map top-3 instances to fixed channel display names
-        channel_display_names = ["WhatsApp", "Website", "Instagram"]
-        channels = [
-            {"name": channel_display_names[i], "count": r.count}
-            for i, r in enumerate(rows)
-        ]
-
-        return {"channels": channels}
-    except Exception as e:
-        logger.error("Error getting channel metrics", error=str(e))
-        return {"channels": []}
+    """Conversas novas, Messages, Handoffs e taxa de resposta do período, cada um contra o período anterior."""
+    with _database_errors("overview"):
+        scope = instance_ids_for_user(db, current_user)
+        return service.overview(db, scope, _window(db, current_user, period))
 
 
-@router.get("/resolution-metrics")
-async def get_resolution_metrics(
+@router.get("/conversations-over-time", response_model=ConversationsOverTime)
+def get_conversations_over_time(
+    period: Period = PeriodParam,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get conversation distribution by resolution state."""
-    try:
-        user_instance_ids = instance_ids_for_user(db, current_user)
-
-        base = db.query(Conversation)
-        if user_instance_ids is not None:
-            base = base.filter(Conversation.instance_id.in_(user_instance_ids))
-
-        # is_active=True,  is_archived=False → in progress (pending)
-        # is_active=False, is_archived=False → closed/resolved
-        # is_archived=True                  → archived/escalated
-        resolved = base.filter(
-            Conversation.is_active == False,
-            Conversation.is_archived == False,
-        ).count()
-        pending = base.filter(
-            Conversation.is_active == True,
-            Conversation.is_archived == False,
-        ).count()
-        escalated = base.filter(Conversation.is_archived == True).count()
-
-        return {"resolved": resolved, "pending": pending, "escalated": escalated}
-    except Exception as e:
-        logger.error("Error getting resolution metrics", error=str(e))
-        return {"resolved": 0, "pending": 0, "escalated": 0}
+    """Conversas novas por dia local, com os dias sem nenhuma em zero."""
+    with _database_errors("conversations-over-time"):
+        scope = instance_ids_for_user(db, current_user)
+        window = _window(db, current_user, period)
+        days = service.conversations_per_day(db, scope, window)
+        return ConversationsOverTime(
+            timezone=window.zone.key,
+            data=[ConversationsPerDay(date=day.isoformat(), count=count) for day, count in days],
+        )
 
 
-@router.get("/satisfaction-metrics")
-async def get_satisfaction_metrics(
+@router.get("/messages-by-instance", response_model=MessagesByInstance)
+def get_messages_by_instance(
+    period: Period = PeriodParam,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get CSAT metrics: overall average score and monthly history (last 6 months)."""
-    try:
-        user_instance_ids = instance_ids_for_user(db, current_user)
-        six_months_ago = datetime.now(timezone.utc) - timedelta(days=180)
-
-        base = db.query(Conversation).filter(Conversation.rating.isnot(None))
-        if user_instance_ids is not None:
-            base = base.filter(Conversation.instance_id.in_(user_instance_ids))
-
-        # Monthly average — PostgreSQL to_char for YYYY-MM grouping. A mesma expressão (mesmo parâmetro de formato)
-        # vai no SELECT, no GROUP BY e no ORDER BY: três `to_char(..., $n)` distintos o Postgres não reconhece como iguais.
-        month = func.to_char(Conversation.updated_at, "YYYY-MM")
-        monthly_rows = (
-            db.query(
-                month.label("month"),
-                func.avg(Conversation.rating).label("avg_score"),
-            )
-            .filter(Conversation.rating.isnot(None))
-            .filter(Conversation.updated_at >= six_months_ago)
-            .filter(
-                Conversation.instance_id.in_(user_instance_ids)
-                if user_instance_ids is not None
-                else True
-            )
-            .group_by(month)
-            .order_by(month)
-            .all()
+    """Messages do período por Instance, com o nome real dela."""
+    with _database_errors("messages-by-instance"):
+        scope = instance_ids_for_user(db, current_user)
+        window = _window(db, current_user, period)
+        rows = service.messages_by_instance(db, scope, window.start)
+        return MessagesByInstance(
+            instances=[InstanceMessages(instance_id=i, name=name, count=count) for i, name, count in rows]
         )
 
-        current_score_raw = base.with_entities(func.avg(Conversation.rating)).scalar()
-        current_score = round(float(current_score_raw), 1) if current_score_raw else 0.0
 
-        return {
-            "current_score": current_score,
-            "target_score": 4.5,
-            "history": [
-                {"month": r.month, "score": round(float(r.avg_score), 1)}
-                for r in monthly_rows
-            ],
-        }
-    except Exception as e:
-        logger.error("Error getting satisfaction metrics", error=str(e))
-        return {"current_score": 0.0, "target_score": 4.5, "history": []}
+@router.get("/handoffs", response_model=HandoffsByStatus)
+def get_handoffs(
+    period: Period = PeriodParam,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Tickets abertos no período, por status."""
+    with _database_errors("handoffs"):
+        scope = instance_ids_for_user(db, current_user)
+        window = _window(db, current_user, period)
+        return HandoffsByStatus(**service.handoffs_by_status(db, scope, window.start))

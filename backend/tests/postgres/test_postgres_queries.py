@@ -1,5 +1,4 @@
-"""Queries que só existem no Postgres: History Search (FTS), índice parcial do Payment Record e `to_char`."""
-import asyncio
+"""Queries que só existem no Postgres: History Search (FTS), índice parcial do Payment Record."""
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -8,8 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.agent import memory
-from app.api.routes.dashboard import get_satisfaction_metrics
-from app.models import Company, Contact, Conversation, CustomerOrder, Instance, Message, PaymentRecord, User
+from app.models import Company, Contact, Conversation, CustomerOrder, Instance, Message, PaymentRecord
 from app.packs.catalog_orders import pix
 from app.packs.catalog_orders.pix import ensure_payment_record
 
@@ -145,20 +143,3 @@ def test_ensure_payment_record_returns_the_winner_when_the_index_rejects_the_ins
 
     assert record.id == winner_id
     assert len(calls) == 2
-
-
-def test_satisfaction_metrics_groups_ratings_by_month_with_to_char(pg):
-    conversation = _conversation(pg, "csat")
-    now = datetime.now(timezone.utc)
-    conversation.rating = 4
-    conversation.updated_at = now
-    other = _conversation(pg, "csat-other", remote_jid="5511888888888@s.whatsapp.net")  # um Contact por Conversation
-    other.rating = 5
-    other.updated_at = now
-    pg.flush()
-    admin = User(email="csat@example.com", hashed_password="x", is_superuser=True)
-
-    result = asyncio.run(get_satisfaction_metrics(db=pg, current_user=admin))
-
-    assert result["history"] == [{"month": now.strftime("%Y-%m"), "score": 4.5}]
-    assert result["current_score"] == 4.5
