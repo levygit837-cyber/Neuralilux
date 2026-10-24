@@ -9,6 +9,20 @@ o history sync, em paralelo ao consumer, podia duplicar os dois. Antes de criar 
 duplicatas que já existem: fica o registro mais antigo, todo filho que aponta para um duplicado é reapontado
 (descoberto pelas FKs do banco, sem lista fixa) e os campos que carregam estado são mesclados. A fusão NÃO é
 desfeita no downgrade.
+
+Fusão de Conversations:
+- Summary (filho de chave única): fica o de maior `message_count`, reapontado para a Conversation que ficou. O
+  `covered_until_message_id` dele passa a ser um cursor sobre as Messages intercaladas das Conversations fundidas
+  (ordenadas por `timestamp`); como o cursor vinha de uma sequência só, pode sobrar uma lacuna de memória: Messages
+  da outra Conversation anteriores ao cursor que o Summary nunca resumiu. O próximo `refresh_summary` recalcula.
+- Dois Handoffs abertos: `ticket_id` fica com um (o da Conversation mais antiga em Handoff) e o outro Ticket aberto
+  é fechado (`closed`, como o `release` faz), para não ficar Ticket aberto sem vínculo.
+
+Locks e janela de manutenção: tudo roda numa transação só. Os `CREATE INDEX` de `messages` vêm primeiro (SHARE em
+`messages`: bloqueia escrita) e os `ADD CONSTRAINT UNIQUE` por último (ACCESS EXCLUSIVE em contacts/conversations,
+até o commit). Mesmo assim é REQUERIDA uma janela de manutenção: pare a API e o worker antes do `upgrade`. Um insert
+concorrente pode recriar duplicata depois da fusão e fazer o `ADD CONSTRAINT` falhar, e a migração inteira sofre
+rollback. O tempo cresce com o tamanho de `messages` (construção dos dois índices e reapontamento das Messages).
 """
 import logging
 from itertools import groupby
@@ -26,6 +40,9 @@ depends_on = None
 log = logging.getLogger("alembic.runtime.migration")
 
 _PRIORITY_RANK = {"low": 0, "normal": 1, "high": 2, "urgent": 3}
+_OPEN_TICKET_STATUSES = ("open", "in_progress")  # os mesmos de `handoff_service.OPEN_STATUSES`
+# Filho de chave única com mais de um candidato: vale o de maior valor nesta coluna (ADR 0003: o Summary que cobre mais).
+_UNIQUE_CHILD_RANK = {"conversation_summaries": "message_count"}
 
 
 def _first(rows, column):
@@ -107,29 +124,69 @@ def _child_references(inspector, target: str) -> list[tuple[str, str, bool]]:
     return found
 
 
-def _repoint(bind, merge_map, table: str, column: str, unique: bool, groups) -> None:
-    child = sa.table(table, sa.column(column))
+def _repoint(bind, merge_map, table: str, column: str, unique: bool) -> None:
+    """Reaponta `table.column` dos registros removidos para os que ficaram, via subquery na tabela de mapeamento."""
     if unique:
-        # No máximo uma linha por pai (ex.: o Summary da Conversation): fica a da Conversation mais antiga que tinha uma.
-        present = {row[0] for row in bind.execute(sa.select(child.c[column]).where(child.c[column].in_(
-            [row["id"] for rows in groups for row in rows]
-        )))}
-        for rows in groups:
-            owners = [row["id"] for row in rows if row["id"] in present]
-            for extra in owners[1:]:
-                bind.execute(sa.delete(child).where(child.c[column] == extra))
-            if owners and owners[0] != rows[0]["id"]:
-                bind.execute(sa.update(child).where(child.c[column] == owners[0]).values({column: rows[0]["id"]}))
+        _repoint_unique(bind, merge_map, table, column)
         return
-    survivor = sa.select(merge_map.c.survivor_id).where(merge_map.c.loser_id == child.c[column]).scalar_subquery()
+    child = sa.table(table, sa.column(column))
+    losers = sa.select(merge_map.c.member_id).where(merge_map.c.member_id != merge_map.c.survivor_id)
+    survivor = sa.select(merge_map.c.survivor_id).where(merge_map.c.member_id == child.c[column]).scalar_subquery()
+    bind.execute(sa.update(child).where(child.c[column].in_(losers)).values({column: survivor}))
+
+
+def _repoint_unique(bind, merge_map, table: str, column: str) -> None:
+    """Filho de chave única (no máximo uma linha por pai): sobra uma linha por grupo, com o pai que ficou.
+
+    Vale a de maior `_UNIQUE_CHILD_RANK[table]`, se a tabela tiver ranking; empate (ou sem ranking) fica com a do
+    registro mais antigo do grupo.
+    """
+    rank = _UNIQUE_CHILD_RANK.get(table)
+    child = sa.table(table, sa.column(column), *([sa.column(rank)] if rank else []))
+    owners = bind.execute(
+        sa.select(child.c[column], merge_map.c.survivor_id, merge_map.c.ordem, *([child.c[rank]] if rank else []))
+        .select_from(child.join(merge_map, child.c[column] == merge_map.c.member_id))
+    ).mappings().all()
+    by_survivor: dict = {}
+    for row in owners:
+        by_survivor.setdefault(row["survivor_id"], []).append(row)
+    extras, moves = [], []
+    for survivor_id, rows in by_survivor.items():
+        winner = min(rows, key=lambda row: (-(row[rank] or 0) if rank else 0, row["ordem"]))
+        extras += [row[column] for row in rows if row is not winner]
+        if winner[column] != survivor_id:
+            moves.append({"old_owner": winner[column], "new_owner": survivor_id})
+    if extras:
+        bind.execute(sa.delete(child).where(child.c[column] == sa.bindparam("owner")), [{"owner": x} for x in extras])
+    if moves:
+        bind.execute(
+            sa.update(child).where(child.c[column] == sa.bindparam("old_owner")).values({column: sa.bindparam("new_owner")}),
+            moves,
+        )
+
+
+def _close_orphan_tickets(bind, merge_map) -> None:
+    """Fecha o Ticket aberto que ficou sem vínculo: duas Conversations em Handoff fundiam dois Tickets abertos e só
+    um cabe em `conversations.ticket_id`. Mesmo estado que o `release` grava (`closed`, `closed_at`, `updated_at`)."""
+    tickets = sa.table(
+        "tickets", sa.column("id"), sa.column("conversation_id"), sa.column("status"),
+        sa.column("closed_at"), sa.column("updated_at"),
+    )
+    conversations = sa.table("conversations", sa.column("id"), sa.column("ticket_id"))
+    merged = sa.select(merge_map.c.survivor_id).where(merge_map.c.member_id != merge_map.c.survivor_id)
+    kept = sa.select(conversations.c.ticket_id).where(conversations.c.id == tickets.c.conversation_id).scalar_subquery()
     bind.execute(
-        sa.update(child)
-        .where(child.c[column].in_(sa.select(merge_map.c.loser_id)))
-        .values({column: survivor})
+        sa.update(tickets)
+        .where(
+            tickets.c.conversation_id.in_(merged),
+            tickets.c.status.in_(_OPEN_TICKET_STATUSES),
+            sa.or_(kept.is_(None), tickets.c.id != kept),
+        )
+        .values(status="closed", closed_at=sa.func.now(), updated_at=sa.func.now())
     )
 
 
-def _merge_duplicates(bind, table_name: str, key_columns: list[str], combine) -> int:
+def _merge_duplicates(bind, table_name: str, key_columns: list[str], combine, finish=None) -> int:
     """Funde as linhas de `table_name` com a mesma chave natural; devolve quantas linhas foram removidas."""
     table = sa.Table(table_name, sa.MetaData(), autoload_with=bind)
     key = [table.c[name] for name in key_columns]
@@ -143,36 +200,56 @@ def _merge_duplicates(bind, table_name: str, key_columns: list[str], combine) ->
     if not groups:
         return 0
 
+    # Mapeamento membro -> quem fica (o mais antigo mapeia para si mesmo). Some no commit da migração.
     merge_map = sa.Table(
         f"_merge_{table_name}",
         sa.MetaData(),
-        sa.Column("loser_id", sa.String, primary_key=True),
+        sa.Column("member_id", sa.String, primary_key=True),
         sa.Column("survivor_id", sa.String, nullable=False),
+        sa.Column("ordem", sa.Integer, nullable=False),
         prefixes=["TEMPORARY"],
+        postgresql_on_commit="DROP",
     )
     merge_map.create(bind)
-    try:
-        bind.execute(
-            sa.insert(merge_map),
-            [{"loser_id": loser["id"], "survivor_id": group[0]["id"]} for group in groups for loser in group[1:]],
-        )
-        for child_table, column, unique in _child_references(sa.inspect(bind), table_name):
-            _repoint(bind, merge_map, child_table, column, unique, groups)
+    bind.execute(
+        sa.insert(merge_map),
+        [
+            {"member_id": member["id"], "survivor_id": group[0]["id"], "ordem": ordem}
+            for group in groups
+            for ordem, member in enumerate(group)
+        ],
+    )
+    for child_table, column, unique in _child_references(sa.inspect(bind), table_name):
+        _repoint(bind, merge_map, child_table, column, unique)
 
-        merged = [(group[0]["id"], combine(group)) for group in groups]
-        for survivor_id, values in merged:
-            bind.execute(sa.update(table).where(table.c.id == survivor_id).values(values))
-        removed = bind.execute(sa.delete(table).where(table.c.id.in_(sa.select(merge_map.c.loser_id)))).rowcount
-    finally:
-        merge_map.drop(bind)
-    return removed
+    for group in groups:
+        bind.execute(sa.update(table).where(table.c.id == group[0]["id"]).values(combine(group)))
+    if finish:
+        finish(bind, merge_map)
+    losers = sa.select(merge_map.c.member_id).where(merge_map.c.member_id != merge_map.c.survivor_id)
+    return bind.execute(sa.delete(table).where(table.c.id.in_(losers))).rowcount
 
 
 def upgrade() -> None:
     bind = op.get_bind()
+    # Os índices de `messages` (a tabela grande) vêm ANTES da fusão e das unicidades: cada `CREATE INDEX` segura
+    # SHARE em `messages` até o commit, e o `ADD CONSTRAINT UNIQUE` segura ACCESS EXCLUSIVE em contacts/conversations
+    # até o commit também. Nessa ordem o ACCESS EXCLUSIVE só começa no fim, depois do trabalho mais demorado.
+    op.create_index('ix_messages_conversation_timestamp', 'messages', ['conversation_id', 'timestamp', 'id'], unique=False)
+    op.create_index('ix_messages_instance_timestamp', 'messages', ['instance_id', 'timestamp'], unique=False)
+    op.create_index('ix_conversations_contact_id', 'conversations', ['contact_id'], unique=False)
+    op.create_index(
+        'ix_conversations_instance_last_message_at',
+        'conversations',
+        ['instance_id', sa.text('last_message_at DESC NULLS LAST')],
+        unique=False,
+    )
+
     # Contacts primeiro: reapontar as Conversations de um Contact duplicado é o que gera Conversations duplicadas.
     contacts = _merge_duplicates(bind, 'contacts', ['instance_id', 'remote_jid'], _combine_contact)
-    conversations = _merge_duplicates(bind, 'conversations', ['instance_id', 'contact_id'], _combine_conversation)
+    conversations = _merge_duplicates(
+        bind, 'conversations', ['instance_id', 'contact_id'], _combine_conversation, finish=_close_orphan_tickets
+    )
     (log.warning if contacts or conversations else log.info)(
         "0015: fundiu %d Contact(s) e %d Conversation(s) duplicados "
         "(ficou o registro mais antigo; Messages, Orders, Tickets e demais filhos foram reapontados)",
@@ -182,15 +259,6 @@ def upgrade() -> None:
 
     op.create_unique_constraint('uq_contacts_instance_remote_jid', 'contacts', ['instance_id', 'remote_jid'])
     op.create_unique_constraint('uq_conversations_instance_contact', 'conversations', ['instance_id', 'contact_id'])
-    op.create_index('ix_conversations_contact_id', 'conversations', ['contact_id'], unique=False)
-    op.create_index(
-        'ix_conversations_instance_last_message_at',
-        'conversations',
-        ['instance_id', sa.text('last_message_at DESC NULLS LAST')],
-        unique=False,
-    )
-    op.create_index('ix_messages_conversation_timestamp', 'messages', ['conversation_id', 'timestamp', 'id'], unique=False)
-    op.create_index('ix_messages_instance_timestamp', 'messages', ['instance_id', 'timestamp'], unique=False)
 
 
 def downgrade() -> None:

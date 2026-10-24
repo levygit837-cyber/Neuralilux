@@ -34,10 +34,11 @@ class Conversation(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-    # Uma Conversation por Contact na Instance: `get_or_create_conversation` se apoia nesta unicidade. O índice
-    # decrescente serve a lista (`ORDER BY last_message_at DESC NULLS LAST` por Instance; só Postgres, o SQLite dos
-    # testes não tem `NULLS LAST` em índice); `contact_id` serve a busca por Contact (History Search, filtro da
-    # lista), que a unicidade não cobre por começar em `instance_id`.
+    # Uma Conversation por Contact na Instance: `get_or_create_conversation` se apoia nesta unicidade, e ela também
+    # cobre a History Search (`instance_id` + `contact_id`). O índice decrescente serve a lista (`ORDER BY
+    # last_message_at DESC NULLS LAST` por Instance; só Postgres, o SQLite dos testes não tem `NULLS LAST` em
+    # índice). `contact_id` sozinho serve o filtro `?contact_id=` da lista, que não filtra por Instance e por isso
+    # não aproveita a unicidade (ela começa em `instance_id`).
     __table_args__ = (
         UniqueConstraint("instance_id", "contact_id", name="uq_conversations_instance_contact"),
         Index("ix_conversations_contact_id", "contact_id"),

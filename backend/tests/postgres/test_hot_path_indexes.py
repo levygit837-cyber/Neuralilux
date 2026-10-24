@@ -125,10 +125,39 @@ def _seed_duplicates(engine) -> dict:
         db.flush()
         db.add_all([
             ConversationMemorySummary(
-                conversation_id=twin.id, summary=f"resumo {twin.id}", covered_until_message_id=twin_message.id, message_count=1,
+                conversation_id=twin.id, summary=f"resumo {twin.id}", covered_until_message_id=twin_message.id,
+                message_count=count,
             )
-            for twin, twin_message in zip(twins, twin_messages)
+            for twin, twin_message, count in zip(twins, twin_messages, (1, 5))
         ])
+
+        # Duas Conversations duplicadas, as duas em Handoff com Tickets abertos diferentes.
+        ho_contact = Contact(
+            id="c-ho", instance_id=instance.id, phone_number="5511999990004",
+            remote_jid="5511999990004@s.whatsapp.net", name="Duda", created_at=T0, updated_at=T0,
+        )
+        db.add(ho_contact)
+        db.flush()
+        ho_convs = [
+            Conversation(
+                id=f"k-ho-{n}", instance_id=instance.id, contact_id=ho_contact.id, remote_jid=ho_contact.remote_jid,
+                created_at=T0 + timedelta(minutes=n), is_active=True, human_in_loop=False,
+            )
+            for n in (1, 2)
+        ]
+        db.add_all(ho_convs)
+        db.flush()
+        tickets = [
+            Ticket(
+                id=f"t-ho-{n}", conversation_id=conv.id, instance_id=instance.id, contact_id=ho_contact.id,
+                agent_type="handoff", reason=f"motivo {n}", content="humano", status="open",
+            )
+            for n, conv in enumerate(ho_convs, start=1)
+        ]
+        db.add_all(tickets)
+        db.flush()
+        for conv, ticket in zip(ho_convs, tickets):
+            conv.human_in_loop, conv.human_handoff_reason, conv.ticket_id = True, ticket.reason, ticket.id
         db.commit()
         return {"messages": db.query(Message).count()}
 
@@ -142,8 +171,7 @@ def test_migration_0015_merges_duplicates_without_losing_messages(make_database)
 
         result = run_alembic(url, "upgrade", "0015")
 
-        assert "fundiu 2 Contact(s) e 2 Conversation(s)" not in result.stderr  # 1 Contact e 2 Conversations, abaixo
-        assert "fundiu 1 Contact(s) e 2 Conversation(s)" in result.stderr
+        assert "fundiu 1 Contact(s) e 3 Conversation(s)" in result.stderr  # k-new, k-twin-2 e k-ho-2 sumiram
         with Session(engine) as db:
             contacts = {c.id: c for c in db.query(Contact).filter(Contact.remote_jid == JID)}
             assert list(contacts) == ["c-old"]  # fica o mais antigo
@@ -171,11 +199,20 @@ def test_migration_0015_merges_duplicates_without_losing_messages(make_database)
             ticket = db.get(Ticket, "t-1")
             assert (ticket.contact_id, ticket.conversation_id) == ("c-old", "k-old")
 
-            # Filho de chave única (Summary): sobra um, o da Conversation mais antiga.
+            # Filho de chave única (Summary): sobra um só, o de maior `message_count`, na Conversation que ficou.
             twin = db.query(Conversation).filter(Conversation.contact_id == "c-twin").one()
             assert twin.id == "k-twin-1"
             summaries = db.query(ConversationMemorySummary).filter(ConversationMemorySummary.conversation_id.like("k-twin-%")).all()
-            assert [(s.conversation_id, s.summary) for s in summaries] == [("k-twin-1", "resumo k-twin-1")]
+            assert [(s.conversation_id, s.summary, s.message_count) for s in summaries] == [("k-twin-1", "resumo k-twin-2", 5)]
+
+            # Dois Handoffs abertos fundidos: um Ticket fica vinculado, o outro é fechado como o `release` faz.
+            handoff = db.query(Conversation).filter(Conversation.contact_id == "c-ho").one()
+            assert (handoff.id, handoff.human_in_loop, handoff.ticket_id) == ("k-ho-1", True, "t-ho-1")
+            kept, orphan_ticket = db.get(Ticket, "t-ho-1"), db.get(Ticket, "t-ho-2")
+            assert (kept.status, kept.conversation_id) == ("open", "k-ho-1")
+            assert (orphan_ticket.status, orphan_ticket.conversation_id) == ("closed", "k-ho-1")
+            assert orphan_ticket.closed_at is not None and orphan_ticket.updated_at is not None
+            assert db.get(Ticket, "t-1").status == "open"  # Ticket único do grupo anterior segue aberto
 
             # O que não era duplicado não mudou.
             assert db.get(Conversation, "k-other").unread_count == 7
@@ -307,6 +344,16 @@ def test_conversation_list_query_uses_the_instance_last_message_index(populated_
     print("\nLista de Conversations:\n" + plan)
     assert "ix_conversations_instance_last_message_at" in plan
     assert "Seq Scan" not in plan and "Sort" not in plan  # a ordem sai do índice, sem ordenar 1500 linhas
+
+
+def test_conversation_list_contact_filter_uses_the_contact_id_index(populated_engine, explain_db):
+    # `?contact_id=` da lista não filtra por Instance, então a unicidade (instance_id, contact_id) não serve.
+    query = explain_db.query(Conversation).filter(Conversation.contact_id == "c77")
+
+    plan = _plan(populated_engine, query)
+
+    print("\nLista de Conversations (?contact_id=):\n" + plan)
+    assert "ix_conversations_contact_id" in plan and "Seq Scan" not in plan
 
 
 def test_dashboard_message_window_uses_the_instance_timestamp_index(populated_engine, explain_db):
