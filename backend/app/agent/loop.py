@@ -24,6 +24,7 @@ from app.agent.contracts import (
     ToolUseBlock,
 )
 from app.agent.tools import ToolCall, ToolRegistry
+from app.llm.retry import RetryBudget
 
 FINAL_ANSWER_INSTRUCTION = (
     "Limite de ferramentas atingido neste atendimento. Responda agora ao cliente com o que você já sabe, "
@@ -69,6 +70,8 @@ async def run_turn(
     tools = registry.schemas()
     tool_calls: list[ToolCall] = []
     steps = 0
+    # Um orçamento para o Turn inteiro: as até 7 chamadas ao modelo dividem os retries, não cada uma os seus.
+    budget = RetryBudget.for_turn()
 
     def request() -> MessagesRequest:
         # `messages` é a mesma lista que o loop vai anexando; cada chamada vê o estado atual.
@@ -80,6 +83,7 @@ async def run_turn(
             max_tokens=max_tokens,
             effort=effort,
             temperature=temperature,
+            retry_budget=budget,
         )
 
     while True:
