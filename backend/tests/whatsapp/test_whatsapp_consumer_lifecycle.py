@@ -87,7 +87,8 @@ async def test_summary_does_not_delay_the_reply_and_finishes_on_the_persistent_l
     consumer = WhatsAppMessageConsumer()
 
     # O callback termina e a resposta já saiu enquanto o Summary segue pendente.
-    await asyncio.wait_for(consumer.process_webhook_event(upsert()), timeout=1)
+    await consumer.process_webhook_event(upsert())
+    await asyncio.wait_for(consumer.runner.drain(), timeout=1)
     assert len(world["sent"]) == 1 and finished == []
 
     release.set()

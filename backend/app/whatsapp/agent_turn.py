@@ -18,6 +18,12 @@ from app.whatsapp.turn_batcher import Group
 
 logger = structlog.get_logger()
 
+# Como o Turn terminou, para o runner gravar o estado das Messages (`turn_state`).
+REPLIED = "replied"  # a resposta saiu (inclui a resposta fixa de erro do executor)
+NO_REPLY = "no_reply"  # o Agent decidiu não responder (Handoff, por exemplo)
+GONE = "gone"  # a Conversation ou o Agent sumiram antes do Turn
+FAILED = "failed"  # nada saiu por erro (Gateway, Evolution, banco): a Message continua pendente
+
 
 async def _keep_typing(
     instance_name: str,
@@ -65,12 +71,14 @@ async def run_agent_turn(
     agent_id: str,
     on_replied: Callable[[str], None],
     group: Group,
-) -> None:
+) -> str:
     """Um Turn com as Messages do Contact agrupadas em `group` e o envio da resposta, se houver.
+
+    Devolve como terminou: `REPLIED`, `NO_REPLY`, `GONE` ou `FAILED`.
 
     `agent_id` é o Agent que o consumer resolveu para a Instance; o Turn o carrega na Session dele e o passa ao executor.
     Abre a própria Session: o Turn roda fora da entrega do webhook, que já terminou e fechou a dela. Nunca levanta; o erro
-    fica no log e a próxima Message tenta de novo. `on_replied` é chamado depois da resposta enviada.
+    fica no log (`FAILED`) e a recuperação tenta de novo. `on_replied` é chamado depois da resposta enviada.
     """
     log = logger.bind(instance_id=instance_id, conversation_id=conversation_id)
     db = session_factory()
@@ -81,7 +89,7 @@ async def run_agent_turn(
         agent = db.get(Agent, agent_id)
         if instance is None or conversation is None or contact is None or agent is None:
             log.warning("Conversation vanished before the Turn, skipped")
-            return
+            return GONE
         company = db.get(Company, instance.company_id) if instance.company_id else None
         packs = packs_for(company) if company else []
 
@@ -100,14 +108,15 @@ async def run_agent_turn(
             )
         if not result.reply_text:
             log.info("Agent returned no response", steps=result.steps)
-            return
+            return NO_REPLY
 
         delivered_at = await send_and_persist(db, instance, conversation, contact, result.reply_text)
         executor.reply_delivered(db, conversation, packs, result.turn_id, delivered_at)
         log.info("Agent response sent", steps=result.steps, response_length=len(result.reply_text))
     except Exception:
         log.exception("Unexpected error processing message with agent")
-        return
+        return FAILED
     finally:
         db.close()
     on_replied(conversation_id)
+    return REPLIED

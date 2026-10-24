@@ -78,3 +78,17 @@ def test_tool_timeout_longer_than_the_turn_timeout_is_refused():
 
 def test_tool_timeout_equal_to_the_turn_timeout_is_accepted():
     assert _settings(ENVIRONMENT="development", TURN_TIMEOUT_SECONDS=10, TOOL_TIMEOUT_SECONDS=10).TOOL_TIMEOUT_SECONDS == 10
+
+
+def test_claim_lease_not_longer_than_the_debounce_cap_plus_turn_timeout_is_refused():
+    with pytest.raises(ValidationError, match="TURN_CLAIM_LEASE_SECONDS deve ser maior"):
+        _settings(
+            ENVIRONMENT="development", DEBOUNCE_MAX_WAIT_SECONDS=15, TURN_TIMEOUT_SECONDS=90, TURN_CLAIM_LEASE_SECONDS=105
+        )
+
+
+def test_claim_lease_longer_than_the_debounce_cap_plus_turn_timeout_is_accepted():
+    settings = _settings(
+        ENVIRONMENT="development", DEBOUNCE_MAX_WAIT_SECONDS=15, TURN_TIMEOUT_SECONDS=90, TURN_CLAIM_LEASE_SECONDS=106
+    )
+    assert settings.TURN_CLAIM_LEASE_SECONDS == 106

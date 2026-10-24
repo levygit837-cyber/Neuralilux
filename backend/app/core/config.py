@@ -32,7 +32,7 @@ class Settings(BaseSettings):
 
     # RabbitMQ
     RABBITMQ_URL: str = "amqp://neuralilux:rabbitmq_password@localhost:5672/neuralilux"
-    RABBITMQ_PREFETCH: int = 8  # mensagens simultâneas por consumer
+    RABBITMQ_PREFETCH: int = 8  # entregas simultâneas por consumer; cada uma é confirmada logo depois de gravar a Message (o Turn roda fora dela)
     HANDOFF_SWEEP_INTERVAL_SECONDS: int = 60  # de quanto em quanto tempo o worker expira Handoffs sem Attendant
 
     # JWT
@@ -87,6 +87,13 @@ class Settings(BaseSettings):
     TOOL_TIMEOUT_SECONDS: float = 15.0  # cada Tool; vencida, vira tool_result com is_error e rollback
     TURN_RETRY_BUDGET: int = 2  # retries ao Gateway que o Turn inteiro pode gastar (não por chamada)
     TURN_RETRY_WAIT_SECONDS: float = 20.0  # espera total (backoff com jitter ou Retry-After) que os retries do Turn podem gastar
+
+    # Resposta durável (issue #91)
+    TURN_CONCURRENCY: int = 8  # Turns rodando ao mesmo tempo por worker (o debounce não conta: só quem já vai falar com o Gateway)
+    TURN_RECOVERY_MAX_AGE_SECONDS: float = 900.0  # a recuperação só retoma Message do Contact com até essa idade; a mais velha vira `skipped: stale`
+    TURN_RECOVERY_INTERVAL_SECONDS: float = 60.0  # de quanto em quanto tempo o worker procura Message pendente (além da varredura na subida)
+    TURN_CLAIM_LEASE_SECONDS: float = 180.0  # validade da posse de uma Message pendente; maior que DEBOUNCE_MAX_WAIT_SECONDS + TURN_TIMEOUT_SECONDS
+    SHUTDOWN_TIMEOUT_SECONDS: float = 20.0  # prazo do shutdown para os Turns em voo; o que sobra é cancelado e fica pendente (mantenha abaixo do grace do orquestrador)
 
     # Realtime
     REALTIME_REDIS_CHANNEL: str = "neuralilux:realtime:events"
@@ -153,6 +160,11 @@ class Settings(BaseSettings):
             raise ValueError("TURN_RETRY_BUDGET e TURN_RETRY_WAIT_SECONDS não podem ser negativos")
         if self.DEBOUNCE_SECONDS > 0 and self.DEBOUNCE_MAX_WAIT_SECONDS < self.DEBOUNCE_SECONDS:
             raise ValueError("DEBOUNCE_MAX_WAIT_SECONDS deve ser maior ou igual a DEBOUNCE_SECONDS")
+        if self.TURN_CLAIM_LEASE_SECONDS <= self.DEBOUNCE_MAX_WAIT_SECONDS + self.TURN_TIMEOUT_SECONDS:
+            raise ValueError(
+                "TURN_CLAIM_LEASE_SECONDS deve ser maior que DEBOUNCE_MAX_WAIT_SECONDS + TURN_TIMEOUT_SECONDS "
+                "(senão a posse vence com o Turn ainda rodando e outro worker responde a mesma Message)"
+            )
         return self
 
     @model_validator(mode="after")

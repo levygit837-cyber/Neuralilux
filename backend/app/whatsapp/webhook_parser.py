@@ -91,6 +91,20 @@ def parse_content(message_data: Dict[str, Any]) -> ParsedContent:
     return ParsedContent("unknown", "[Mensagem]", "")
 
 
+def parsed_from_stored(message_type: str | None, content: str | None) -> ParsedContent:
+    """O `ParsedContent` de uma Message já gravada (a recuperação não tem o payload do webhook).
+
+    Mídia sem legenda foi gravada com o marcador (`[Imagem]`...): ela volta sem texto, como no webhook.
+    """
+    content = content or ""
+    if message_type == "text":
+        return ParsedContent("text", content, content)
+    for known_type, placeholder in _MEDIA.values():
+        if message_type == known_type:
+            return ParsedContent(known_type, content, "" if content == placeholder else content, is_media=True)
+    return ParsedContent(message_type or "unknown", content, "")
+
+
 def resolve_remote_jid(key: Dict[str, Any], payload: Dict[str, Any]) -> str:
     """JID do Contact. Um `@lid` é trocado pelo número real (`remoteJidAlt`/`senderPn`) quando vier."""
     remote_jid = key.get("remoteJid") or ""

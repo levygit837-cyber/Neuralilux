@@ -4,13 +4,16 @@ Processa os eventos do webhook da Evolution vindos do RabbitMQ.
 
 Concorrência: o worker roda um único event loop e entrega até `RABBITMQ_PREFETCH` mensagens em
 paralelo. Dentro de uma Conversation a gravação é serializada por um `asyncio.Lock`; entre Conversations
-o processamento é paralelo. Messages picadas do Contact são agrupadas num só Turn (`TurnBatcher`).
+o processamento é paralelo.
+
+Resposta durável (#91): a entrega só grava a Message do Contact com `turn_state = pending` e volta, então o broker a
+confirma logo. O Turn roda fora da entrega (`TurnRunner`: agrupamento das Messages picadas, concorrência limitada) e a
+`Recovery` retoma o que ficou pendente. Estados e regras de posse: `turn_state.py`.
 """
 import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
-from functools import partial
-from typing import Any, AsyncIterator, Dict, Optional
+from typing import Any, AsyncIterator, Dict
 
 import structlog
 from sqlalchemy.orm import Session
@@ -19,16 +22,15 @@ from app.agent import executor
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.agent.sessions import roll_session
-from app.models import Company, Contact, Conversation, Instance, Message
+from app.models import Company, Conversation, Instance, Message
 from app.packs.registry import packs_for
-from app.whatsapp import history_sync, system_notice
-from app.services.agent_service import resolve_turn_agent
-from app.whatsapp.agent_turn import run_agent_turn
+from app.whatsapp import history_sync, system_notice, turn_state
 from app.whatsapp.message_store import get_or_create_contact, get_or_create_conversation, new_message
 from app.whatsapp.message_queue import message_queue_service
 from app.whatsapp.handoff_tracking import track_handoff
-from app.whatsapp.sender import send_and_persist
-from app.whatsapp.turn_batcher import Entry, Hold, TurnBatcher
+from app.whatsapp.recovery import Recovery
+from app.whatsapp.turn_batcher import Entry
+from app.whatsapp.turn_runner import TurnRunner, Work
 from app.whatsapp.status_events import (
     find_instance,
     publish_message,
@@ -38,7 +40,6 @@ from app.whatsapp.status_events import (
     update_message_status,
 )
 from app.whatsapp.webhook_parser import (
-    ParsedContent,
     is_group_chat,
     is_ignored_chat,
     is_invisible_message,
@@ -53,14 +54,11 @@ logger = structlog.get_logger()
 # Eventos da Evolution que anunciam histórico novo: disparam a importação da Instance.
 HISTORY_EVENTS = ("messages.set", "chats.set", "contacts.set", "chats.upsert")
 
-# Resposta fixa para mídia sem texto: o Agent não é chamado.
-MEDIA_REPLY = "Por enquanto só consigo ler mensagens de texto. Pode me escrever o que você precisa?"
-
 # Mensagens mais antigas que isto, em relação ao início do consumer, são histórico (backlog de uma
 # queda ou reconexão): ficam gravadas, mas o Agent não responde.
 STALE_AFTER = timedelta(minutes=5)
 
-# Tempo máximo que o shutdown espera os Summaries pendentes antes de cancelá-los.
+# Tempo máximo que o shutdown espera os Summaries pendentes (dentro de `SHUTDOWN_TIMEOUT_SECONDS`) antes de cancelá-los.
 DRAIN_TIMEOUT = 10.0
 
 
@@ -74,8 +72,10 @@ class WhatsAppMessageConsumer:
         self._background: set[asyncio.Task] = set()
         self._summarizing: set[str] = set()
         self._syncing: set[str] = set()
-        self._missing_agent_logged: set[str] = set()
-        self._batcher = TurnBatcher()
+        # `SessionLocal` é lida a cada uso (e não ligada aqui): os testes a trocam.
+        self.runner = TurnRunner(lambda: SessionLocal(), self._spawn_summary)
+        self.recovery = Recovery(self.runner, lambda: SessionLocal())
+        self._recovering: asyncio.Task | None = None
 
     @asynccontextmanager
     async def _serialized(self, key: str) -> AsyncIterator[None]:
@@ -160,10 +160,7 @@ class WhatsAppMessageConsumer:
                 return
 
             async with self._serialized(f"{instance.id}:{remote_jid}"):
-                pending = await self._handle_message(db, instance, payload, key, remote_jid, from_me)
-            # Fora do Lock: a líder do agrupamento espera a pausa do Contact e não pode travar a gravação das Messages seguintes.
-            if pending is not None:
-                await self._try_process_with_agent(db, *pending)
+                await self._handle_message(db, instance, payload, key, remote_jid, from_me)
 
         except Exception as e:
             logger.error("Error saving message to database", error=str(e))
@@ -178,7 +175,8 @@ class WhatsAppMessageConsumer:
         key: Dict[str, Any],
         remote_jid: str,
         from_me: bool,
-    ) -> Optional[tuple[Instance, Conversation, Contact, ParsedContent, Entry, Hold]]:
+    ) -> None:
+        """Grava a Message e, se for do Contact e couber resposta, entrega-a ao `TurnRunner`. Nunca espera o Turn."""
         message_id = key.get("id") or None
         push_name = payload.get("pushName")
         timestamp = parse_message_timestamp(payload.get("messageTimestamp"))
@@ -186,8 +184,12 @@ class WhatsAppMessageConsumer:
         is_group = is_group_chat(remote_jid)
 
         # Dedup antes de qualquer escrita: inclui o eco do webhook para a resposta do próprio Agent.
-        if message_id and db.query(Message.id).filter(Message.message_id == message_id).first():
+        existing = db.query(Message).filter(Message.message_id == message_id).first() if message_id else None
+        if existing is not None:
             logger.info("Message already exists", message_id=message_id, from_me=from_me)
+            if existing.turn_state == turn_state.PENDING:
+                # Entrega repetida de uma Message cujo Turn não terminou: quem a recebeu antes morreu antes de confirmar.
+                self.recovery.resume_redelivered(db, existing)
             return
 
         # Eco de um aviso da API enviado sem id (#34): já está gravado; não é Attendant nem Message nova.
@@ -204,15 +206,18 @@ class WhatsAppMessageConsumer:
         if not from_me and not is_group:
             self._roll_session(db, instance, conversation, timestamp)
 
+        skip = turn_state.skip_reason(from_me, remote_jid, timestamp, self._started_at - STALE_AFTER)
+        claimed_at = turn_state.now()  # a Message pendente já nasce com dono: este processo
         stored = new_message(
-            instance, conversation, remote_jid, message_id, parsed, from_me, timestamp, sender_name=sender_name
+            instance, conversation, remote_jid, message_id, parsed, from_me, timestamp, sender_name=sender_name,
+            turn=turn_state.initial_state(skip, claimed_at),
         )
         stored_id = stored.id  # lido antes do commit: depois dele o objeto expira e `.id` custaria uma consulta
         db.add(stored)
         touch_conversation(conversation, parsed.content, timestamp, unread=not from_me)
         db.commit()
         # Sem `await` entre o commit e o `hold`: a líder do agrupamento não fecha o grupo com esta Message a caminho.
-        hold = None if from_me or is_group else self._batcher.hold(str(conversation.id))
+        hold = None if skip else self.runner.batcher.hold(str(conversation.id))
         logger.info(
             "Message saved to database",
             message_id=message_id,
@@ -222,6 +227,8 @@ class WhatsAppMessageConsumer:
         )
 
         try:
+            if from_me and not is_group:  # o Contact já foi respondido (Attendant ou eco da resposta): fecha as pendentes
+                turn_state.answer_started(db, conversation.id, claimed_at, self.runner.running_ids)
             await publish_message(
                 conversation, contact, message_id, parsed.content, timestamp, from_me, sender_name
             )
@@ -229,17 +236,16 @@ class WhatsAppMessageConsumer:
             if not is_group:  # Session e Handoff são do atendimento 1:1
                 await track_handoff(db, instance, conversation, remote_jid, parsed.content, from_me)
 
-            skip = self._skip_agent_reason(from_me, remote_jid, timestamp)
             if skip:
                 logger.info("Message not processed by agent", message_id=message_id, reason=skip)
-                if hold is not None:
-                    hold.release()
-                return None
+                return
+            db.rollback()  # a líder espera a pausa do Contact: não segura a conexão do pool enquanto isso
+            work = Work(instance.id, conversation.id, contact.id, Entry(stored_id, parsed.text, timestamp, claimed_at), parsed)
+            self.runner.spawn([work], hold)
         except BaseException:
             if hold is not None:
                 hold.release()
             raise
-        return instance, conversation, contact, parsed, Entry(stored_id, parsed.text, timestamp), hold
 
     @staticmethod
     def _roll_session(db: Session, instance: Instance, conversation: Conversation, timestamp: datetime) -> None:
@@ -252,72 +258,6 @@ class WhatsAppMessageConsumer:
         if company is None:
             return
         roll_session(db, conversation, company, packs_for(company), timestamp)
-
-    def _skip_agent_reason(self, from_me: bool, remote_jid: str, timestamp: datetime) -> Optional[str]:
-        if is_group_chat(remote_jid):
-            return "group"  # grupos são gravados para a UI, mas o Agent nunca fala neles
-        if from_me:
-            return "from_me"
-        if remote_jid.endswith("@lid"):
-            return "unresolved_lid"  # sem o número real não há como responder
-        if timestamp.tzinfo is None:
-            timestamp = timestamp.replace(tzinfo=timezone.utc)
-        if timestamp < self._started_at - STALE_AFTER:
-            return "stale"
-        return None
-
-    async def _try_process_with_agent(
-        self,
-        db: Session,
-        instance: Instance,
-        conversation: Conversation,
-        contact: Contact,
-        parsed: ParsedContent,
-        entry: Entry,
-        hold: Hold,
-    ) -> None:
-        """Entrega a Message ao agrupamento, que roda o Turn do Agent e envia a resposta, se houver."""
-        log = logger.bind(instance_id=instance.id, conversation_id=str(conversation.id))
-        try:
-            if not instance.agent_enabled:
-                log.info("Agent disabled for this instance")
-                return
-
-            agent = resolve_turn_agent(db, instance)
-            if agent is None:
-                # Um erro por Instance até o worker reiniciar: sem Agent, toda mensagem cairia aqui.
-                if instance.id not in self._missing_agent_logged:
-                    self._missing_agent_logged.add(instance.id)
-                    log.error(
-                        "No active Agent for this Instance or its Company; messages are not answered. "
-                        "Run scripts/seed_data.py or create the Company's Agent",
-                        company_id=instance.company_id,
-                    )
-                return
-            self._missing_agent_logged.discard(instance.id)
-
-            if parsed.is_media and not parsed.text.strip():
-                if not self._in_handoff(db, conversation.id):
-                    await send_and_persist(db, instance, conversation, contact, MEDIA_REPLY)
-                return
-            if not parsed.text.strip():
-                log.info("Message without text, Agent not called", message_type=parsed.message_type)
-                return
-
-            conversation_id = conversation.id
-            turn = partial(run_agent_turn, SessionLocal, instance.id, conversation_id, contact.id, agent.id, self._spawn_summary)
-            db.rollback()  # a líder espera a pausa do Contact: não segura a conexão do pool enquanto isso
-            await self._batcher.submit(conversation_id, entry, turn, settings.DEBOUNCE_SECONDS, hold, settings.DEBOUNCE_MAX_WAIT_SECONDS)
-        except Exception:
-            # Nunca derruba o worker: o erro fica no log e a próxima Message tenta de novo.
-            log.exception("Unexpected error processing message with agent")
-        finally:
-            hold.release()  # idempotente: o `submit` já a soltou; os `return` antes dele soltam aqui
-
-    @staticmethod
-    def _in_handoff(db: Session, conversation_id: str) -> bool:
-        flag = db.query(Conversation.human_in_loop).filter(Conversation.id == conversation_id).scalar()
-        return bool(flag)
 
     def _spawn_history_sync(self, db: Session, data: Dict[str, Any]) -> None:
         """Importa o histórico da Instance numa task rastreada; no máximo uma por Instance."""
@@ -366,33 +306,43 @@ class WhatsAppMessageConsumer:
         logger.info("All WhatsApp consumers registered")
 
     async def start(self) -> None:
-        """Consome até `stop()`."""
+        """Consome até `stop()`. A recuperação varre as Messages pendentes na subida e depois periodicamente."""
         logger.info("Starting WhatsApp message consumer")
         self._started_at = datetime.now(timezone.utc)
         self.register_consumers()
+        self._recovering = asyncio.create_task(self.recovery.run_forever())
         await self.mq.start_consuming()
 
     async def stop(self) -> None:
-        """Para de consumir, espera as entregas em voo e as tasks de fundo (Summaries e importações de histórico)."""
+        """Para de consumir e espera os Turns em voo até `SHUTDOWN_TIMEOUT_SECONDS`; o que sobrar é cancelado e fica pendente
+        (a recuperação retoma). Depois espera os Summaries e as importações de histórico dentro do que resta do prazo."""
         logger.info("Stopping WhatsApp message consumer")
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + settings.SHUTDOWN_TIMEOUT_SECONDS
+        if self._recovering is not None:
+            self._recovering.cancel()
+            await asyncio.gather(self._recovering, return_exceptions=True)
+            self._recovering = None
         await self.mq.stop_consuming()
+        await self.runner.shutdown(max(0.0, deadline - loop.time()))
         pending = tuple(self._background)
         if pending:
-            _, unfinished = await asyncio.wait(pending, timeout=DRAIN_TIMEOUT)
+            timeout = min(DRAIN_TIMEOUT, max(0.0, deadline - loop.time()))
+            _, unfinished = await asyncio.wait(pending, timeout=timeout)
             for task in unfinished:
                 task.cancel()
             if unfinished:
                 logger.error(
                     "Background tasks cancelled (summaries/history syncs): shutdown drain timed out",
                     pending=len(unfinished),
-                    timeout=DRAIN_TIMEOUT,
+                    timeout=timeout,
                 )
                 await asyncio.gather(*unfinished, return_exceptions=True)
 
     async def drain(self) -> None:
-        """Espera as tasks de fundo (Summaries e importações de histórico) que ainda estão em andamento."""
-        while self._background:
-            await asyncio.gather(*tuple(self._background), return_exceptions=True)
+        """Espera os Turns e as tasks de fundo (Summaries e importações de histórico) que ainda estão em andamento."""
+        while pending := {task for task in (*self.runner.tasks, *self._background) if not task.done()}:
+            await asyncio.wait(pending)
 
 
 whatsapp_consumer = WhatsAppMessageConsumer()
