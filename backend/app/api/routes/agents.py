@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.api.deps import get_db
 from app.models import Agent, User
+from app.services.agent_service import agents_for_user
 
 router = APIRouter()
 
@@ -27,13 +28,8 @@ async def list_agents(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """List active WhatsApp agents available to the current user."""
-    query = db.query(Agent).filter(Agent.is_active == True)
-
-    if not current_user.is_superuser:
-        query = query.filter((Agent.owner_id == current_user.id) | (Agent.owner_id.is_(None)))
-
-    agents = query.order_by(Agent.name.asc()).all()
+    """Agents ativos da Company do usuário (todos, para o superusuário)."""
+    agents = agents_for_user(db, current_user).order_by(Agent.name.asc()).all()
 
     return AgentListResponse(
         items=[

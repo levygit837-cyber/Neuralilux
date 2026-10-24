@@ -208,14 +208,14 @@ async def test_failure_to_persist_the_reply_does_not_break_the_turn(db, world, m
 
 
 @pytest.mark.asyncio
-async def test_instance_without_binding_uses_the_agent_of_its_company_and_binds_it(db, world):
+async def test_instance_without_binding_uses_the_agent_of_its_company_without_writing_the_binding(db, world):
     db.query(Instance).update({"agent_id": None})
     db.commit()
 
     await process(WhatsAppMessageConsumer(), upsert())
 
     assert world["turns"] == ["Oi"]
-    assert db.query(Instance).one().agent_id == world["agent"].id
+    assert db.query(Instance).one().agent_id is None  # ler o Agent do Turn não grava vínculo
 
 
 @pytest.mark.asyncio

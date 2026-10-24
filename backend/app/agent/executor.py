@@ -29,9 +29,8 @@ from app.agent.tools import ToolRegistry
 from app.agent.turn_context import attach_turn_context, build_turn_context
 from app.core import database
 from app.llm.registry import resolve as resolve_gateway
-from app.models import Company, Contact, Conversation, Instance
+from app.models import Agent, Company, Contact, Conversation, Instance
 from app.packs.registry import pack_for_company
-from app.services.company_service import company_agent
 
 logger = structlog.get_logger()
 
@@ -74,11 +73,15 @@ async def handle_incoming(
     received_at: datetime | None = None,
     message_ids: Sequence[str] = (),
     deferred_ids: Sequence[str] = (),
+    *,
+    agent: Agent | None,
 ) -> TurnResult:
     """Um Turn para `text`, as Messages do Contact já gravadas em `message_ids` (juntas, uma por linha).
 
     Essas Messages saem da Recent Window e voltam como o fim do histórico, uma vez só e na ordem em que chegaram.
     `deferred_ids` são Messages já gravadas que ficam para o Turn seguinte: este Turn não as vê.
+    `agent` é o Agent já resolvido para a Instance (`agent_service.resolve_turn_agent`): dele vêm as instruções da
+    Company, `max_tokens` e `temperature`. O executor não escolhe Agent; `None` roda com os padrões.
     """
     log = logger.bind(conversation_id=conversation.id, instance_id=instance.id)
     if _in_handoff(db, conversation.id):
@@ -114,7 +117,6 @@ async def handle_incoming(
         client, model, effort = resolve_gateway(AGENT_TYPE)
         now = utc_now()
         when = time_context(company, now, previous_message_at(db, conversation.id, message_ids, deferred_ids), conversation.session_started_at)
-        agent = company_agent(db, company.id)
         system = build_system_prompt(
             company_name=company.name,
             packs=packs,

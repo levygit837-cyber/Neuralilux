@@ -4,7 +4,7 @@ Como o Agent de uma Company executa um Turn. Termos conforme o [glossário](../C
 
 ## Um Turn
 
-`executor.handle_incoming` (`backend/app/agent/executor.py`) é chamado uma vez por rajada de Messages de texto do Contact (ver [Agrupamento](#agrupamento-de-messages-picadas-e-digitando)):
+`executor.handle_incoming` (`backend/app/agent/executor.py`) é chamado uma vez por rajada de Messages de texto do Contact (ver [Agrupamento](#agrupamento-de-messages-picadas-e-digitando)). Ele recebe o Agent já resolvido (veja [Qual Agent roda o Turn](#qual-agent-roda-o-turn)) e não escolhe outro:
 
 1. Lê `Conversation.human_in_loop` do **banco**, não do objeto carregado. Em Handoff devolve `reply_text=None` e o Agent fica em silêncio.
 2. Carrega a Company da Instance. Sem Company, loga erro e não responde.
@@ -12,11 +12,30 @@ Como o Agent de uma Company executa um Turn. Termos conforme o [glossário](../C
 4. Monta o contexto: Summary + Recent Window da Session atual, com a Message atual sempre no fim.
 5. Resolve o Gateway do tipo `whatsapp_agent` (`app/llm/registry.py`): atribuição própria, senão `default`, senão `LLMNotConfiguredError`.
 6. Monta o system prompt (`prompts.py`): base genérica + seção estável de cada Pack. Só conteúdo estável por Company/Pack, idêntico byte a byte entre Turns. O que muda por Turn vai no [Turn Context](#turn-context), na última mensagem `user`.
-7. Busca o Agent ativo da Company (`company_service.company_agent`) e roda `loop.run_turn` com as Tools do núcleo e do Pack do Business Type, passando `max_tokens` e `temperature` desse Agent (sem Agent: 1024 e a temperatura do Gateway).
+7. Usa o Agent recebido (`agent=`) e roda `loop.run_turn` com as Tools do núcleo e do Pack do Business Type, passando `max_tokens` e `temperature` desse Agent (sem Agent: 1024 e a temperatura do Gateway).
 8. Emite `thinking_end` e relê o Handoff. Se um Attendant assumiu enquanto o modelo respondia, a resposta é descartada, exceto quando foi a própria Tool de Handoff que encerrou o Turn.
 9. Converte o markdown para WhatsApp (`formatting.to_whatsapp`) e devolve o `TurnResult`.
 
 Qualquer exceção no Turn faz `rollback` e devolve a resposta fixa `FALLBACK_REPLY`; o Contact nunca fica sem retorno por uma falha interna.
+
+## Qual Agent roda o Turn
+
+Uma só função decide: `agent_service.resolve_turn_agent(db, instance)` (`backend/app/services/agent_service.py`). O consumer a chama uma vez por Message, antes de entregar ao agrupamento; o `agent_id` segue por `run_agent_turn`, que carrega o Agent na Session do Turn e o passa a `handle_incoming`. Instruções da Company, `max_tokens` e `temperature` vêm todos desse mesmo Agent.
+
+- O Agent ligado à Instance (`Instance.agent_id`), se estiver ativo **e** for da mesma Company da Instance.
+- Senão, o Agent ativo mais antigo da Company (`company_service.company_agent`).
+- Sem Company ou sem Agent: `None`, e o consumer loga o erro e não responde.
+
+A resolução só lê: não altera a Instance nem faz `commit`. Criar o Agent padrão da Company e ligá-lo à Instance acontece só em caminhos explícitos: `POST /instances/{nome}` (`upsert_instance_for_user`) e `scripts/seed_data.py`.
+
+## Quem acessa um Agent
+
+O acesso é decidido por `Agent.company_id`, nunca por `Agent.owner_id`: o usuário vê e vincula só Agents ativos da própria Company; o superusuário vê todos. Usuário sem Company não vê nenhum.
+
+- `GET /api/v1/agents/` lista os Agents ativos da Company do usuário.
+- `PATCH /api/v1/instances/{nome}/agent-binding` só aceita Agent ativo da Company da Instance. Vale também para o superusuário: ele ganha acesso a qualquer Instance, não a um vínculo que o Turn ignoraria. Agent de outra Company, ou Instance sem Company, responde 404 (o Agent não existe para aquela Instance; não é um erro de formato do corpo, que seria 422).
+- `GET`/`PATCH .../agent-status` e a resposta de `agent-binding` mostram o Agent que o Turn usaria (`resolve_turn_agent`), sem gravar nada: `agent_id`/`agent_name` são os dele e `agent_enabled` só é `true` se `Instance.agent_enabled` está ligado **e** esse Agent existe. Uma Instance legada com `agent_enabled=true` e sem `agent_id` aparece, portanto, ligada e com o Agent da Company, que é quem de fato responde. Depois de desvincular, `agent_enabled` é `false` e `agent_id` continua mostrando o Agent da Company, o que voltaria a responder se alguém religasse.
+- `PATCH .../agent-status` com `agent_enabled=true` responde 400 quando não há Agent que o Turn possa usar.
 
 ## Estrutura do prompt
 

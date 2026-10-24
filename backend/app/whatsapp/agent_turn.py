@@ -18,26 +18,6 @@ from app.whatsapp.turn_batcher import Group
 logger = structlog.get_logger()
 
 
-def resolve_default_agent(db: Session, instance: Instance) -> Agent | None:
-    """O Agent da Instance: o ligado a ela e, na falta, o Agent ativo da Company."""
-    if instance.agent_id:
-        agent = db.query(Agent).filter(Agent.id == instance.agent_id, Agent.is_active == True).first()  # noqa: E712
-        if agent:
-            return agent
-    if instance.company_id:
-        agent = (
-            db.query(Agent)
-            .filter(Agent.company_id == instance.company_id, Agent.is_active == True)  # noqa: E712
-            .order_by(Agent.created_at, Agent.id)
-            .first()
-        )
-        if agent:
-            instance.agent_id = agent.id
-            db.commit()
-            return agent
-    return None
-
-
 async def _keep_typing(
     instance_name: str,
     remote_jid: str,
@@ -81,11 +61,13 @@ async def run_agent_turn(
     instance_id: str,
     conversation_id: str,
     contact_id: str,
+    agent_id: str,
     on_replied: Callable[[str], None],
     group: Group,
 ) -> None:
     """Um Turn com as Messages do Contact agrupadas em `group` e o envio da resposta, se houver.
 
+    `agent_id` é o Agent que o consumer resolveu para a Instance; o Turn o carrega na Session dele e o passa ao executor.
     Abre a própria Session: o Turn roda fora da entrega do webhook, que já terminou e fechou a dela. Nunca levanta; o erro
     fica no log e a próxima Message tenta de novo. `on_replied` é chamado depois da resposta enviada.
     """
@@ -95,7 +77,8 @@ async def run_agent_turn(
         instance = db.get(Instance, instance_id)
         conversation = db.get(Conversation, conversation_id)
         contact = db.get(Contact, contact_id)
-        if instance is None or conversation is None or contact is None:
+        agent = db.get(Agent, agent_id)
+        if instance is None or conversation is None or contact is None or agent is None:
             log.warning("Conversation vanished before the Turn, skipped")
             return
 
@@ -109,6 +92,7 @@ async def run_agent_turn(
                 group.received_at,
                 message_ids=group.message_ids,
                 deferred_ids=group.deferred_ids,
+                agent=agent,
             )
         if not result.reply_text:
             log.info("Agent returned no response", steps=result.steps)

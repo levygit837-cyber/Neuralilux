@@ -165,7 +165,7 @@ Se a Company ainda não tinha Agent na hora da criação, o worker loga `No acti
 cd backend && python scripts/seed_data.py
 ```
 
-Reexecutar o seed não religa uma Instance que o administrador desligou. O Agent da Instance também pode ser trocado por `PATCH /api/v1/instances/{nome}/agent-binding` e a resposta automática ligada ou desligada por `PATCH /api/v1/instances/{nome}/agent-status`. Essas duas rotas e `GET .../agent-status` só funcionam em Instance que já existe (404 se não houver linha) e que é sua (403 se é de outro dono).
+Reexecutar o seed não religa uma Instance que o administrador desligou. O Agent da Instance também pode ser trocado por `PATCH /api/v1/instances/{nome}/agent-binding` e a resposta automática ligada ou desligada por `PATCH /api/v1/instances/{nome}/agent-status`. O Agent vinculado precisa ser da Company da Instance (e do usuário): de outra Company, a resposta é 404. Essas duas rotas e `GET .../agent-status` só funcionam em Instance que já existe (404 se não houver linha) e que é sua (403 se é de outro dono).
 
 ### Quem acessa uma Instance
 

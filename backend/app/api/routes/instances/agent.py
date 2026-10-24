@@ -12,27 +12,34 @@ com 404 se ela não existe e 403 se é de outro dono ou sem dono. Quem registra 
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
 from pydantic import BaseModel
 import structlog
 
 from app.api.access import get_instance_for_user
 from app.api.deps import get_current_user, get_db
-from app.models import User, Instance, Agent
+from app.models import User, Instance
+from app.services.agent_service import get_agent_for_instance, resolve_turn_agent
 
 logger = structlog.get_logger()
 
 router = APIRouter()
 
 
-def _is_agent_auto_reply_active(instance: Instance) -> bool:
-    if not instance.agent_enabled or not instance.agent_id:
-        return False
+def _agent_state(db: Session, instance: Instance) -> dict:
+    """O Agent da Instance como o Turn o enxerga (`resolve_turn_agent`), sem gravar nada.
 
-    if not instance.agent or not instance.agent.is_active:
-        return False
-
-    return True
+    `agent_id` e `agent_name` são os do Agent que responderia: o vinculado e, na falta dele (Instance legada sem
+    `agent_id`, vínculo inativo ou de outra Company), o ativo mais antigo da Company. A resposta automática só
+    está ativa se há esse Agent e `agent_enabled` está ligado.
+    """
+    agent = resolve_turn_agent(db, instance)
+    return {
+        "instance_id": instance.id,
+        "instance_name": instance.name,
+        "agent_enabled": bool(instance.agent_enabled and agent),
+        "agent_id": agent.id if agent else None,
+        "agent_name": agent.name if agent else None,
+    }
 
 
 class AgentStatusUpdate(BaseModel):
@@ -41,24 +48,6 @@ class AgentStatusUpdate(BaseModel):
 
 class AgentBindingUpdate(BaseModel):
     agent_id: str | None = None
-
-
-def _get_accessible_agent(
-    db: Session,
-    agent_id: str,
-    current_user: User,
-) -> Agent | None:
-    query = db.query(Agent).filter(
-        Agent.id == agent_id,
-        Agent.is_active == True,
-    )
-
-    if not current_user.is_superuser:
-        query = query.filter(
-            or_(Agent.owner_id == current_user.id, Agent.owner_id.is_(None))
-        )
-
-    return query.first()
 
 
 @router.get("/{instance_id}/agent-status")
@@ -76,13 +65,7 @@ async def get_agent_status(
     try:
         instance = get_instance_for_user(db, instance_id, current_user)
 
-        return {
-            "instance_id": instance.id,
-            "instance_name": instance.name,
-            "agent_enabled": _is_agent_auto_reply_active(instance),
-            "agent_id": instance.agent_id,
-            "agent_name": instance.agent.name if instance.agent else None,
-        }
+        return _agent_state(db, instance)
 
     except HTTPException:
         raise
@@ -110,19 +93,11 @@ async def update_agent_status(
     try:
         instance = get_instance_for_user(db, instance_id, current_user)
 
-        if status_update.agent_enabled:
-            if not instance.agent_id:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Assign an agent to this instance before enabling automatic responses.",
-                )
-
-            agent = _get_accessible_agent(db, instance.agent_id, current_user)
-            if not agent:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="The assigned agent is unavailable or inactive.",
-                )
+        if status_update.agent_enabled and resolve_turn_agent(db, instance) is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Assign an agent to this instance before enabling automatic responses.",
+            )
 
         instance.agent_enabled = status_update.agent_enabled
         db.commit()
@@ -136,11 +111,7 @@ async def update_agent_status(
         )
 
         return {
-            "instance_id": instance.id,
-            "instance_name": instance.name,
-            "agent_enabled": _is_agent_auto_reply_active(instance),
-            "agent_id": instance.agent_id,
-            "agent_name": instance.agent.name if instance.agent else None,
+            **_agent_state(db, instance),
             "message": f"Agent {'enabled' if status_update.agent_enabled else 'disabled'} successfully",
         }
 
@@ -170,11 +141,10 @@ async def update_agent_binding(
     try:
         instance = get_instance_for_user(db, instance_id, current_user)
 
-        agent_name = None
         message = "Agent unbound successfully"
 
         if binding_update.agent_id:
-            agent = _get_accessible_agent(db, binding_update.agent_id, current_user)
+            agent = get_agent_for_instance(db, binding_update.agent_id, current_user, instance)
             if not agent:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -182,7 +152,6 @@ async def update_agent_binding(
                 )
 
             instance.agent_id = agent.id
-            agent_name = agent.name
             message = "Agent bound successfully"
         else:
             instance.agent_id = None
@@ -201,14 +170,7 @@ async def update_agent_binding(
             agent_enabled=instance.agent_enabled,
         )
 
-        return {
-            "instance_id": instance.id,
-            "instance_name": instance.name,
-            "agent_enabled": _is_agent_auto_reply_active(instance),
-            "agent_id": instance.agent_id,
-            "agent_name": agent_name or (instance.agent.name if instance.agent else None),
-            "message": message,
-        }
+        return {**_agent_state(db, instance), "message": message}
 
     except HTTPException:
         raise

@@ -21,7 +21,8 @@ from app.core.database import SessionLocal
 from app.agent.sessions import roll_session
 from app.models import Company, Contact, Conversation, Instance, Message
 from app.whatsapp import history_sync
-from app.whatsapp.agent_turn import resolve_default_agent, run_agent_turn
+from app.services.agent_service import resolve_turn_agent
+from app.whatsapp.agent_turn import run_agent_turn
 from app.whatsapp.message_store import get_or_create_contact, get_or_create_conversation, new_message
 from app.whatsapp.message_queue import message_queue_service
 from app.whatsapp import system_notice
@@ -284,7 +285,7 @@ class WhatsAppMessageConsumer:
                 log.info("Agent disabled for this instance")
                 return
 
-            agent = resolve_default_agent(db, instance)
+            agent = resolve_turn_agent(db, instance)
             if agent is None:
                 # Um erro por Instance até o worker reiniciar: sem Agent, toda mensagem cairia aqui.
                 if instance.id not in self._missing_agent_logged:
@@ -306,7 +307,7 @@ class WhatsAppMessageConsumer:
                 return
 
             conversation_id = conversation.id
-            turn = partial(run_agent_turn, SessionLocal, instance.id, conversation_id, contact.id, self._spawn_summary)
+            turn = partial(run_agent_turn, SessionLocal, instance.id, conversation_id, contact.id, agent.id, self._spawn_summary)
             db.rollback()  # a líder espera a pausa do Contact: não segura a conexão do pool enquanto isso
             await self._batcher.submit(conversation_id, entry, turn, settings.DEBOUNCE_SECONDS, hold)
         except Exception:
