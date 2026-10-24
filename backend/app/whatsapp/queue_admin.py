@@ -1,4 +1,4 @@
-"""Operação da fila de webhooks: situação, inspeção e reprocesso da DLQ, e migração de uma fila antiga.
+"""Operação da fila de webhooks: situação, inspeção e reprocesso da DLQ, e migração (ida e volta) de uma fila antiga.
 
 Roda fora do worker (`scripts/queue_admin.py`), com a conexão própria de cada comando. Passo a passo para o
 operador: `docs/operations.md`.
@@ -10,7 +10,7 @@ mensagem, nunca perde. O consumer ignora a duplicata (dedup por `Message.message
 import json
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 
 import aio_pika
 from aio_pika.abc import AbstractChannel, AbstractConnection, AbstractIncomingMessage, AbstractQueue
@@ -32,6 +32,17 @@ class Migration:
     migrated: bool  # False: a fila já tinha os argumentos novos
     moved_out: int  # mensagens da fila antiga que passaram pela fila temporária
     moved_back: int  # mensagens devolvidas à fila nova (inclui as que sobraram de uma migração interrompida)
+
+
+@dataclass(frozen=True)
+class Rollback:
+    rolled_back: bool  # False: a fila já tinha os argumentos antigos
+    moved_out: int  # mensagens da fila nova que passaram pela fila temporária
+    moved_back: int  # mensagens devolvidas à fila antiga (inclui as que sobraram de um rollback interrompido)
+
+
+class QueueAdminError(RuntimeError):
+    """Operação recusada antes de mexer na fila (consumer ativo, DLQ com mensagens)."""
 
 
 @asynccontextmanager
@@ -146,41 +157,76 @@ async def _exists(connection: AbstractConnection, name: str) -> bool:
     return (await _depth(connection, name)).messages is not None
 
 
+async def _recreate(
+    connection: AbstractConnection, channel: AbstractChannel, name: str, arguments: Dict[str, Any], temporary: str
+) -> Tuple[bool, int, int]:
+    """Leva a fila `name` para `arguments` sem perder mensagens. Devolve (recriada, movidas para fora, devolvidas).
+
+    O broker recusa redeclarar uma fila com argumentos diferentes e não permite alterá-los, então a fila é
+    recriada: as mensagens passam para a fila `temporary`, a antiga é apagada (só se vazia), a nova é declarada e as
+    mensagens voltam em ordem. Rodar de novo é seguro: uma fila temporária que sobrou de uma execução interrompida é
+    esvaziada na fila nova. Exige API e worker parados (docs/operations.md): um publish na janela entre apagar e
+    declarar não tem rota.
+    """
+    # Redeclarar com os argumentos desejados é o teste: passa se a fila não existe (e a cria já correta) ou se já
+    # está correta; o broker recusa (e fecha o canal de teste) se ela tem outros argumentos.
+    probe = await connection.channel()
+    try:
+        await probe.declare_queue(name, durable=True, arguments=arguments)
+        recreate = False
+        await probe.close()
+    except ChannelPreconditionFailed:
+        recreate = True
+
+    moved_out = 0
+    if recreate:
+        consumers = (await _depth(connection, name)).consumers
+        if consumers:
+            raise QueueAdminError(f"{name} tem {consumers} consumer(s) ativo(s): pare a API e o worker antes")
+        old = await channel.declare_queue(name, passive=True)
+        await channel.declare_queue(temporary, durable=True)
+        moved_out = await _move(channel, old, temporary, None)
+        await old.delete(if_empty=True)  # falha se chegou mensagem no meio: fila com conteúdo nunca é apagada
+
+    queue = await channel.declare_queue(name, durable=True, arguments=arguments)
+    moved_back = 0
+    if await _exists(connection, temporary):
+        parked = await channel.declare_queue(temporary, durable=True)
+        moved_back = await _move(channel, parked, queue.name, None)
+        await parked.delete(if_empty=True)
+    return recreate, moved_out, moved_back
+
+
 async def migrate(topology: WebhookQueue = WEBHOOKS, url: Optional[str] = None) -> Migration:
     """Leva a fila principal para os argumentos da topologia atual (DLX, overflow) sem perder mensagens.
 
-    O broker recusa redeclarar uma fila com argumentos diferentes e não permite alterá-los, então a fila é
-    recriada: as mensagens passam para `<fila>.migrating`, a fila antiga é apagada (só se vazia), a nova é
-    declarada e as mensagens voltam em ordem. Rodar de novo é seguro: uma fila temporária que sobrou de uma
-    execução interrompida é esvaziada na fila nova. Exige API e worker parados (docs/operations.md): um publish na
-    janela entre apagar e declarar não tem rota.
+    Recusa (`QueueAdminError`) se a fila tem consumer ativo. Detalhes e idempotência: `_recreate`.
     """
-    temporary = f"{topology.name}.migrating"
     async with _connection(url) as connection:
         channel = await _channel(connection)
         await topology.declare_dead_letter(channel)
+        migrated, moved_out, moved_back = await _recreate(
+            connection, channel, topology.name, topology.arguments, f"{topology.name}.migrating"
+        )
+        return Migration(migrated=migrated, moved_out=moved_out, moved_back=moved_back)
 
-        # Redeclarar com os argumentos novos é o teste: passa se a fila não existe (e a cria já migrada) ou se já
-        # está migrada; o broker recusa (e fecha o canal de teste) se ela tem os argumentos antigos.
-        probe = await connection.channel()
-        try:
-            await probe.declare_queue(topology.name, durable=True, arguments=topology.arguments)
-            needs_migration = False
-            await probe.close()
-        except ChannelPreconditionFailed:
-            needs_migration = True
 
-        moved_out = 0
-        if needs_migration:
-            old = await channel.declare_queue(topology.name, passive=True)
-            await channel.declare_queue(temporary, durable=True)
-            moved_out = await _move(channel, old, temporary, None)
-            await old.delete(if_empty=True)  # falha se chegou mensagem no meio: fila com conteúdo nunca é apagada
+async def rollback(topology: WebhookQueue = WEBHOOKS, url: Optional[str] = None) -> Rollback:
+    """Desfaz `migrate`: recria a fila principal com os argumentos de antes da DLQ (sem DLX), sem perder mensagens.
 
-        main = await topology.declare(channel)
-        moved_back = 0
-        if await _exists(connection, temporary):
-            parked = await channel.declare_queue(temporary, durable=True)
-            moved_back = await _move(channel, parked, main.name, None)
-            await parked.delete(if_empty=True)
-        return Migration(migrated=needs_migration, moved_out=moved_out, moved_back=moved_back)
+    Para voltar ao código antigo, que declara a fila sem DLX e falharia com `PRECONDITION_FAILED` sobre a nova.
+    Recusa (`QueueAdminError`) se a DLQ não está vazia, porque o código antigo não a conhece: rode `replay` antes
+    (ou descarte o conteúdo). Também recusa com consumer ativo. A exchange e a DLQ vazias ficam no broker, sem uso.
+    Detalhes e idempotência: `_recreate`.
+    """
+    async with _connection(url) as connection:
+        dead = (await _depth(connection, topology.dlq)).messages
+        if dead:
+            raise QueueAdminError(
+                f"{topology.dlq} tem {dead} mensagem(ns): rode `replay` (ou descarte-as no painel) antes do rollback"
+            )
+        channel = await _channel(connection)
+        rolled_back, moved_out, moved_back = await _recreate(
+            connection, channel, topology.name, topology.legacy_arguments, f"{topology.name}.rollingback"
+        )
+        return Rollback(rolled_back=rolled_back, moved_out=moved_out, moved_back=moved_back)

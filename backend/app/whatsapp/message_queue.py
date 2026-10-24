@@ -70,6 +70,11 @@ class WebhookQueue:
         }
 
     @property
+    def legacy_arguments(self) -> Dict[str, Any]:
+        """Argumentos da fila antes da DLQ (só TTL e tamanho): o que `queue_admin.rollback` recria para o código antigo."""
+        return {"x-message-ttl": self.ttl_ms, "x-max-length": self.max_length}
+
+    @property
     def dlq_arguments(self) -> Dict[str, Any]:
         # Teto para a DLQ não crescer sem fim; passando dele, as mais antigas somem (alerte pela profundidade).
         return {"x-max-length": self.max_length}
@@ -104,6 +109,14 @@ def json_safe(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         return [json_safe(item) for item in value]
     return value
+
+
+def _whatsapp_id(event_data: Dict[str, Any]) -> Optional[str]:
+    """`data.key.id` do evento (o id da Message no WhatsApp); None em eventos sem `key` (ex.: `connection.update`)."""
+    data = event_data.get("data")
+    key = data.get("key") if isinstance(data, dict) else None
+    value = key.get("id") if isinstance(key, dict) else None
+    return value if isinstance(value, str) and value else None
 
 
 class MessageQueueService:
@@ -179,11 +192,14 @@ class MessageQueueService:
             await self._open()
             assert self._channel is not None
             message = {"type": "webhook_event", "event": event_data.get("event"), "data": event_data}
+            whatsapp_id = _whatsapp_id(event_data)
             await self._channel.default_exchange.publish(
                 aio_pika.Message(
                     body=json.dumps(json_safe(message), default=str).encode(),
                     delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
                     content_type="application/json",
+                    # Id do WhatsApp (`key.id`): aparece no log da DLQ e no `peek`, para achar a mensagem.
+                    message_id=whatsapp_id,
                 ),
                 routing_key=queue,
             )

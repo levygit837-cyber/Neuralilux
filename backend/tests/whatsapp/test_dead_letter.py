@@ -142,3 +142,28 @@ async def test_binary_content_in_an_event_is_published_as_base64_json():
     body = json.loads(message.body)
     assert body["event"] == "messages.upsert"
     assert body["data"]["data"]["media"] == [base64.b64encode(b"\x00\x01").decode()]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "event, expected",
+    [
+        ({"event": "messages.upsert", "data": {"key": {"id": "3EB0AAAA", "fromMe": False}}}, "3EB0AAAA"),
+        ({"event": "connection.update", "data": {"state": "open"}}, None),
+        ({"event": "messages.upsert", "data": {"key": {"fromMe": False}}}, None),
+        ({"event": "x", "data": ["not", "a", "dict"]}, None),
+    ],
+)
+async def test_the_amqp_message_id_is_the_whatsapp_key_id_when_the_event_has_one(event, expected):
+    exchange = _CapturingExchange()
+    service = MessageQueueService()
+
+    async def already_open():
+        return None
+
+    service._open = already_open
+    service._channel = type("Channel", (), {"default_exchange": exchange})()
+
+    assert await service.publish_webhook_event(event)
+
+    assert exchange.published[0][0].message_id == expected

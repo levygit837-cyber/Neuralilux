@@ -28,10 +28,12 @@ aiohttp==3.14.5
 aio-pika==10.1.1
 
 # WebSocket
+websockets==16.1.1
 python-socketio==5.17.0
 
 # Utilities
 structlog==26.1.0
+python-dotenv==1.2.4
 jsonschema==4.25.1
 
 # Validation

@@ -1,4 +1,4 @@
-"""Dead-letter, overflow e migração da fila de webhooks contra um RabbitMQ de verdade (marcador `rabbitmq`).
+"""Dead-letter, overflow, migração e rollback da fila de webhooks contra um RabbitMQ de verdade (marcador `rabbitmq`).
 
 Só roda com `TEST_RABBITMQ_URL` (ex.: `amqp://usuario:senha@localhost:5672/`). Cada teste usa filas com nome único,
 apagadas no fim; nunca toca em `webhooks.evolution`. No CI é o job `rabbitmq` do `backend.yml`.
@@ -48,7 +48,7 @@ async def cleanup(channel):
     topologies = []
     yield topologies.append
     for topology in topologies:
-        for name in (topology.name, topology.dlq, f"{topology.name}.migrating"):
+        for name in (topology.name, topology.dlq, f"{topology.name}.migrating", f"{topology.name}.rollingback"):
             await channel.queue_delete(name)
         await channel.exchange_delete(topology.dlx)
 
@@ -161,3 +161,117 @@ async def test_migrating_a_queue_created_before_the_dead_letter_queue_keeps_ever
     assert await _drain(channel, topology.name) == [1, 2, 3]
     assert (await queue_admin.migrate(topology, url)).migrated is False
 
+
+
+async def _publish(channel, queue, numbers):
+    for n in numbers:
+        await channel.default_exchange.publish(
+            aio_pika.Message(
+                json.dumps({"data": {"n": n}}).encode(),
+                delivery_mode=aio_pika.DeliveryMode.PERSISTENT,
+                message_id=f"id-{n}",
+            ),
+            routing_key=queue,
+        )
+
+
+async def _declare_old(channel, topology):
+    return await channel.declare_queue(topology.name, durable=True, arguments=topology.legacy_arguments)
+
+
+async def _is_refused(connection, topology, arguments):
+    other = await connection.channel()  # o broker fecha o canal em que a declaração é recusada
+    try:
+        await other.declare_queue(topology.name, durable=True, arguments=arguments)
+    except ChannelPreconditionFailed:
+        return True
+    await other.close()
+    return False
+
+
+async def test_rollback_after_migrate_restores_the_old_queue_without_losing_or_reordering_messages(
+    url, connection, channel, cleanup
+):
+    topology = _topology()
+    cleanup(topology)
+    await _declare_old(channel, topology)
+    await _publish(channel, topology.name, (1, 2, 3))
+
+    assert (await queue_admin.migrate(topology, url)).migrated is True
+    assert await _is_refused(connection, topology, topology.legacy_arguments)  # o código antigo não sobe
+    result = await queue_admin.rollback(topology, url)
+
+    assert (result.rolled_back, result.moved_out, result.moved_back) == (True, 3, 3)
+    assert not await _is_refused(connection, topology, topology.legacy_arguments)  # o código antigo volta a declarar
+    assert await _is_refused(connection, topology, topology.arguments)
+    assert await _depths(topology, url) == (3, 0)
+    queue = await channel.declare_queue(topology.name, passive=True)
+    first = await queue.get(no_ack=True)
+    assert first.message_id == "id-1"  # as propriedades sobrevivem à ida e volta
+    assert [json.loads(first.body)["data"]["n"]] + await _drain(channel, topology.name) == [1, 2, 3]
+    assert (await queue_admin.rollback(topology, url)).rolled_back is False  # idempotente
+
+
+async def test_rollback_resumes_from_the_temporary_queue_left_by_an_interrupted_run(url, connection, channel, cleanup):
+    topology = _topology()
+    cleanup(topology)
+    await _declare_old(channel, topology)  # a fila já foi apagada e recriada com os argumentos antigos
+    temporary = f"{topology.name}.rollingback"
+    await channel.declare_queue(temporary, durable=True)
+    await _publish(channel, temporary, (1, 2))  # sobrou a temporária da execução interrompida
+
+    result = await queue_admin.rollback(topology, url)
+
+    assert (result.rolled_back, result.moved_out, result.moved_back) == (False, 0, 2)
+    assert await _drain(channel, topology.name) == [1, 2]
+    assert await queue_admin._exists(connection, temporary) is False
+
+
+async def test_rollback_refuses_while_the_dead_letter_queue_has_messages(url, connection, channel, cleanup):
+    topology = _topology()
+    cleanup(topology)
+    await topology.declare(channel)
+    await _publish(channel, topology.name, (1,))
+    await _publish(channel, topology.dlq, (2,))
+
+    with pytest.raises(queue_admin.QueueAdminError, match="replay"):
+        await queue_admin.rollback(topology, url)
+
+    assert await _depths(topology, url) == (1, 1)  # nada foi movido
+    assert await _is_refused(connection, topology, topology.legacy_arguments)
+
+    assert await queue_admin.replay_dead_letters(None, topology, url) == 1
+    assert (await queue_admin.rollback(topology, url)).rolled_back is True
+    assert await _drain(channel, topology.name) == [1, 2]
+
+
+async def _ready(topology, url, expected):
+    return (await _depths(topology, url))[0] == expected
+
+
+@pytest.mark.parametrize("operation", ["migrate", "rollback"])
+async def test_migrate_and_rollback_refuse_while_the_queue_has_a_consumer(
+    operation, url, connection, channel, cleanup
+):
+    topology = _topology()
+    cleanup(topology)
+    if operation == "migrate":
+        queue = await _declare_old(channel, topology)
+        await topology.declare_dead_letter(channel)
+    else:
+        queue = await topology.declare(channel)
+    await _publish(channel, topology.name, (1, 2))
+
+    async def hold(_message):
+        return None  # nunca dá ack: a mensagem fica entregue ao consumer
+
+    consumer_channel = await connection.channel()
+    consuming = await consumer_channel.declare_queue(topology.name, passive=True)
+    await consuming.consume(hold, no_ack=False)
+
+    with pytest.raises(queue_admin.QueueAdminError, match="consumer"):
+        await getattr(queue_admin, operation)(topology, url)
+
+    await consumer_channel.close()  # o broker devolve à fila as mensagens entregues e sem ack
+    await _wait_for(lambda: _ready(topology, url, 2))
+    assert await _is_refused(connection, topology, topology.arguments if operation == "rollback" else topology.legacy_arguments) is False

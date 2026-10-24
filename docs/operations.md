@@ -165,7 +165,20 @@ O RabbitMQ não deixa mudar os argumentos de uma fila que já existe: com `webho
 2. `cd backend && python scripts/queue_admin.py migrate`.
 3. Suba a API e o worker.
 
-O `migrate` cria a exchange e a DLQ, move as mensagens para uma fila temporária `webhooks.evolution.migrating`, apaga a fila antiga (só se estiver vazia), recria a fila com os argumentos novos e devolve as mensagens em ordem, confirmando cada uma no destino antes de tirá-la da origem. Imprime `migrated`, `moved_out` e `moved_back`. É idempotente: sem nada a migrar devolve `migrated: false`; se foi interrompido no meio, rodar de novo esvazia a temporária na fila nova. Um ambiente novo não precisa dele. Ele só mexe nas filas `webhooks.evolution*`.
+O `migrate` cria a exchange e a DLQ, move as mensagens para uma fila temporária `webhooks.evolution.migrating`, apaga a fila antiga (só se estiver vazia), recria a fila com os argumentos novos e devolve as mensagens em ordem, confirmando cada uma no destino antes de tirá-la da origem. Imprime `migrated`, `moved_out` e `moved_back`. É idempotente: sem nada a migrar devolve `migrated: false`; se foi interrompido no meio, rodar de novo esvazia a temporária na fila nova. Um ambiente novo não precisa dele. Ele só mexe nas filas `webhooks.evolution*`. Para desfazê-lo, veja "Reverter a migração da fila".
+
+O `migrate` e o `rollback` recusam (saem com código 1 e `recusado: ...` no stderr, sem mexer em nada) se a fila tem consumer ativo: pare a API e o worker antes. O `status` mostra os consumers.
+
+### Reverter a migração da fila (rollback)
+
+Voltar ao código anterior à DLQ depois do `migrate` falha: o código antigo declara `webhooks.evolution` sem DLX e o broker responde `PRECONDITION_FAILED`. O `rollback` é o inverso do `migrate`. Passo a passo:
+
+1. Pare a API e o worker.
+2. `cd backend && python scripts/queue_admin.py status`. Se a DLQ tiver mensagens, `python scripts/queue_admin.py replay` (devolve tudo à fila principal) ou descarte-as no painel (`Purge Messages`). O `rollback` **recusa** enquanto a DLQ não estiver vazia, porque o código antigo não a lê.
+3. `python scripts/queue_admin.py rollback`.
+4. Suba a versão antiga da API e do worker.
+
+O `rollback` move as mensagens para a fila temporária `webhooks.evolution.rollingback`, apaga a fila (só se vazia), recria-a com os argumentos antigos (`x-message-ttl` e `x-max-length`, sem DLX nem `drop-head`) e devolve as mensagens em ordem, confirmando cada uma no destino antes de tirá-la da origem. Imprime `rolled_back`, `moved_out` e `moved_back`. É idempotente e retomável, como o `migrate`: sem nada a reverter devolve `rolled_back: false`; se foi interrompido, rodar de novo esvazia a temporária na fila recriada. A exchange `webhooks.evolution.dlx` e a `webhooks.evolution.dlq` (vazia) ficam no broker sem uso; apague-as no painel se quiser. Para migrar de novo, rode `migrate`.
 
 As filas `whatsapp.messages.*`, `ai.processing` e `notifications`, que o código declarava mas ninguém publicava nem consumia, deixam de ser declaradas. As que já existem no broker ficam vazias e sem uso: apague-as no painel quando quiser.
 
