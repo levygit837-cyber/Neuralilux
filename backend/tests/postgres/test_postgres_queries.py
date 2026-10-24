@@ -152,10 +152,9 @@ def test_satisfaction_metrics_groups_ratings_by_month_with_to_char(pg):
     now = datetime.now(timezone.utc)
     conversation.rating = 4
     conversation.updated_at = now
-    pg.add(Conversation(
-        instance_id=conversation.instance_id, contact_id=conversation.contact_id,
-        remote_jid=conversation.remote_jid, rating=5, updated_at=now,
-    ))
+    other = _conversation(pg, "csat-other", remote_jid="5511888888888@s.whatsapp.net")  # um Contact por Conversation
+    other.rating = 5
+    other.updated_at = now
     pg.flush()
     admin = User(email="csat@example.com", hashed_password="x", is_superuser=True)
 

@@ -7,10 +7,10 @@ preciso: Message já gravada (pelo `message_id`) fica como está.
 """
 import asyncio
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, AsyncIterator, Dict, Iterable, List, Optional
 
 import structlog
-from sqlalchemy import text
+from sqlalchemy import text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -52,15 +52,13 @@ async def _best_effort(label: str, call) -> List[Dict[str, Any]]:
         return []
 
 
-async def _fetch_records(instance_name: str) -> List[Dict[str, Any]]:
-    """Todas as páginas de `findMessages`."""
-    records: List[Dict[str, Any]] = []
+async def _iter_pages(instance_name: str) -> AsyncIterator[List[Dict[str, Any]]]:
+    """As páginas de `findMessages`, da mais nova para a mais antiga, uma por vez: nenhuma fica retida aqui."""
     page, pages = 1, 1
     while page <= pages:
         batch, pages = await evolution_history.find_messages_page(instance_name, page)
-        records.extend(batch)
+        yield batch
         page += 1
-    return records
 
 
 def _lid_aliases(records: Iterable[Dict[str, Any]]) -> Dict[str, str]:
@@ -76,28 +74,51 @@ def _lid_aliases(records: Iterable[Dict[str, Any]]) -> Dict[str, str]:
     return aliases
 
 
+def _record_push_names(records: List[Dict[str, Any]], first_seq: int, push_names: Dict[str, tuple[int, str]]) -> int:
+    """Guarda o pushName mais recente por JID (ainda sem resolver `@lid`) e devolve o próximo número de ordem.
+
+    O pushName de uma Message `fromMe` é o do nosso número e o de uma Message de grupo é o do participante:
+    nenhum dos dois nomeia o chat. O número de ordem (0 = a Message mais nova do histórico) deixa
+    `_collect_names` escolher a mais recente depois que todos os pares `@lid` forem conhecidos.
+    """
+    for offset, record in enumerate(records):
+        key = record.get("key") or {}
+        jid = resolve_remote_jid(key, record)
+        if key.get("fromMe") or is_group_chat(jid) or not record.get("pushName"):
+            continue
+        push_names.setdefault(jid, (first_seq + offset, record["pushName"]))
+    return first_seq + len(records)
+
+
+async def _scan_history(instance_name: str) -> tuple[Dict[str, str], Dict[str, tuple[int, str]]]:
+    """Primeira passada: os pares `@lid` -> número e os pushNames de todo o histórico, descartando as páginas.
+
+    Um `@lid` só se resolve com um par que pode estar em qualquer página (inclusive numa mais nova que a
+    Message), então a escrita precisa do mapa completo antes de começar. O mapa é pequeno; as Messages não.
+    """
+    aliases: Dict[str, str] = {}
+    push_names: Dict[str, tuple[int, str]] = {}
+    seq = 0
+    async for records in _iter_pages(instance_name):
+        aliases.update(_lid_aliases(records))
+        seq = _record_push_names(records, seq, push_names)
+    return aliases, push_names
+
+
 def _collect_names(
-    records: List[Dict[str, Any]],
+    push_names: Dict[str, tuple[int, str]],
     chats: List[Dict[str, Any]],
     groups: List[Dict[str, Any]],
     contacts: List[Dict[str, Any]],
     resolve,
 ) -> Dict[str, str]:
-    """Nome de exibição por JID. Prioridade: assunto do grupo; pushName de Message recebida; findContacts; findChats.
-
-    O pushName de uma Message `fromMe` é o do nosso número e o de uma Message de grupo é o do participante:
-    nenhum dos dois nomeia o chat.
-    """
+    """Nome de exibição por JID. Prioridade: assunto do grupo; pushName de Message recebida; findContacts; findChats."""
     names: Dict[str, str] = {}
     for group in groups:
         if group.get("id") and group.get("subject"):
             names[group["id"]] = group["subject"]
-    for record in records:  # do mais novo ao mais antigo: vale o pushName mais recente
-        key = record.get("key") or {}
-        jid = resolve(resolve_remote_jid(key, record))
-        if key.get("fromMe") or is_group_chat(jid) or not record.get("pushName"):
-            continue
-        names.setdefault(jid, record["pushName"])
+    for jid, (_, push_name) in sorted(push_names.items(), key=lambda item: item[1][0]):  # do mais novo: vale o mais recente
+        names.setdefault(resolve(jid), push_name)
     for source, jid_field in ((contacts, "remoteJid"), (chats, "remoteJid")):
         for item in source:
             jid = resolve(item.get(jid_field) or item.get("id") or "")
@@ -118,16 +139,19 @@ def _apply_unread(db: Session, created: Dict[str, str], chats: List[Dict[str, An
     """`unreadCount` do findChats vira o contador, só das Conversations criadas nesta importação.
 
     As que já existiam têm contador próprio (zerado por `/read`, somado pelo webhook): reaplicar o da Evolution
-    a cada importação desfaria os dois. `created` mapeia o JID para o id da Conversation criada. null: deixa como está.
+    a cada importação desfaria os dois. `created` mapeia o JID para o id da Conversation criada, então não há
+    leitura nenhuma: um único UPDATE em lote pela chave primária. null: deixa como está.
     """
+    unread_by_id: Dict[str, int] = {}
     for chat in chats:
         unread = chat.get("unreadCount")
         if not isinstance(unread, int) or isinstance(unread, bool):
             continue
         conversation_id = created.get(resolve(chat.get("remoteJid") or chat.get("id") or ""))
-        conversation = db.get(Conversation, conversation_id) if conversation_id else None
-        if conversation is not None:
-            conversation.unread_count = max(unread, 0)
+        if conversation_id:
+            unread_by_id[conversation_id] = max(unread, 0)
+    if unread_by_id:
+        db.execute(update(Conversation), [{"id": cid, "unread_count": n} for cid, n in unread_by_id.items()])
 
 
 def _write_batch(
@@ -181,26 +205,8 @@ def _write_batch(
     return resolved, created, count
 
 
-async def _import_history(db: Session, instance: Instance) -> Dict[str, int]:
-    """Importa o histórico da Instance e devolve quantas Conversations e Messages foram criadas.
-
-    Cada lote é uma transação. Se outro processo gravar o mesmo `message_id` entre a checagem e o commit
-    (`IntegrityError`), o lote sofre rollback e é refeito sem as duplicadas.
-    """
-    name = instance.evolution_instance_id or instance.name
-    chats = await evolution_history.find_chats(name)
-    records = await _fetch_records(name)
-    groups = await _best_effort("fetchAllGroups", evolution_history.fetch_all_groups(name))
-    contacts = await _best_effort("findContacts", evolution_history.find_contacts(name))
-
-    aliases = _lid_aliases(records)
-
-    def resolve(jid: str) -> str:
-        """Um `@lid` sem par em nenhuma Message continua como está."""
-        return aliases.get(jid, jid)
-
-    names = _collect_names(records, chats, groups, contacts, resolve)
-
+def _candidates(records: List[Dict[str, Any]], resolve) -> List[tuple]:
+    """(timestamp, message_id, jid, record) das Messages visíveis da página, a mais antiga primeiro."""
     candidates = []
     for record in records:
         key = record.get("key") or {}
@@ -210,28 +216,55 @@ async def _import_history(db: Session, instance: Instance) -> Dict[str, int]:
             continue
         candidates.append((parse_message_timestamp(record.get("messageTimestamp")), message_id, jid, record))
     candidates.sort(key=lambda item: item[0])  # a mais antiga primeiro: created_at segue a ordem da conversa
+    return candidates
+
+
+async def _import_history(db: Session, instance: Instance) -> Dict[str, int]:
+    """Importa o histórico da Instance e devolve quantas Conversations e Messages foram criadas.
+
+    Duas passadas pelas páginas do `findMessages`, nenhuma delas retém mais de uma página: a primeira só aprende
+    os pares `@lid` e os pushNames (`_scan_history`); a segunda grava página a página, e cada lote é uma
+    transação. Se outro processo gravar o mesmo `message_id` entre a checagem e o commit (`IntegrityError`),
+    o lote sofre rollback e é refeito sem as duplicadas.
+    """
+    name = instance.evolution_instance_id or instance.name
+    chats = await evolution_history.find_chats(name)
+    groups = await _best_effort("fetchAllGroups", evolution_history.fetch_all_groups(name))
+    contacts = await _best_effort("findContacts", evolution_history.find_contacts(name))
+
+    aliases, push_names = await _scan_history(name)
+
+    def resolve(jid: str) -> str:
+        """Um `@lid` sem par em nenhuma Message continua como está."""
+        return aliases.get(jid, jid)
+
+    names = _collect_names(push_names, chats, groups, contacts, resolve)
 
     instance_id = instance.id
     cache: Dict[str, Conversation] = {}
     created_by_jid: Dict[str, str] = {}
     messages_created = 0
 
-    for start in range(0, len(candidates), COMMIT_EVERY):
-        batch = candidates[start : start + COMMIT_EVERY]
-        for attempt in range(1, BATCH_ATTEMPTS + 1):
-            try:
-                resolved, created, count = _write_batch(db, instance, batch, names, cache)
-                db.commit()
-                break
-            except IntegrityError:
-                db.rollback()
-                if attempt == BATCH_ATTEMPTS:
-                    raise
-                logger.warning("History sync: concurrent insert, retrying batch", instance_id=instance_id, attempt=attempt)
-        cache.update(resolved)
-        created_by_jid.update(created)
-        messages_created += count
-        await asyncio.sleep(0)  # as escritas são síncronas: devolve o loop ao worker/API entre os lotes
+    async for records in _iter_pages(name):
+        candidates = _candidates(records, resolve)
+        for start in range(0, len(candidates), COMMIT_EVERY):
+            batch = candidates[start : start + COMMIT_EVERY]
+            for attempt in range(1, BATCH_ATTEMPTS + 1):
+                try:
+                    resolved, created, count = _write_batch(db, instance, batch, names, cache)
+                    db.commit()
+                    break
+                except IntegrityError:
+                    db.rollback()
+                    if attempt == BATCH_ATTEMPTS:
+                        raise
+                    logger.warning(
+                        "History sync: concurrent insert, retrying batch", instance_id=instance_id, attempt=attempt
+                    )
+            cache.update(resolved)
+            created_by_jid.update(created)
+            messages_created += count
+            await asyncio.sleep(0)  # as escritas são síncronas: devolve o loop ao worker/API entre os lotes
 
     _apply_unread(db, created_by_jid, chats, resolve)
     db.commit()

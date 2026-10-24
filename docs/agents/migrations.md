@@ -16,5 +16,7 @@ Tickets paralelos não podem criar heads duplicados. Os ids seguem o padrão do 
 | `0012` | `0011` | chat | `0012_chat_history_sync.py` |
 | `0013` | `0012` | #76 | `0013_agent_company_instructions.py` |
 | `0014` | `0013` | #82 | `0014_remove_products.py` |
+| `0015` | `0014` | #90 | `0015_hot_path_indexes.py` |
 
 Ordem de merge obrigatória: T1 → T4 → T5 → T7 → #31 (0007, já na `main`) → #35 (0008) → (0009 #32 → 0010 #33 → 0011 #34). Antes de mergear, `alembic heads` tem de mostrar uma única head.
+A `0015` funde Contacts e Conversations duplicados (mantém o mais antigo e reaponta todos os filhos) antes de criar as unicidades `(instance_id, remote_jid)` e `(instance_id, contact_id)`. O `downgrade` remove índices e unicidades, mas **não desfaz a fusão**: os registros removidos não voltam. Faça backup antes de aplicar em produção.

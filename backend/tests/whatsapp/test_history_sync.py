@@ -99,7 +99,65 @@ async def test_sync_imports_one_to_one_lid_and_group_with_names(db, world, evolu
     assert names[PHONE] == "Ana"  # pushName de Message recebida; o de `fromMe` ("Meu Número") nunca nomeia
     assert names["5511888880002@lid"] == "Sem Par"
     assert "Meu Número" not in names.values()
-    assert evolution["pages_read"] == [1, 2]
+    assert evolution["pages_read"] == [1, 2, 1, 2]  # uma passada aprende @lid e pushNames, a outra grava
+
+
+@pytest.mark.asyncio
+async def test_sync_writes_page_by_page_without_holding_the_whole_history(db, world, evolution, monkeypatch):
+    """Quando a página 2 é lida na passada de escrita, as Messages da página 1 já estão confirmadas."""
+    real_page = evolution_history.find_messages_page
+    stored_at_fetch = []
+
+    async def watching_page(name, page):
+        other = TestingSessionLocal()
+        try:
+            stored_at_fetch.append((page, other.query(Message).count()))
+        finally:
+            other.close()
+        return await real_page(name, page)
+
+    monkeypatch.setattr(evolution_history, "find_messages_page", watching_page)
+
+    await history_sync.sync_instance(db, world["instance"])
+
+    # Passada 1 (1, 2): nada gravado. Passada 2: a página 1 tem 3 Messages visíveis (m3, m4, m5) gravadas antes da 2.
+    assert stored_at_fetch == [(1, 0), (2, 0), (1, 0), (2, 3)]
+
+
+def test_unread_is_applied_without_reading_each_conversation(db, world):
+    from sqlalchemy import event
+
+    from app.models import Instance
+
+    instance = db.get(Instance, world["instance"].id)
+    created, chats = {}, []
+    for n in range(30):
+        jid = f"55119999{n:05d}@s.whatsapp.net"
+        contact = Contact(instance_id=instance.id, phone_number=str(n), remote_jid=jid, name=str(n))
+        db.add(contact)
+        db.flush()
+        conversation = Conversation(instance_id=instance.id, contact_id=contact.id, remote_jid=jid)
+        db.add(conversation)
+        db.flush()
+        created[jid] = conversation.id
+        chats.append({"remoteJid": jid, "unreadCount": n})
+    db.commit()
+
+    statements = []
+    engine = db.get_bind()
+    listener = lambda conn, cursor, statement, *rest: statements.append(statement)  # noqa: E731
+    event.listen(engine, "before_cursor_execute", listener)
+    try:
+        history_sync._apply_unread(db, created, chats, lambda jid: jid)
+        db.commit()
+    finally:
+        event.remove(engine, "before_cursor_execute", listener)
+
+    assert not [s for s in statements if s.lstrip().upper().startswith("SELECT")]
+    db.expire_all()
+    assert {c.remote_jid: c.unread_count for c in db.query(Conversation).all()} == {
+        chat["remoteJid"]: chat["unreadCount"] for chat in chats
+    }
 
 
 @pytest.mark.asyncio

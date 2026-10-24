@@ -73,9 +73,14 @@ async def test_orders_already_finished_are_never_touched(world, pack, pedido, st
 
 
 async def test_other_conversations_keep_their_open_orders(world, pack, pedido):
-    from app.models import Conversation
+    from app.models import Contact, Conversation
 
-    other = Conversation(instance_id=world.instance.id, contact_id=world.contact.id, remote_jid=world.contact.remote_jid)
+    other_contact = Contact(
+        instance_id=world.instance.id, phone_number="5511900000000", remote_jid="outra@s.whatsapp.net", name="Outra"
+    )
+    world.db.add(other_contact)
+    world.db.flush()
+    other = Conversation(instance_id=world.instance.id, contact_id=other_contact.id, remote_jid=other_contact.remote_jid)
     world.db.add(other)
     world.db.commit()
     await add_item(world, pedido)

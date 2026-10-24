@@ -13,7 +13,7 @@ from changes_helpers import (
 )
 from pack_helpers import add_item, call, confirm_and_finalize, deliver_reply, fill_delivery, new_turn, order_of, payload
 
-from app.models import Conversation, CustomerOrder, Ticket
+from app.models import Contact, Conversation, CustomerOrder, Ticket
 from app.packs.catalog_orders.pack import CatalogOrdersPack
 
 pytestmark = pytest.mark.asyncio
@@ -65,8 +65,13 @@ async def test_cancel_without_any_order_is_refused(world, pedido):
 
 async def test_cancel_never_touches_the_order_of_another_conversation(world, pedido):
     await closed_order(world, pedido)
+    other_contact = Contact(
+        instance_id=world.instance.id, phone_number="5511900000000", remote_jid="outra@s.whatsapp.net", name="Outra"
+    )
+    world.db.add(other_contact)
+    world.db.flush()
     other = Conversation(
-        instance_id=world.instance.id, contact_id=world.contact.id, remote_jid="outra@s.whatsapp.net"
+        instance_id=world.instance.id, contact_id=other_contact.id, remote_jid="outra@s.whatsapp.net"
     )
     world.db.add(other)
     world.db.commit()
