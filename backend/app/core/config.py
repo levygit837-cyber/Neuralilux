@@ -160,6 +160,11 @@ class Settings(BaseSettings):
             raise ValueError("TURN_RETRY_BUDGET e TURN_RETRY_WAIT_SECONDS não podem ser negativos")
         if self.DEBOUNCE_SECONDS > 0 and self.DEBOUNCE_MAX_WAIT_SECONDS < self.DEBOUNCE_SECONDS:
             raise ValueError("DEBOUNCE_MAX_WAIT_SECONDS deve ser maior ou igual a DEBOUNCE_SECONDS")
+        if self.TURN_CLAIM_LEASE_SECONDS <= self.DEBOUNCE_MAX_WAIT_SECONDS + self.TURN_TIMEOUT_SECONDS:
+            raise ValueError(
+                "TURN_CLAIM_LEASE_SECONDS deve ser maior que DEBOUNCE_MAX_WAIT_SECONDS + TURN_TIMEOUT_SECONDS "
+                "(senão a posse vence com o Turn ainda rodando e outro worker responde a mesma Message)"
+            )
         return self
 
     @model_validator(mode="after")

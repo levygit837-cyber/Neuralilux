@@ -91,7 +91,7 @@ Siga a ordem; o primeiro que bater é a causa. Mensagens em `código` aparecem n
 | `Instance has no Company, Agent cannot run` | `instances.company_id` nulo: Instance criada antes de a API gravar a Company. | Um superusuário com Company chama `POST /api/v1/instances/{nome}`: assume a Instance e grava a Company dele. Veja [setup.md](setup.md#ligar-a-instance-à-company-e-ao-agent). |
 | `Conversation in Handoff, Agent stays silent` | A Conversation está em Handoff. | Atenda e clique em "Devolver ao Agent" (`release-control`), ou espere o timeout (veja acima). |
 | `Turn failed` e o Contact recebe "Desculpe, tive um problema…" | Exceção dentro do Turn; o stack trace vem logo antes. | Causas comuns abaixo. |
-| `Unexpected error processing message with agent` com `EvolutionAPIError` logo depois de `Turn finished` | O Turn rodou, mas o envio pela Evolution falhou: Instance não conectada ao WhatsApp, Evolution fora do ar ou `EVOLUTION_API_URL`/`EVOLUTION_API_KEY` errados. A Message do Contact fica gravada; a resposta não. | Conecte a Instance (QR code) e confira `GET {EVOLUTION_API_URL}/instance/fetchInstances` com o header `apikey`. |
+| `Unexpected error processing message with agent` com `EvolutionAPIError` logo depois de `Turn finished` | O Turn rodou, mas o envio pela Evolution falhou: Instance não conectada ao WhatsApp, Evolution fora do ar ou `EVOLUTION_API_URL`/`EVOLUTION_API_KEY` errados. A Message do Contact fica gravada e `pending` (`failed`); a recuperação a retoma depois de `TURN_CLAIM_LEASE_SECONDS`, até `TURN_RECOVERY_MAX_AGE_SECONDS`, quando vira `skipped: stale`. | Conecte a Instance (QR code) e confira `GET {EVOLUTION_API_URL}/instance/fetchInstances` com o header `apikey`. |
 
 Um Turn que passa de `TURN_TIMEOUT_SECONDS` (padrão 90 s) sai do loop com `Turn timed out` no log (sem stack trace) e o Contact recebe a mesma resposta de erro. A Tool que passa de `TOOL_TIMEOUT_SECONDS` aparece como `Tool handler timed out` e o Turn continua sem ela. Veja [Prazos e retries](agent.md#prazos-e-retries).
 
@@ -191,6 +191,7 @@ A entrega do RabbitMQ só grava a Message e confirma (`ack`); o Turn roda depois
 - **Concorrência dos Turns.** `TURN_CONCURRENCY` (padrão 8) é o máximo de Turns falando com o Gateway ao mesmo tempo por worker. A pausa do debounce (`DEBOUNCE_SECONDS`, 3 s) não ocupa vaga. Os Turns acima do limite esperam, com a Message `pending` no banco. Suba o valor se o Gateway aguenta mais paralelismo; o pool do banco (`pool_size=10`, `max_overflow=20` em `app/core/database.py`) precisa acompanhar, porque cada Turn abre a própria Session e a segura até a resposta sair.
 - **Desligar o agrupamento.** `DEBOUNCE_SECONDS=0` volta a um Turn por Message.
 - **Sintoma de Turns acumulando.** Resposta atrasada com o Gateway lento: veja quantas Messages estão `pending` (consulta abaixo) e ajuste `TURN_CONCURRENCY`.
+- **Sem teto na fila local.** `TurnRunner` não limita as Messages esperando vaga nem as tasks: com o Gateway fora por muito tempo elas acumulam em memória. Uma Message nessa fila local é respondida por este processo mesmo depois de `TURN_RECOVERY_MAX_AGE_SECONDS`; a regra `stale` só vale na recuperação. O estado é durável (`pending` no banco), então reiniciar o worker esvazia a fila sem perder nada.
 
 ### Mensagens pendentes e recuperação
 

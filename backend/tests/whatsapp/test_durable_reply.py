@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.agent import executor
+from app.agent.executor import handle_incoming as real_handle_incoming
 from app.agent.loop import TurnResult
 from app.core.config import settings
 from app.models import Conversation, Instance, Message
@@ -136,14 +137,47 @@ async def test_failed_turn_is_retried_after_the_lease(db, world, monkeypatch):
     monkeypatch.setattr(executor, "handle_incoming", flaky_turn)
     consumer = WhatsAppMessageConsumer()
     await process(consumer, upsert(text="Oi"))
-    assert states(db)[0][1:] == (turn_state.PENDING, turn_state.FAILED) or states(db)[0][1] == turn_state.ANSWERED
+    assert states(db) == [("Oi", turn_state.PENDING, turn_state.FAILED)]
+    assert world["sent"] == []
 
     lose_ownership(db, reason=turn_state.FAILED)
     await consumer.recovery.sweep()
     await consumer.drain()
 
-    assert len(world["sent"]) >= 1
-    assert states(db)[0][1] == turn_state.ANSWERED
+    assert len(world["sent"]) == 1
+    assert states(db) == [("Oi", turn_state.ANSWERED, turn_state.REPLIED)]
+
+
+async def test_message_without_turn_state_from_before_the_migration_is_never_answered(db, world):
+    await leave_pending(db, text="Oi")
+    db.query(Message).update({"turn_state": None, "turn_reason": None, "turn_claimed_at": None})
+    db.commit()
+
+    consumer = WhatsAppMessageConsumer()
+    assert await consumer.recovery.sweep() == 0
+    await consumer.drain()
+
+    assert world["turns"] == [] and world["sent"] == []
+    assert states(db) == [("Oi", None, None)]
+
+
+async def test_gateway_fallback_reply_closes_the_message_as_replied_and_is_not_resent(db, world, monkeypatch):
+    def gateway_down(agent_type):
+        raise RuntimeError("gateway fora")
+
+    monkeypatch.setattr(executor, "handle_incoming", real_handle_incoming)
+    monkeypatch.setattr(executor, "resolve_gateway", gateway_down)
+    consumer = WhatsAppMessageConsumer()
+    await process(consumer, upsert(text="Oi"))
+
+    assert [sent["text"] for sent in world["sent"]] == [executor.FALLBACK_REPLY]
+    assert states(db) == [("Oi", turn_state.ANSWERED, turn_state.REPLIED)]
+
+    lose_ownership(db)  # nada está pendente: a varredura não pode reenviar o fallback
+    other = WhatsAppMessageConsumer()
+    assert await other.recovery.sweep() == 0
+    await other.drain()
+    assert len(world["sent"]) == 1
 
 
 # --- resposta que já saiu não sai de novo --------------------------------------------------------------
