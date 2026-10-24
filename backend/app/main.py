@@ -11,6 +11,8 @@ from app.core.config import settings
 from app.core.logging import configure_logging
 from app.core.origin_guard import OriginGuardMiddleware
 from app.api.router import api_router
+from app.core import http_clients
+from app.whatsapp import reimport_guard
 from app.whatsapp.message_queue import message_queue_service
 from app.whatsapp.evolution_realtime import evolution_realtime_service
 from app.realtime.event_bus import realtime_event_bus
@@ -35,6 +37,8 @@ async def lifespan(_: FastAPI):
     await evolution_realtime_service.stop()
     await realtime_event_bus.stop()
     await message_queue_service.disconnect()
+    await http_clients.close_all()  # Evolution e Gateways: um cliente por destino, vivo até aqui
+    await reimport_guard.close()
 
 
 app = FastAPI(

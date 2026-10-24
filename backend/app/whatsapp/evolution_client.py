@@ -10,7 +10,9 @@ import httpx
 import structlog
 from typing import Optional, Dict, Any
 
+from app.core import http_clients
 from app.core.config import settings
+from app.whatsapp.evolution_history import HISTORY_TIMEOUT, HistoryReads
 
 logger = structlog.get_logger()
 
@@ -35,7 +37,7 @@ class EvolutionAPIError(Exception):
         super().__init__(self.message)
 
 
-class EvolutionAPIService:
+class EvolutionAPIService(HistoryReads):
     """Service class for interacting with the Evolution API."""
 
     def __init__(self):
@@ -57,16 +59,17 @@ class EvolutionAPIService:
         """Make an HTTP request to the Evolution API."""
         url = f"{self.base_url}{endpoint}"
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.request(
-                    method=method,
-                    url=url,
-                    headers=self.headers,
-                    json=data,
-                    params=params,
-                )
-                response.raise_for_status()
-                return response.json() if response.content else {}
+            client = http_clients.get(f"evolution:{self.base_url}")
+            response = await client.request(
+                method=method,
+                url=url,
+                headers=self.headers,
+                json=data,
+                params=params,
+                timeout=timeout,
+            )
+            response.raise_for_status()
+            return response.json() if response.content else {}
         except httpx.HTTPStatusError as e:
             logger.error(
                 "Evolution API HTTP error",
@@ -201,21 +204,14 @@ class EvolutionAPIService:
 
 
     async def fetch_chats(self, instance_name: str) -> Dict[str, Any]:
-        """
-        Fetch all chats (conversations) for a WhatsApp instance.
-        
-        Evolution API v2.3.7+ requires POST /chat/findChats/{instance}
-        with an empty JSON body.
-        
-        Returns dict with array of chats from Evolution API.
-        """
+        """`POST /chat/findChats/{instance}` (Evolution v2.3.7+ exige corpo `{}`): um item por chat, com `unreadCount`."""
         logger.info("Fetching chats from Evolution API", instance=instance_name)
-        result = await self._request(
+        return await self._request(
             "POST",
             f"/chat/findChats/{instance_name}",
             data={},
+            timeout=HISTORY_TIMEOUT,
         )
-        return result
 
     async def fetch_messages(
         self,
@@ -245,31 +241,15 @@ class EvolutionAPIService:
         )
         return result
 
-    async def fetch_contacts(
-        self,
-        instance_name: str,
-    ) -> Dict[str, Any]:
-        """
-        Fetch all contacts for a WhatsApp instance.
-
-        Evolution API v2.3.7+ uses POST /chat/findContacts/{instance}
-        with an empty JSON body.
-
-        Args:
-            instance_name: The Evolution API instance name.
-
-        Returns dict with array of contacts.
-        """
-        logger.info(
-            "Fetching contacts from Evolution API",
-            instance=instance_name,
-        )
-        result = await self._request(
+    async def fetch_contacts(self, instance_name: str) -> Dict[str, Any]:
+        """`POST /chat/findContacts/{instance}` (Evolution v2.3.7+ exige corpo `{}`): contatos da Instance."""
+        logger.info("Fetching contacts from Evolution API", instance=instance_name)
+        return await self._request(
             "POST",
             f"/chat/findContacts/{instance_name}",
             data={},
+            timeout=HISTORY_TIMEOUT,
         )
-        return result
 
     async def send_presence(
         self, instance_name: str, remote_jid: str, presence: str = "composing", delay_ms: int = 0
