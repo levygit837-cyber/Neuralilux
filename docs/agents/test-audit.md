@@ -447,13 +447,7 @@ Arquivo novo da #53. 2 testes: 2 keep.
 |`test_list_is_filtered_per_user`|`keep`|Lista de tickets restrita às Instances do usuário|
 |`test_superuser_lists_all`|`keep`|Superuser vê tickets de todas as Companies|
 |`test_get_out_of_scope_ticket_is_404`|`keep`|GET de ticket alheio dá 404; superuser acessa|
-|`test_patch_out_of_scope_ticket_is_404_and_unchanged`|`keep`|PATCH de ticket alheio dá 404 sem alterar|
-|`test_assign_out_of_scope_ticket_is_404`|`keep`|Atribuir ticket alheio dá 404|
-|`test_assign_accepts_user_of_the_instance_company`|`keep`|Atribuição a colega da Company vira in_progress|
-|`test_assign_refuses_user_of_another_company`|`keep`|Atribuir a usuário de outra Company dá 403|
-|`test_patch_assigned_to_applies_the_same_company_rule`|`keep`|PATCH assigned_to aplica a mesma regra de Company|
-|`test_superuser_may_assign_across_companies`|`keep`|Superuser atribui entre Companies (precedência)|
-|`test_assign_on_an_instance_without_company_is_refused_to_regular_users`|`keep`|Instance sem Company recusa atribuição a usuário comum|
+|`test_ticket_mutation_routes_are_gone`|`keep`|PATCH e assign de Ticket não existem mais (404/405) e o Ticket não muda|
 
 #### `tests/api/test_webhook_auth.py`
 12 testes: 12 keep.
