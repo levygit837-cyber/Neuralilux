@@ -1,11 +1,16 @@
 """Socket.IO respeita o dono da Instance: subscribe, join_conversation e send_message (T10, #25, #101)."""
+import json
 import uuid
 
 import pytest
 import pytest_asyncio
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
+from app.core.conversation_lock import LockBusy
+from app.models import Message
 from app.realtime import socket as socket_module
+from app.whatsapp import sender
 from tests.access_helpers import fake_evolution, make_conversation, make_instance, make_user, user_id
 
 pytestmark = pytest.mark.asyncio
@@ -151,10 +156,65 @@ async def test_send_message_follows_the_instance_owner(world, monkeypatch, email
 
     if allowed:
         assert result == {"ok": True, "messageId": "wamid-1"}
-        send.assert_awaited_once_with(instance.evolution_instance_id, conversation.remote_jid, "oi")
+        send.assert_awaited_once_with(
+            instance_name=instance.evolution_instance_id, remote_jid=conversation.remote_jid, text="oi"
+        )
     else:
         assert result == {"ok": False}
         send.assert_not_called()
+
+
+def _outgoing(world) -> list[Message]:
+    world["db"].expire_all()
+    return world["db"].query(Message).filter(Message.is_from_me.is_(True)).all()
+
+
+async def test_send_message_persists_the_outgoing_message(world, monkeypatch):
+    sid, _ = await _connect(world, monkeypatch, OWNER)
+    conversation = world["mine_conversation"]
+
+    result = await _handler("send_message")(
+        sid, {"instanceId": world["mine"].id, "conversationId": conversation.id, "content": "oi"}
+    )
+
+    assert result == {"ok": True, "messageId": "wamid-1"}
+    [stored] = _outgoing(world)
+    assert (stored.message_id, stored.content, stored.conversation_id) == ("wamid-1", "oi", conversation.id)
+
+
+async def test_send_message_survives_a_database_failure_after_the_send(world, monkeypatch):
+    sid, _ = await _connect(world, monkeypatch, OWNER)
+
+    def broken(*args, **kwargs):
+        raise OperationalError("INSERT", {}, Exception("banco fora"))
+
+    monkeypatch.setattr(sender, "_persist_reply", broken)
+
+    result = await _handler("send_message")(
+        sid, {"instanceId": world["mine"].id, "conversationId": world["mine_conversation"].id, "content": "oi"}
+    )
+
+    assert result == {"ok": True, "messageId": "wamid-1"}  # saiu; o eco do webhook cria a Message
+    world["evolution"]["send_text_message"].assert_awaited_once()
+    assert _outgoing(world) == []
+
+
+async def test_send_message_on_a_busy_conversation_is_a_warning_not_a_traceback(world, monkeypatch, capsys):
+    sid, _ = await _connect(world, monkeypatch, OWNER)
+
+    async def busy(db, to, text):
+        raise LockBusy
+
+    monkeypatch.setattr(socket_module, "send_from_panel", busy)
+
+    result = await _handler("send_message")(
+        sid, {"instanceId": world["mine"].id, "conversationId": world["mine_conversation"].id, "content": "oi"}
+    )
+
+    assert result == {"ok": False}
+    entries = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.startswith("{")]
+    [busy_log] = [e for e in entries if "busy" in e["event"]]
+    assert busy_log["level"] == "warning" and "exception" not in busy_log
 
 
 async def test_send_message_refuses_the_remote_jid_as_conversation_reference(world, monkeypatch):

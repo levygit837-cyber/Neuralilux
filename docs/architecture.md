@@ -45,7 +45,7 @@ Passo a passo:
 3. Ao gravar, o consumer decide se a Message tem Turn (`turn_state.skip_reason`, a única definição das regras estáticas): não pode ser de grupo, `from_me`, de `@lid` nem mais antiga que 5 minutos em relação ao início do worker. A que tem Turn nasce `turn_state = pending`; a que não tem fica `skipped` com o motivo (grupo e `from_me` ficam sem estado). Em seguida o consumer **confirma a entrega ao RabbitMQ**: o Turn roda fora dela, numa task do `TurnRunner` (`app/whatsapp/turn_runner.py`), então um modelo lento nunca segura o `prefetch`. O Agent só entra se a Instance tiver `agent_enabled`, houver Agent ativo e a Message tiver texto. Mídia sem texto recebe uma resposta fixa, sem chamar o Agent.
 4. Messages seguidas do mesmo Contact são agrupadas pelo `TurnBatcher`: depois de `DEBOUNCE_SECONDS` (3 s) sem Message nova (ou `DEBOUNCE_MAX_WAIT_SECONDS`, 15 s, desde a primeira), roda um Turn só com todas (no máximo `TURN_CONCURRENCY` Turns por worker falam com o Gateway ao mesmo tempo; a pausa do debounce não ocupa vaga), e o Contact vê "digitando…" enquanto ele dura ([agent.md](agent.md#agrupamento-de-messages-picadas-e-digitando)). `executor.handle_incoming` (`app/agent/executor.py`) lê `human_in_loop` do banco. Em Handoff, o Agent fica em silêncio. Senão monta o contexto (Summary + Recent Window), resolve o Gateway do tipo `whatsapp_agent`, monta o system prompt e as Tools e chama o loop, que tem prazo total, prazo por Tool e orçamento de retry por Turn ([agent.md](agent.md#prazos-e-retries)).
 5. `loop.run_turn` (`app/agent/loop.py`) chama o modelo, executa os `tool_use` e repete até `end_turn`, uma Tool com `ends_turn` ou `max_steps` ([ADR 0001](adr/0001-own-agent-loop-no-langchain.md)).
-6. A resposta passa por `to_whatsapp` (markdown vira formatação do WhatsApp) e `send_and_persist` envia pela Evolution e grava a Message `from_me`. O eco do webhook com o mesmo id é descartado pelo dedup. Depois do envio o consumer avisa os Packs (`on_reply_delivered`): é assim que a Recap só passa a valer depois de o Contact recebê-la.
+6. A resposta passa por `to_whatsapp` (markdown vira formatação do WhatsApp) e `send_and_persist` envia pela Evolution e grava a Message `from_me`. O eco do webhook com o mesmo id é descartado pelo dedup (o painel usa o mesmo caminho: [Saída pelo painel](#saída-pelo-painel)). Depois do envio o consumer avisa os Packs (`on_reply_delivered`): é assim que a Recap só passa a valer depois de o Contact recebê-la.
 7. Depois da resposta, o worker agenda `refresh_summary` fora do caminho da resposta ([ADR 0003](adr/0003-memory-window-summary-fts.md)).
 
 Fora desse caminho, a Company usa o painel **Pedidos** (`/pedidos`, `app/api/routes/orders.py` e `app/services/order_status.py`) para mover o status dos Orders; a API envia o aviso ao Contact pelo mesmo `send_and_persist`, e o worker roda o sweeper que devolve ao Agent os Handoffs vencidos ([operations.md](operations.md)).
@@ -114,12 +114,43 @@ Detalhes do loop, da memória e dos eventos estão em [agent.md](agent.md).
 
 ## Event loop livre
 
-A API e o worker rodam num event loop que só espera rede nos caminhos cobertos pela [ADR 0009](adr/0009-event-loop-livre-sqlalchemy-sincrono-em-thread.md): rotas da API, Socket.IO, Gateway e history sync. Fora desses caminhos ainda há SQL síncrono no loop do worker (`executor.build_context`, `_handle_message`, `get_or_create_*`) e a transação do `change_status` de pedido fica aberta durante o aviso; a ADR lista os limites.
+A API e o worker rodam num event loop que só espera rede nos caminhos cobertos pela [ADR 0009](adr/0009-event-loop-livre-sqlalchemy-sincrono-em-thread.md): rotas da API, Socket.IO, Gateway e history sync. Fora desses caminhos ainda há SQL síncrono no loop do worker (`executor.build_context`, `_handle_message`, `get_or_create_*`); a ADR lista os limites. O `change_status` de pedido termina com `rollback()` e passa escalares (`Recipient`) ao aviso.
 
 - O SQLAlchemy segue síncrono. Rota sem `await` é `def` (o FastAPI a roda no threadpool). Rota que mistura banco e rede (Evolution, Gateway) faz o banco em thread, a rede no loop, e não segura a Session durante o `await` longo: a fase de banco copia os escalares e termina com `rollback()`.
 - Handlers do Socket.IO, `resolve_gateway`, o `send_and_persist` e as escritas do history sync usam `asyncio.to_thread`. O bcrypt só roda fora do loop.
 - `app/core/http_clients.py` mantém um `httpx.AsyncClient` por destino (Evolution; cada Gateway), com keep-alive, durante o processo todo. A API o fecha no `lifespan`; o worker, ao parar.
 - A importação de histórico respeita um intervalo mínimo por Instance (`HISTORY_REIMPORT_MIN_INTERVAL_SECONDS`), controlado por uma chave no Redis (`SET NX EX`) que vale para todos os workers. Veja [operations.md](operations.md).
+
+## Transações
+
+Uma convenção só, para a API e o worker:
+
+- **Quem escreve comita.** Uma operação de negócio é um commit. O serviço (`app/services/`, `app/whatsapp/`) comita; rota e helper de acesso (`app/api/access.py`, `get_*_for_user`) só leem e nunca comitam. Rota que muda estado chama um serviço (`instance_service`, `conversation_service`, `refund_service`, `company_service.update_agent_settings`).
+- **Erro no commit.** Todo serviço comita por `commit_or_rollback(db)` (`app/core/database.py`): se o commit falha, faz `db.rollback()` e relança, e a Session segue utilizável (o Socket.IO e o worker não a fecham por request). A rota traduz o erro para o status HTTP (corrida de unicidade em `instance_service.upsert_instance_for_user` vira 409).
+- **Nada de commit pela metade.** O que não pode sair junto não entra na mesma transação (o envio à Evolution fica fora dela: ADR 0009).
+
+Exceções, cada uma com o motivo:
+
+- `handoff_service`: `UPDATE` condicional (compare-and-set) que comita sozinho, porque o resultado (`rowcount`) decide quem ganhou a corrida entre réplicas.
+- Claims do Turn (`turn_state.claim/settle/release/fail`, #91): cada um é um `UPDATE` condicional comitado na hora, pelo mesmo motivo; a posse tem de ser visível às outras réplicas antes do Turn começar.
+- `conversation_lock`: usa conexão própria, fora da transação de quem o toma.
+- `gateways._commit`: faz `rollback`, devolve 409 e invalida o registry de Gateways; o cache não pode ficar com o que não foi gravado.
+
+## Saída pelo painel
+
+O painel (`POST /api/v1/conversations/{id}/messages` e o evento Socket.IO `send_message`) envia pelo mesmo caminho do worker, `panel_send.send_from_panel`, que chama `sender.send_and_persist` e depois reinicia o timeout do Handoff:
+
+1. Fase 1 (thread): autoriza e valida; devolve um `Recipient` só com escalares e termina com `rollback`.
+2. Fase 2 (loop): lock `SAVE` do JID (#92), envio pela Evolution e gravação da Message `from_me` em thread (#93), commitada antes de publicar a `new_message`.
+3. Resposta com o `message_id` da Evolution.
+
+Falha ao gravar depois de o envio sair não vira 500 nem reenvia (o Contact receberia duas vezes): `send_and_persist` devolve `Sent(saved=False)`, loga com traceback e a rota responde 200. A Message passa a existir quando o **eco** do webhook chega: se a linha já existe com o mesmo id, o dedup o descarta; se foi gravada sem id (a Evolution não devolveu), `sent_echo.adopt_echo` adota a linha; se não existe, o consumer a cria como `from_me`. Falha de envio (`EvolutionAPIError`) vira 502 e `LockBusy` vira 503; nada saiu e nada foi gravado.
+
+## Logs e request id
+
+- structlog em JSON: `merge_contextvars`, `add_log_level`, `TimeStamper`, `format_exc_info`, `JSONRenderer` (`app/core/logging.py`). Erro com `logger.exception(...)` (ou `exc_info=True` em aviso) leva o traceback no campo `exception`; nunca `error=str(e)`, que perde a pilha.
+- `RequestIdMiddleware` (`app/core/request_id.py`) é o mais externo (registrado por último em `app/main.py`), então o 403 do `OriginGuardMiddleware` e as respostas do CORS também levam o id. Aceita `X-Request-ID` com 1 a 64 caracteres de `[A-Za-z0-9._-]`; qualquer outro vira um UUID novo. Devolve o id no cabeçalho e o põe em `contextvars` (`request_id`), limpo ao fim. Exceção não tratada vira 500 com o traceback já logado com o id.
+- Worker: `process_webhook_event` vincula `webhook_event` e, ao resolver a Message, `message_id`, `instance_id` e `conversation_id`; limpa no `finally`. As tasks do `TurnRunner` herdam uma cópia desse contexto no `create_task` e vinculam `instance_id`/`conversation_id` de novo (a recuperação cria tasks fora de um evento), então o log do Turn leva os ids mesmo depois de o evento terminar.
 
 ## Escopo e isolamento
 

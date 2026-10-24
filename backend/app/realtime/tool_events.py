@@ -198,4 +198,4 @@ class ToolEventTracker:
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for result in results:
             if isinstance(result, Exception):
-                logger.warning("Tool event emission failed", error=str(result))
+                logger.warning("Tool event emission failed", exc_info=result)

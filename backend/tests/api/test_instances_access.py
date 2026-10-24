@@ -1,5 +1,6 @@
 """Acesso por dono nas rotas de /api/v1/instances (T10)."""
 import pytest
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from app.models import Agent, Instance
@@ -276,10 +277,15 @@ def test_concurrent_create_returns_409_and_rolls_back(client, db, evolution, mon
 
 
 def _race_on_commit(monkeypatch):
-    def racing_upsert(session, name, user):
+    def racing_upsert(session, name, user, existing):
         for _ in range(2):
             instance = Instance(name=name, evolution_instance_id=name, owner_id=user.id, is_active=True)
             session.add(instance)
+        try:
+            session.commit()  # o commit migrou para dentro do upsert real
+        except IntegrityError:
+            session.rollback()
+            raise
         return instance
 
     monkeypatch.setattr("app.api.routes.instances.connection.upsert_instance_for_user", racing_upsert)

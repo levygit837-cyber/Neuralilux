@@ -5,6 +5,7 @@ from sqlalchemy import Integer, case, func, or_, select
 from sqlalchemy.orm import Query, Session
 
 from app.models import Contact, Conversation, Instance
+from app.schemas.chat_state import ConversationCounts
 
 Category = Literal["all", "unread", "groups", "ai", "human"]
 
@@ -50,7 +51,7 @@ def apply_search(query: Query, term: str) -> Query:
     )
 
 
-def category_counts(db: Session, instance_id: str) -> dict[str, int]:
+def category_counts(db: Session, instance_id: str) -> ConversationCounts:
     """Contadores da Instance, sem as arquivadas.
 
     `unread_messages` (o selo do menu) soma só as conversas individuais: grupos acumulam milhares de não lidas
@@ -77,4 +78,4 @@ def category_counts(db: Session, instance_id: str) -> dict[str, int]:
         .one()
     )
     keys = ("all", "unread", "groups", "ai", "human", "unread_messages")
-    return {key: int(value or 0) for key, value in zip(keys, row)}
+    return ConversationCounts(**{key: int(value or 0) for key, value in zip(keys, row)})

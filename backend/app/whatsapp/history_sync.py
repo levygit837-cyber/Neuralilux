@@ -48,8 +48,8 @@ async def _best_effort(label: str, call) -> List[Dict[str, Any]]:
     """Grupos e contatos só dão nomes: se a Evolution falhar neles, a importação segue com o que tem."""
     try:
         return await call
-    except EvolutionAPIError as error:
-        logger.warning("History sync: optional Evolution call failed", call=label, error=error.message)
+    except EvolutionAPIError:
+        logger.warning("History sync: optional Evolution call failed", call=label, exc_info=True)
         return []
 
 

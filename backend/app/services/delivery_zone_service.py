@@ -60,10 +60,9 @@ def get_delivery_zone_by_neighborhood(db: Session, neighborhood: str) -> Optiona
         
         return None
     except Exception as e:
-        logger.error(
+        logger.exception(
             "Error searching delivery zone by neighborhood",
             neighborhood=neighborhood,
-            error=str(e)
         )
         raise DeliveryZoneServiceError(
             f"Erro ao buscar zona de entrega: {str(e)}",
@@ -116,11 +115,10 @@ def get_delivery_fee(db: Session, neighborhood: str, order_value: float = 0) -> 
     except NoActiveZonesError:
         raise
     except Exception as e:
-        logger.error(
+        logger.exception(
             "Error calculating delivery fee",
             neighborhood=neighborhood,
             order_value=order_value,
-            error=str(e)
         )
         raise DeliveryZoneServiceError(
             f"Erro ao calcular taxa de entrega: {str(e)}",
@@ -159,7 +157,7 @@ def list_active_zones(db: Session) -> List[Dict[str, Any]]:
     except NoActiveZonesError:
         raise
     except Exception as e:
-        logger.error("Error listing active delivery zones", error=str(e))
+        logger.exception("Error listing active delivery zones")
         raise DeliveryZoneServiceError(
             f"Erro ao listar zonas de entrega: {str(e)}"
         ) from e
@@ -193,7 +191,7 @@ def get_all_neighborhoods(db: Session) -> List[str]:
         
         return sorted(set(neighborhoods))
     except Exception as e:
-        logger.error("Error getting all neighborhoods", error=str(e))
+        logger.exception("Error getting all neighborhoods")
         raise DeliveryZoneServiceError(
             f"Erro ao obter lista de bairros: {str(e)}"
         ) from e

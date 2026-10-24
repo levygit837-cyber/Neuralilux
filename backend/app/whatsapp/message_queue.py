@@ -141,8 +141,8 @@ class MessageQueueService:
             # Sem a URL no log: ela carrega a senha do broker.
             logger.info("Connected to RabbitMQ", prefetch=settings.RABBITMQ_PREFETCH)
             return True
-        except Exception as e:
-            logger.error("Failed to connect to RabbitMQ", error=str(e))
+        except Exception:
+            logger.exception("Failed to connect to RabbitMQ")
             return False
 
     async def _open(self) -> None:
@@ -164,7 +164,7 @@ class MessageQueueService:
                 # Sem fechar, cada tentativa falha deixaria uma conexão aberta no broker.
                 await connection.close()
                 if isinstance(e, ChannelPreconditionFailed):
-                    logger.error(
+                    logger.exception(
                         "Queue exists with other arguments: migrate it (docs/operations.md)",
                         queue=self._topology.name,
                     )
@@ -177,8 +177,8 @@ class MessageQueueService:
             if self._connection is not None and not self._connection.is_closed:
                 await self._connection.close()
                 logger.info("Disconnected from RabbitMQ")
-        except Exception as e:
-            logger.error("Error disconnecting from RabbitMQ", error=str(e))
+        except Exception:
+            logger.exception("Error disconnecting from RabbitMQ")
         finally:
             self._connection, self._channel, self._queue, self._loop = None, None, None, None
 
@@ -205,8 +205,8 @@ class MessageQueueService:
             )
             logger.info("Message published", queue=queue)
             return True
-        except Exception as e:
-            logger.error("Failed to publish", queue=queue, error=str(e))
+        except Exception:
+            logger.exception("Failed to publish", queue=queue)
             return False
 
     def register_consumer(self, callback: Consumer) -> None:
@@ -229,8 +229,8 @@ class MessageQueueService:
         try:
             try:
                 payload = json.loads(message.body)
-            except ValueError as e:
-                logger.error("Invalid JSON, sent to the dead-letter queue", error=str(e), dlq=self._topology.dlq)
+            except ValueError:
+                logger.exception("Invalid JSON, sent to the dead-letter queue", dlq=self._topology.dlq)
                 await message.reject(requeue=False)
                 return
             try:
@@ -270,8 +270,8 @@ class MessageQueueService:
         if self._queue is not None and self._consumer_tag is not None:
             try:
                 await self._queue.cancel(self._consumer_tag)
-            except Exception as e:
-                logger.error("Failed to cancel consumer", queue=self._topology.name, error=str(e))
+            except Exception:
+                logger.exception("Failed to cancel consumer", queue=self._topology.name)
         self._consumer_tag = None
         if self._in_flight:
             await asyncio.gather(*tuple(self._in_flight), return_exceptions=True)

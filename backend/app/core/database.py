@@ -1,5 +1,5 @@
 from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.orm import Session, declarative_base, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.config import settings
@@ -26,3 +26,12 @@ else:
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
+
+
+def commit_or_rollback(db: Session) -> None:
+    """`db.commit()`; se falhar, `rollback` e relança. A Session segue utilizável (Socket.IO e worker não a fecham por request)."""
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise

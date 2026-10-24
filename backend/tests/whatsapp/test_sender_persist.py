@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.core.conversation_lock import SAVE, LockBusy, conversation_lock, jid_scope
 from app.models import Contact, Instance, Message
 from app.whatsapp import sender
+from app.whatsapp.sender import Recipient
 from tests.access_helpers import fake_text_sender
 from tests.conftest import TestingSessionLocal
 
@@ -19,7 +20,7 @@ pytestmark = pytest.mark.asyncio
 def parts(db, conversation_factory, monkeypatch):
     conversation = conversation_factory("conv-sender")
     fake_text_sender(monkeypatch)
-    return db.get(Instance, conversation.instance_id), conversation, db.get(Contact, conversation.contact_id)
+    return Recipient.of(db.get(Instance, conversation.instance_id), conversation, db.get(Contact, conversation.contact_id))
 
 
 def _saved_from_me() -> int:
@@ -32,7 +33,7 @@ def _saved_from_me() -> int:
 
 
 async def test_the_reply_is_committed_before_it_is_published(db, parts, monkeypatch):
-    instance, conversation, contact = parts
+    to = parts
     seen = []
 
     async def spy(*args, **kwargs):
@@ -40,14 +41,14 @@ async def test_the_reply_is_committed_before_it_is_published(db, parts, monkeypa
 
     monkeypatch.setattr(sender, "publish_message", spy)
 
-    await sender.send_and_persist(db, instance, conversation, contact, "Olá")
+    await sender.send_and_persist(db, to, "Olá")
 
     assert seen == [1]
 
 
 async def test_cancelling_the_turn_keeps_the_save_lock_until_the_thread_has_committed(db, parts, monkeypatch):
-    instance, conversation, contact = parts
-    scope = jid_scope(instance.id, conversation.remote_jid)
+    to = parts
+    scope = jid_scope(to.instance_id, to.remote_jid)
     started, release = threading.Event(), threading.Event()
     real_persist = sender._persist_reply
 
@@ -62,7 +63,7 @@ async def test_cancelling_the_turn_keeps_the_save_lock_until_the_thread_has_comm
         pytest.fail("um Turn cancelado não publica")
 
     monkeypatch.setattr(sender, "publish_message", no_publish)
-    task = asyncio.ensure_future(sender.send_and_persist(db, instance, conversation, contact, "Olá"))
+    task = asyncio.ensure_future(sender.send_and_persist(db, to, "Olá"))
     while not started.is_set():
         await asyncio.sleep(0.001)
 

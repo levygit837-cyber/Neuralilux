@@ -61,12 +61,12 @@ class RealtimeEventBus:
             await asyncio.wait_for(self._publish(event), timeout=settings.REALTIME_PUBLISH_TIMEOUT_SECONDS)
         except asyncio.CancelledError:
             raise
-        except Exception as exc:  # inclui TimeoutError do teto
+        except Exception:  # inclui TimeoutError do teto
             self._unavailable_until = time.monotonic() + settings.REALTIME_PUBLISH_COOLDOWN_SECONDS
             logger.warning(
                 "Realtime event dropped: Redis publish failed",
                 event_type=event.get("type"),
-                error=repr(exc),
+                exc_info=True,
             )
             self._discard_publisher()
 
@@ -129,8 +129,8 @@ class RealtimeEventBus:
                     await asyncio.sleep(0.005)
             except asyncio.CancelledError:
                 raise
-            except Exception as exc:  # pragma: no cover - defensive logging path
-                logger.error("Realtime event bus listener error", error=str(exc))
+            except Exception:  # pragma: no cover - defensive logging path
+                logger.exception("Realtime event bus listener error")
                 await asyncio.sleep(1)
 
     async def stop(self) -> None:

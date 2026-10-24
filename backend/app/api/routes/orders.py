@@ -8,7 +8,6 @@ são idempotentes.
 
 Escopo pelas Instances do usuário (`instance_ids_for_user`); Order ou estorno fora dele é 404.
 """
-from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -21,6 +20,15 @@ from app.api.access import instance_ids_for_user
 from app.api.deps import get_current_user, get_db
 from app.models import CustomerOrder, PaymentRecord, User
 from app.packs.catalog_orders.order_state import ACTIVE_STATUSES, is_reopened
+from app.schemas.order import (
+    OrderNotification,
+    OrderPage,
+    OrderStatusChangeResult,
+    PanelOrder,
+    RefundList,
+    RefundRow,
+)
+from app.services.refund_service import close_refund
 from app.services.order_status import (
     ACTIVE_PANEL_STATUSES,
     DONE_PANEL_STATUSES,
@@ -48,8 +56,8 @@ def _scoped_refunds(db: Session, user: User, statuses: tuple[str, ...]):
     return query
 
 
-def _row(record: PaymentRecord, order: CustomerOrder) -> dict:
-    return {
+def _row(record: PaymentRecord, order: CustomerOrder) -> RefundRow:
+    return RefundRow(**{
         "id": record.id,
         "order_id": order.id,
         "order_number": order.order_number,
@@ -60,36 +68,34 @@ def _row(record: PaymentRecord, order: CustomerOrder) -> dict:
         "payment_status": record.status,
         "refund_status": record.refund_status,
         "refund_flagged_at": record.refund_flagged_at.isoformat() if record.refund_flagged_at else None,
-    }
+    })
 
 
-@router.get("/refunds")
+@router.get("/refunds", response_model=RefundList)
 def list_pending_refunds(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     rows = _scoped_refunds(db, current_user, OPEN_REFUNDS).order_by(PaymentRecord.refund_flagged_at, PaymentRecord.id).all()
-    return {"refunds": [_row(record, order) for record, order in rows]}
+    return RefundList(refunds=[_row(record, order) for record, order in rows])
 
 
-def _resolve(db: Session, user: User, record_id: str, final: str) -> dict:
+def _resolve(db: Session, user: User, record_id: str, final: str) -> RefundRow:
     """Dá baixa no estorno. Repetir a baixa que já foi dada devolve o mesmo corpo; a baixa oposta é 409."""
     found = _scoped_refunds(db, user, (*OPEN_REFUNDS, "refunded", "dismissed")).filter(PaymentRecord.id == record_id).first()
     if not found:
         raise HTTPException(status_code=404, detail="Estorno não encontrado")
     record, order = found
     if record.refund_status in OPEN_REFUNDS:
-        record.refund_status = final
-        record.refunded_at = datetime.now(timezone.utc)
-        db.commit()
+        close_refund(db, record, final)
     elif record.refund_status != final:
         raise HTTPException(status_code=409, detail=f"Este estorno já foi marcado como {record.refund_status}")
     return _row(record, order)
 
 
-@router.post("/refunds/{record_id}/refunded")
+@router.post("/refunds/{record_id}/refunded", response_model=RefundRow)
 def mark_refunded(record_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     return _resolve(db, current_user, record_id, "refunded")
 
 
-@router.post("/refunds/{record_id}/dismissed")
+@router.post("/refunds/{record_id}/dismissed", response_model=RefundRow)
 def dismiss_refund(record_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     return _resolve(db, current_user, record_id, "dismissed")
 
@@ -122,8 +128,8 @@ def _refund_statuses(db: Session, order_ids: list[str]) -> dict[str, str]:
     return {order_id: refund_status for order_id, refund_status in rows}  # o último (mais recente) vence
 
 
-def _panel_row(order: CustomerOrder, refunds: dict[str, str]) -> dict:
-    return {
+def _panel_row(order: CustomerOrder, refunds: dict[str, str]) -> PanelOrder:
+    return PanelOrder(**{
         "id": order.id,
         "order_number": order.order_number,
         "status": order.status,
@@ -141,7 +147,7 @@ def _panel_row(order: CustomerOrder, refunds: dict[str, str]) -> dict:
         "delivery_type": order.delivery_type,
         "refund_status": refunds.get(order.id),
         "opened_at": order.opened_at.isoformat() if order.opened_at else None,
-    }
+    })
 
 
 OrderFilter = Literal["active", "done", "all"]
@@ -157,7 +163,7 @@ def _matches(filter_: OrderFilter):
     return {"active": active, "done": done, "all": or_(active, done)}[filter_]
 
 
-@router.get("")
+@router.get("", response_model=OrderPage)
 def list_orders(
     status: OrderFilter = Query("active"),
     limit: int = Query(50, ge=1, le=200),
@@ -170,10 +176,10 @@ def list_orders(
     total = query.order_by(None).count()
     orders = query.order_by(CustomerOrder.opened_at.desc(), CustomerOrder.id).offset(offset).limit(limit).all()
     refunds = _refund_statuses(db, [order.id for order in orders])
-    return {"orders": [_panel_row(order, refunds) for order in orders], "total": total}
+    return OrderPage(orders=[_panel_row(order, refunds) for order in orders], total=total)
 
 
-@router.post("/{order_id}/status")
+@router.post("/{order_id}/status", response_model=OrderStatusChangeResult)
 async def change_order_status(
     order_id: str,
     body: StatusChange,
@@ -190,4 +196,4 @@ async def change_order_status(
         raise HTTPException(status_code=409, detail=exc.message) from exc
     # O commit e o rollback expiram o Order: recarregá-lo para montar a resposta é banco, então vai para a thread.
     row = await run_in_threadpool(lambda: _panel_row(order, _refund_statuses(db, [order.id])))
-    return {"order": row, "notification": notification}
+    return OrderStatusChangeResult(order=row, notification=OrderNotification(**notification))

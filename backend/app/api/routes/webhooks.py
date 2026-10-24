@@ -4,6 +4,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from app.core.config import settings
+from app.schemas.webhook import WebhookReceived, WebhookTestResponse
 from app.whatsapp.message_queue import message_queue_service
 from app.whatsapp.webhook_parser import webhook_message_ids
 
@@ -37,8 +38,8 @@ def _normalize_event_name(event_name: str | None) -> str | None:
     return event_name.replace("-", ".")
 
 
-@router.post("/evolution")
-@router.post("/evolution/{event_type}")
+@router.post("/evolution", response_model=WebhookReceived)
+@router.post("/evolution/{event_type}", response_model=WebhookReceived)
 async def evolution_webhook(
     request: Request,
     event_type: str | None = None,
@@ -75,8 +76,8 @@ async def evolution_webhook(
         # Publish webhook event to RabbitMQ for async processing (bytes viram base64 uma vez, na fila)
         published = await message_queue_service.publish_webhook_event(payload)
 
-    except Exception as e:
-        logger.error("Error processing webhook", error=str(e))
+    except Exception:
+        logger.exception("Error processing webhook")
         raise HTTPException(status_code=500, detail="Error processing webhook")
 
     if not published:
@@ -89,10 +90,10 @@ async def evolution_webhook(
         )
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Event queue unavailable")
 
-    return {"status": "received", "event": final_event}
+    return WebhookReceived(status="received", event=final_event)
 
 
-@router.get("/evolution/test")
+@router.get("/evolution/test", response_model=WebhookTestResponse)
 def test_webhook():
     """Test endpoint to verify webhook is accessible"""
-    return {"status": "webhook endpoint is accessible"}
+    return WebhookTestResponse(status="webhook endpoint is accessible")

@@ -16,6 +16,13 @@ import structlog
 from app.api.access import get_instance_for_user, instance_ids_for_user
 from app.api.deps import get_current_user, get_db
 from app.models import Instance, User
+from app.schemas.instance import (
+    InstanceConnectResponse,
+    InstanceDisconnectResponse,
+    InstanceList,
+    InstanceListItem,
+    InstanceStatusResponse,
+)
 from app.whatsapp.evolution_client import evolution_api, EvolutionAPIError
 
 logger = structlog.get_logger()
@@ -64,7 +71,7 @@ def instance_evolution_name(db: Session, instance_ref: str, user: User) -> str:
     return name
 
 
-@router.get("/")
+@router.get("/", response_model=InstanceList)
 async def list_instances(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -90,7 +97,7 @@ async def list_instances(
             inst = evolution_by_name.get(name, {})
             nested = inst.get("instance") or {}
             profile = inst.get("profile") or {}
-            instances_list.append({
+            instances_list.append(InstanceListItem(**{
                 "id": local["id"],
                 "instance_id": name,
                 "name": name,
@@ -103,15 +110,12 @@ async def list_instances(
                 "profile_name": inst.get("profileName") or profile.get("name", ""),
                 "profile_pic_url": inst.get("profilePicUrl") or profile.get("pictureUrl", ""),
                 "server_url": inst.get("serverUrl", ""),
-            })
+            }))
 
-        return {
-            "instances": instances_list,
-            "total": len(instances_list),
-        }
+        return InstanceList(instances=instances_list, total=len(instances_list))
 
     except EvolutionAPIError as e:
-        logger.error("Failed to fetch instances from Evolution API", error=e.message)
+        logger.exception("Failed to fetch instances from Evolution API")
         raise HTTPException(
             status_code=e.status_code if e.status_code != 500 else status.HTTP_502_BAD_GATEWAY,
             detail="Evolution API error",
@@ -124,7 +128,7 @@ async def list_instances(
         )
 
 
-@router.get("/{instance_id}/status")
+@router.get("/{instance_id}/status", response_model=InstanceStatusResponse)
 async def get_instance_status(
     instance_id: str,
     db: Session = Depends(get_db),
@@ -157,15 +161,12 @@ async def get_instance_status(
         }
         mapped_status = state_mapping.get(evolution_state, evolution_state)
 
-        return {
-            "instance_id": instance_id,
-            "status": mapped_status,
-            "evolution_state": evolution_state,
-            "raw": result,
-        }
+        return InstanceStatusResponse(
+            instance_id=instance_id, status=mapped_status, evolution_state=evolution_state, raw=result
+        )
 
     except EvolutionAPIError as e:
-        logger.error("Failed to get instance status", instance_id=instance_id, error=e.message)
+        logger.exception("Failed to get instance status", instance_id=instance_id)
         raise HTTPException(
             status_code=e.status_code if e.status_code != 500 else status.HTTP_502_BAD_GATEWAY,
             detail="Evolution API error",
@@ -178,7 +179,7 @@ async def get_instance_status(
         )
 
 
-@router.post("/{instance_id}/connect")
+@router.post("/{instance_id}/connect", response_model=InstanceConnectResponse)
 async def connect_instance(
     instance_id: str,
     db: Session = Depends(get_db),
@@ -204,22 +205,22 @@ async def connect_instance(
         if not qr_code:
             status_result = await evolution_api.get_instance_status(name_in_evolution)
             state = status_result.get("instance", {}).get("state") or status_result.get("state", "unknown")
-            return {
-                "instance_id": instance_id,
-                "qr_code": None,
-                "status": state,
-                "message": f"Instance is already {state}. No QR code available.",
-            }
+            return InstanceConnectResponse(
+                instance_id=instance_id,
+                qr_code=None,
+                status=state,
+                message=f"Instance is already {state}. No QR code available.",
+            )
 
-        return {
-            "instance_id": instance_id,
-            "qr_code": qr_code,
-            "status": "connecting",
-            "message": "Scan the QR code with WhatsApp to connect",
-        }
+        return InstanceConnectResponse(
+            instance_id=instance_id,
+            qr_code=qr_code,
+            status="connecting",
+            message="Scan the QR code with WhatsApp to connect",
+        )
 
     except EvolutionAPIError as e:
-        logger.error("Failed to connect instance", instance_id=instance_id, error=e.message)
+        logger.exception("Failed to connect instance", instance_id=instance_id)
         raise HTTPException(
             status_code=e.status_code if e.status_code != 500 else status.HTTP_502_BAD_GATEWAY,
             detail="Evolution API error",
@@ -232,7 +233,7 @@ async def connect_instance(
         )
 
 
-@router.delete("/{instance_id}/logout")
+@router.delete("/{instance_id}/logout", response_model=InstanceDisconnectResponse)
 async def logout_instance(
     instance_id: str,
     db: Session = Depends(get_db),
@@ -248,15 +249,15 @@ async def logout_instance(
     try:
         result = await evolution_api.disconnect_instance(name_in_evolution)
 
-        return {
-            "instance_id": instance_id,
-            "status": "disconnected",
-            "message": "WhatsApp instance logged out successfully",
-            "raw": result,
-        }
+        return InstanceDisconnectResponse(
+            instance_id=instance_id,
+            status="disconnected",
+            message="WhatsApp instance logged out successfully",
+            raw=result,
+        )
 
     except EvolutionAPIError as e:
-        logger.error("Failed to logout instance", instance_id=instance_id, error=e.message)
+        logger.exception("Failed to logout instance", instance_id=instance_id)
         raise HTTPException(
             status_code=e.status_code if e.status_code != 500 else status.HTTP_502_BAD_GATEWAY,
             detail="Evolution API error",

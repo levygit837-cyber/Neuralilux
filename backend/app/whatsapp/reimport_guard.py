@@ -93,7 +93,7 @@ async def allow(instance_id: str, reason: str) -> bool:
             instance_id=instance_id,
             reason=reason,
             error_type=type(exc).__name__,
-            error=str(exc),
+            exc_info=True,
         )
         return True
     if not acquired:

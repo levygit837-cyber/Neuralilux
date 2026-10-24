@@ -13,7 +13,7 @@ from app.core.config import settings
 from app.models import Agent, Company, Contact, Conversation, Instance
 from app.packs.registry import packs_for
 from app.whatsapp.evolution_client import evolution_api
-from app.whatsapp.sender import send_and_persist
+from app.whatsapp.sender import Recipient, send_and_persist
 from app.whatsapp.turn_batcher import Group
 
 logger = structlog.get_logger()
@@ -44,8 +44,8 @@ async def _keep_typing(
             await sleep(max(0.0, refresh - (monotonic() - started)))
     except asyncio.CancelledError:
         raise
-    except Exception as error:
-        logger.warning("Typing presence failed, reply continues", instance=instance_name, error=str(error))
+    except Exception:
+        logger.warning("Typing presence failed, reply continues", instance=instance_name, exc_info=True)
 
 
 @asynccontextmanager
@@ -92,6 +92,7 @@ async def run_agent_turn(
             return GONE
         company = db.get(Company, instance.company_id) if instance.company_id else None
         packs = packs_for(company) if company else []
+        to = Recipient.of(instance, conversation, contact)  # escalares antes dos commits do Turn, que expiram o ORM
 
         async with typing_indicator(instance.evolution_instance_id or instance.name, conversation.remote_jid):
             result = await executor.handle_incoming(
@@ -110,8 +111,8 @@ async def run_agent_turn(
             log.info("Agent returned no response", steps=result.steps)
             return NO_REPLY
 
-        delivered_at = await send_and_persist(db, instance, conversation, contact, result.reply_text)
-        executor.reply_delivered(db, conversation, packs, result.turn_id, delivered_at)
+        sent = await send_and_persist(db, to, result.reply_text)
+        executor.reply_delivered(db, conversation, packs, result.turn_id, sent.timestamp)
         log.info("Agent response sent", steps=result.steps, response_length=len(result.reply_text))
     except Exception:
         log.exception("Unexpected error processing message with agent")

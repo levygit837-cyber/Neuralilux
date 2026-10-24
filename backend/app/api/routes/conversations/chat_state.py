@@ -9,6 +9,8 @@ from app.api.access import get_instance_for_user
 from app.api.deps import get_current_user, get_db
 from app.api.routes.conversations.categories import category_counts
 from app.models import Conversation, Instance, User
+from app.schemas.chat_state import ConversationCounts, ConversationSyncResult, UnreadReset
+from app.services.conversation_service import mark_read
 from app.whatsapp import history_sync
 from app.whatsapp.evolution_client import EvolutionAPIError
 
@@ -17,7 +19,7 @@ logger = structlog.get_logger()
 router = APIRouter()
 
 
-@router.get("/conversations/counts")
+@router.get("/conversations/counts", response_model=ConversationCounts)
 def conversation_counts(
     instance_id: str = Query(..., description="Instance cujas Conversations são contadas"),
     db: Session = Depends(get_db),
@@ -37,7 +39,7 @@ def _authorize_sync(db: Session, instance_id: str, user: User) -> Instance:
     return instance
 
 
-@router.post("/conversations/sync")
+@router.post("/conversations/sync", response_model=ConversationSyncResult)
 async def sync_conversations(
     instance_id: str = Query(..., description="Instance cujo histórico será importado da Evolution"),
     db: Session = Depends(get_db),
@@ -47,23 +49,23 @@ async def sync_conversations(
     instance = await run_in_threadpool(_authorize_sync, db, instance_id, current_user)
     local_id = instance.id  # lido antes da importação: os commits dela expiram a Instance
     try:
-        return await history_sync.sync_instance(db, instance)
+        return ConversationSyncResult(**await history_sync.sync_instance(db, instance))
     except history_sync.SyncAlreadyRunning:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Sincronização já em andamento")
-    except EvolutionAPIError as error:
+    except EvolutionAPIError:
         await run_in_threadpool(db.rollback)
-        logger.error("History sync failed", instance_id=local_id, error=error.message)
+        logger.exception("History sync failed", instance_id=local_id)
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Evolution API error")
     except IntegrityError:
         # O worker gravou as mesmas Messages durante a importação e as tentativas do lote se esgotaram.
         await run_in_threadpool(db.rollback)
-        logger.warning("History sync lost a race with the worker", instance_id=local_id)
+        logger.warning("History sync lost a race with the worker", instance_id=local_id, exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="History sync conflicted with live messages; try again"
         )
 
 
-@router.post("/conversations/{conversation_id}/read")
+@router.post("/conversations/{conversation_id}/read", response_model=UnreadReset)
 def mark_conversation_read(
     conversation_id: str,
     db: Session = Depends(get_db),
@@ -74,6 +76,5 @@ def mark_conversation_read(
     if not conversation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
     get_instance_for_user(db, conversation.instance_id, current_user)
-    conversation.unread_count = 0
-    db.commit()
-    return {"unread_count": 0}
+    mark_read(db, conversation)
+    return UnreadReset(unread_count=0)

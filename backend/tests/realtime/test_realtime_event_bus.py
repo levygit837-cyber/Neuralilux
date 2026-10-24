@@ -92,7 +92,10 @@ def test_hanging_redis_releases_the_caller_within_the_ceiling_and_logs_the_lost_
         elapsed = asyncio.run(run())
 
     assert elapsed < 1
-    assert [log["event_type"] for log in logs if log["event"].startswith("Realtime event dropped")] == ["thinking"]
+    dropped = [log for log in logs if log["event"].startswith("Realtime event dropped")]
+    assert [log["event_type"] for log in dropped] == ["thinking"]
+    assert [(log["log_level"], bool(log["exc_info"])) for log in dropped] == [("warning", True)]
+    assert all("error" not in log for log in dropped)
 
 
 def test_after_a_failure_events_are_dropped_without_waiting_until_the_cooldown_ends(monkeypatch):

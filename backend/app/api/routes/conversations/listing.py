@@ -7,14 +7,13 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 from typing import Optional
-from datetime import datetime, timezone
 import structlog
 
 from app.api.access import get_instance_for_user, instance_ids_for_user
 from app.api.deps import get_current_user, get_db
 from app.api.routes.conversations.categories import Category, apply_category, apply_search
+from app.core.conversation_lock import LockBusy
 from app.models import User, Conversation, Message
-from app.services import handoff_service
 from app.schemas.conversation import ConversationResponse, PaginatedConversations
 from app.schemas.message import (
     ConversationSendMessageRequest,
@@ -22,7 +21,9 @@ from app.schemas.message import (
     PaginatedMessages,
     SendMessageResponse,
 )
-from app.whatsapp.evolution_client import evolution_api, EvolutionAPIError
+from app.whatsapp.evolution_client import EvolutionAPIError
+from app.whatsapp.panel_send import send_from_panel
+from app.whatsapp.sender import Recipient
 
 logger = structlog.get_logger()
 
@@ -143,10 +144,10 @@ def get_conversation_messages(
     )
 
 
-def _prepare_send(db: Session, conversation_id: str, user: User, request: ConversationSendMessageRequest) -> tuple[str, str, str]:
-    """Fase 1 do envio (bloqueante: roda em thread): autoriza e valida. Devolve `(instance.id, nome na Evolution, JID)`.
+def _prepare_send(db: Session, conversation_id: str, user: User, request: ConversationSendMessageRequest) -> Recipient:
+    """Fase 1 do envio (bloqueante: roda em thread): autoriza e valida. Devolve o destinatário, só com escalares.
 
-    Só valores simples saem daqui: a Session não fica segurando conexão durante a chamada de rede da fase 2."""
+    Termina com `rollback`: a Session não segura conexão durante a chamada de rede da fase 2."""
     conversation = db.query(Conversation).filter(
         Conversation.id == conversation_id,
     ).first()
@@ -172,34 +173,9 @@ def _prepare_send(db: Session, conversation_id: str, user: User, request: Conver
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Only text messages are supported.",
         )
-    result = (instance.id, instance.evolution_instance_id, conversation.remote_jid)
+    to = Recipient.from_conversation(instance, conversation)
     db.rollback()  # leitura só: devolve a conexão ao pool antes de falar com a Evolution, sem expulsar objetos da Session
-    return result
-
-
-def _record_sent(db: Session, conversation_id: str, instance_id: str, content: str, message_id: Optional[str]) -> None:
-    """Fase 3 do envio (bloqueante: roda em thread): grava a Message `from_me` e reinicia o timeout do Handoff."""
-    conversation = db.get(Conversation, conversation_id)
-    db_message = Message(
-        instance_id=instance_id,
-        conversation_id=conversation.id,
-        remote_jid=conversation.remote_jid,
-        message_id=message_id,
-        message_type="text",
-        content=content,
-        direction="outgoing",
-        status="sent",
-        is_from_me=True,
-        timestamp=datetime.now(timezone.utc),
-    )
-    db.add(db_message)
-
-    # Update conversation last message info
-    conversation.last_message_at = datetime.now(timezone.utc)
-    conversation.last_message_preview = content[:200] if content else None
-    db.commit()
-    # Um Attendant escreveu pelo painel: reinicia o timeout do Handoff.
-    handoff_service.record_attendant_activity(db, conversation)
+    return to
 
 
 @router.post("/conversations/{conversation_id}/messages", response_model=SendMessageResponse)
@@ -215,53 +191,35 @@ async def send_conversation_message(
     - **conversation_id**: The ID of the conversation.
     - **request**: Message details including content and type.
 
-    Três fases: validar (banco, em thread), enviar (Evolution, no loop) e gravar (banco, em thread).
+    Três fases: validar (banco, em thread), enviar e gravar (`panel_send.send_from_panel`, o mesmo `send_and_persist`
+    do worker: lock `SAVE` do JID, Evolution no loop, gravação em thread) e responder. Falha ao gravar depois de o envio
+    sair não vira 500 nem reenvia: a resposta é 200 e o eco do webhook cria a Message.
     """
-    instance_id, evolution_name, remote_jid = await run_in_threadpool(
-        _prepare_send, db, conversation_id, current_user, request
-    )
+    to = await run_in_threadpool(_prepare_send, db, conversation_id, current_user, request)
     try:
-        # Send message via Evolution API
-        result = await evolution_api.send_text_message(
-            instance_name=evolution_name,
-            remote_jid=remote_jid,
-            text=request.content,
-        )
-
-        # Extract message ID from Evolution API response
-        evolution_message_id = None
-        if isinstance(result, dict):
-            evolution_message_id = (
-                result.get("key", {}).get("id")
-                or result.get("message", {}).get("id")
-                or result.get("id")
-            )
-
-        await run_in_threadpool(_record_sent, db, conversation_id, instance_id, request.content, evolution_message_id)
-
-        logger.info(
-            "Message sent successfully",
-            conversation_id=conversation_id,
-            message_id=evolution_message_id,
-            instance_id=instance_id,
-        )
-
-        return SendMessageResponse(
-            success=True,
-            message_id=evolution_message_id,
-            instance_id=instance_id,
-            remote_jid=remote_jid,
-            status="sent",
-            message="Message sent successfully",
-        )
-
+        sent = await send_from_panel(db, to, request.content)
     except EvolutionAPIError as e:
-        logger.error(
-            "Failed to send message",
-            conversation_id=conversation_id,
-            error=e.message,
-        )
+        logger.exception("Failed to send message", conversation_id=conversation_id, instance_id=to.instance_id)
         raise HTTPException(
             status_code=e.status_code if e.status_code != 500 else status.HTTP_502_BAD_GATEWAY,
             detail="Evolution API error",
         )
+    except LockBusy:
+        logger.warning("Conversation busy, message not sent", conversation_id=conversation_id)
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Conversation busy, try again")
+
+    logger.info(
+        "Message sent successfully",
+        conversation_id=conversation_id,
+        message_id=sent.message_id,
+        instance_id=to.instance_id,
+        saved=sent.saved,
+    )
+    return SendMessageResponse(
+        success=True,
+        message_id=sent.message_id,
+        instance_id=to.instance_id,
+        remote_jid=to.remote_jid,
+        status="sent",
+        message="Message sent successfully",
+    )

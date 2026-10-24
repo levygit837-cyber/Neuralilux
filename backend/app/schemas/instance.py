@@ -1,6 +1,6 @@
-from pydantic import BaseModel, ConfigDict, Field
-from typing import Optional, List
-from datetime import datetime
+from typing import Any, Optional
+
+from pydantic import BaseModel, Field
 from enum import Enum
 
 
@@ -22,37 +22,64 @@ class WhatsAppInstanceUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 
-class WhatsAppInstanceResponse(BaseModel):
+class InstanceListItem(BaseModel):
     id: str
+    instance_id: str
     name: str
-    phone_number: Optional[str] = None
-    evolution_instance_id: Optional[str] = None
     status: str
-    qr_code: Optional[str] = None
-    is_active: bool
-    owner_id: str
-    agent_id: Optional[str] = None
-    created_at: datetime
-    updated_at: Optional[datetime] = None
+    owner: str | None
+    owner_id: str | None
+    company_id: str | None
+    agent_id: str | None
+    agent_enabled: bool
+    profile_name: str | None
+    profile_pic_url: str | None
+    server_url: str | None
 
-    model_config = ConfigDict(from_attributes=True)
+
+class InstanceList(BaseModel):
+    instances: list[InstanceListItem]
+    total: int
+
+
+class InstanceStatusResponse(BaseModel):
+    instance_id: str
+    status: str
+    evolution_state: str
+    raw: Any
 
 
 class InstanceConnectResponse(BaseModel):
     instance_id: str
+    qr_code: str | None
     status: str
-    qr_code: Optional[str] = None
+    message: str
+
+
+class InstanceCreateResponse(BaseModel):
+    instance_id: str
+    id: str
+    status: str
+    qr_code: str | None
     message: str
 
 
 class InstanceDisconnectResponse(BaseModel):
+    """Logout e exclusão têm a mesma forma."""
+
     instance_id: str
     status: str
     message: str
+    raw: Any
 
 
-class PaginatedInstances(BaseModel):
-    items: List[WhatsAppInstanceResponse]
-    total: int
-    skip: int
-    limit: int
+class AgentState(BaseModel):
+    instance_id: str
+    instance_name: str
+    agent_enabled: bool
+    agent_id: str | None
+    agent_name: str | None
+
+
+class AgentStateChange(AgentState):
+    message: str

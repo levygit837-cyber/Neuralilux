@@ -14,10 +14,12 @@ from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 import structlog
 
-from app.api.access import check_create_access, get_instance_for_user, upsert_instance_for_user
+from app.api.access import check_create_access, get_instance_for_user
 from app.api.deps import get_current_user, get_db
 from app.api.routes.instances.state import evolution_name
-from app.models import Instance, User
+from app.models import User
+from app.schemas.instance import InstanceCreateResponse, InstanceDisconnectResponse
+from app.services.instance_service import deactivate, upsert_instance_for_user
 from app.whatsapp.evolution_client import evolution_api, EvolutionAPIError
 
 logger = structlog.get_logger()
@@ -38,11 +40,10 @@ async def _delete_orphan_in_evolution(instance_name: str) -> None:
     """
     try:
         await evolution_api.delete_instance(instance_name)
-    except Exception as e:  # noqa: BLE001 - limpeza não pode mascarar o erro original
-        logger.error(
+    except Exception:  # noqa: BLE001 - limpeza não pode mascarar o erro original
+        logger.exception(
             "Failed to delete orphan instance from Evolution API after local commit conflict",
             instance_id=instance_name,
-            error=getattr(e, "message", str(e)),
         )
 
 
@@ -61,16 +62,7 @@ def _check_create(db: Session, name: str, user: User) -> None:
     db.rollback()
 
 
-def _deactivate(db: Session, local_id: str) -> None:
-    """Desativa a linha local (bloqueante: roda em thread); a linha fica, pois Conversations e Messages a referenciam."""
-    instance = db.get(Instance, local_id)
-    instance.is_active = False
-    instance.agent_enabled = False
-    instance.status = "disconnected"
-    db.commit()
-
-
-@router.delete("/{instance_id}")
+@router.delete("/{instance_id}", response_model=InstanceDisconnectResponse)
 async def delete_instance_endpoint(
     instance_id: str,
     db: Session = Depends(get_db),
@@ -95,17 +87,17 @@ async def delete_instance_endpoint(
             logger.info("Instance already gone from Evolution API", instance_id=instance_id)
             result = {"status": "NOT_FOUND"}
 
-        await run_in_threadpool(_deactivate, db, local_id)
+        await run_in_threadpool(deactivate, db, local_id)
 
-        return {
-            "instance_id": instance_id,
-            "status": "deleted",
-            "message": "WhatsApp instance deleted successfully",
-            "raw": result,
-        }
+        return InstanceDisconnectResponse(
+            instance_id=instance_id,
+            status="deleted",
+            message="WhatsApp instance deleted successfully",
+            raw=result,
+        )
 
     except EvolutionAPIError as e:
-        logger.error("Failed to delete instance", instance_id=instance_id, error=e.message)
+        logger.exception("Failed to delete instance", instance_id=instance_id)
         raise HTTPException(
             status_code=e.status_code if e.status_code != 500 else status.HTTP_502_BAD_GATEWAY,
             detail="Evolution API error",
@@ -119,18 +111,12 @@ async def delete_instance_endpoint(
 
 
 def _save_instance(db: Session, instance_id: str, user: User) -> str:
-    """Grava a linha local da Instance (bloqueante: roda em thread) e devolve o id. `IntegrityError` (criação
-    concorrente do mesmo nome) sobe depois do rollback."""
-    instance = upsert_instance_for_user(db, instance_id, user)
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise
-    return instance.id
+    """Grava a linha local da Instance (bloqueante: roda em thread) e devolve o id. Reconfere o acesso (a Evolution
+    levou tempo) e o upsert comita; `IntegrityError` (criação concorrente do mesmo nome) sobe depois do rollback dele."""
+    return upsert_instance_for_user(db, instance_id, user, check_create_access(db, instance_id, user)).id
 
 
-@router.post("/{instance_id}")
+@router.post("/{instance_id}", response_model=InstanceCreateResponse)
 async def create_or_connect_instance(
     instance_id: str,
     db: Session = Depends(get_db),
@@ -190,20 +176,20 @@ async def create_or_connect_instance(
         except EvolutionAPIError:
             pass
 
-        return {
-            "instance_id": instance_id,
-            "id": local_id,
-            "status": "created",
-            "qr_code": qr_code,
-            "message": "Instance created. Scan QR code to connect." if qr_code else "Instance created. Use /connect to get QR code.",
-        }
+        return InstanceCreateResponse(
+            instance_id=instance_id,
+            id=local_id,
+            status="created",
+            qr_code=qr_code,
+            message="Instance created. Scan QR code to connect." if qr_code else "Instance created. Use /connect to get QR code.",
+        )
 
     except HTTPException:
         await run_in_threadpool(db.rollback)
         raise
     except EvolutionAPIError as e:
         await run_in_threadpool(db.rollback)
-        logger.error("Failed to create instance", instance_id=instance_id, error=e.message)
+        logger.exception("Failed to create instance", instance_id=instance_id)
         raise HTTPException(
             status_code=e.status_code if e.status_code != 500 else status.HTTP_502_BAD_GATEWAY,
             detail="Evolution API error",

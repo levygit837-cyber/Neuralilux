@@ -82,10 +82,13 @@ class WhatsAppMessageConsumer:
     async def process_webhook_event(self, message: Dict[str, Any]) -> Dict[str, Any]:
         """Process an Evolution API webhook event"""
         db: Session = SessionLocal()
+        # Contexto do evento: todo log dele (e das tasks que ele cria) leva estes campos; `message_id`, `conversation_id`
+        # e `instance_id` entram quando a Message é resolvida. Limpo no `finally`.
+        structlog.contextvars.clear_contextvars()
         try:
             event = message.get("event") or message.get("data", {}).get("event")
             data = message.get("data", {})
-            
+            structlog.contextvars.bind_contextvars(webhook_event=event)
             logger.info(
                 "Processing webhook event",
                 webhook_event=event,
@@ -113,12 +116,13 @@ class WhatsAppMessageConsumer:
                 "timestamp": datetime.now(timezone.utc).isoformat()
             }
             
-        except Exception as e:
-            logger.error("Error processing webhook event", error=str(e))
+        except Exception:
+            logger.exception("Error processing webhook event")
             db.rollback()
             raise
         finally:
             db.close()
+            structlog.contextvars.clear_contextvars()
 
     async def _save_message_to_database(self, db: Session, data: Dict[str, Any]) -> None:
         """Grava a Message recebida e, se couber, deixa o Agent responder."""
@@ -138,6 +142,7 @@ class WhatsAppMessageConsumer:
             remote_jid = resolve_remote_jid(key, payload)
             message_id = key.get("id") or None
             from_me = bool(key.get("fromMe", False))
+            structlog.contextvars.bind_contextvars(message_id=message_id, instance_id=instance.id)
 
             if is_ignored_chat(remote_jid):
                 logger.info("Broadcast message ignored", message_id=message_id, remote_jid=remote_jid)
@@ -151,8 +156,8 @@ class WhatsAppMessageConsumer:
             async with conversation_lock(db.get_bind(), SAVE, scope, wait=settings.LOCK_SAVE_WAIT_SECONDS):
                 await self._handle_message(db, instance, payload, key, remote_jid, from_me)
 
-        except Exception as e:
-            logger.error("Error saving message to database", error=str(e))
+        except Exception:
+            logger.exception("Error saving message to database")
             db.rollback()
             raise
 
@@ -191,6 +196,7 @@ class WhatsAppMessageConsumer:
         # participante. Nenhum dos dois é o nome do Contact.
         contact = get_or_create_contact(db, instance, remote_jid, push_name=None if from_me or is_group else push_name)
         conversation, _ = get_or_create_conversation(db, instance, contact, remote_jid)
+        structlog.contextvars.bind_contextvars(conversation_id=conversation.id)
         sender_name = push_name if is_group and not from_me else None
 
         if not from_me and not is_group:

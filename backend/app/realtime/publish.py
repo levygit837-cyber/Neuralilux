@@ -18,5 +18,5 @@ logger = structlog.get_logger()
 async def publish_event(event: RealtimeEvent) -> None:
     try:
         await realtime_event_bus.publish({"type": event.name, "payload": event.model_dump(mode="json")})
-    except Exception as exc:
-        logger.warning("Realtime event publish failed", event_type=event.name, error=str(exc))
+    except Exception:
+        logger.warning("Realtime event publish failed", event_type=event.name, exc_info=True)
