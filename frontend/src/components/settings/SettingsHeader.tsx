@@ -1,6 +1,5 @@
 'use client'
 
-import { Search } from 'lucide-react'
 import { useSettingsStore } from '@/stores/useSettingsStore'
 import type { SettingsTab } from '@/types/settings'
 
@@ -17,20 +16,11 @@ export function SettingsHeader() {
     <div className="space-y-5">
       {/* Header Row */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-text-light">Configurações</h1>
-        <div className="flex h-10 w-80 items-center gap-2 rounded-xl border border-border-color bg-card px-3.5 focus-within:ring-2 focus-within:ring-primary">
-          <Search className="h-4 w-4 text-text-gray" aria-hidden="true" />
-          <input
-            type="text"
-            aria-label="Buscar configurações"
-            placeholder="Buscar configurações..."
-            className="flex-1 bg-transparent text-sm text-text-light placeholder:text-text-gray outline-none"
-          />
-        </div>
+        <h1 className="text-2xl font-bold text-content-light">Configurações</h1>
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-border-color">
+      <div className="border-b border-brand-border">
         <div className="flex gap-6">
           {TABS.map((tab) => (
             <button
@@ -41,7 +31,7 @@ export function SettingsHeader() {
               className={`relative pb-3 text-sm font-medium transition-colors ${
                 activeTab === tab.id
                   ? 'text-primary'
-                  : 'text-text-gray hover:text-text-light'
+                  : 'text-content-gray hover:text-content-light'
               }`}
             >
               {tab.label}

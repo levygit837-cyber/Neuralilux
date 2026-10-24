@@ -14,7 +14,7 @@ export function ThinkingIndicator() {
 
   return (
     <div className="flex items-center gap-3 py-2">
-      <div className="flex items-center gap-3 rounded-full border border-[#8B5CF630] bg-[#120F27] px-4 py-3">
+      <div className="flex items-center gap-3 rounded-full border border-primary/20 bg-brand-deep px-4 py-3">
         {/* Icon circle with 3 dots */}
         <div className="flex h-[30px] w-[30px] items-center justify-center rounded-full bg-primary">
           <div className="flex gap-[3px]">
@@ -34,7 +34,7 @@ export function ThinkingIndicator() {
         </div>
 
         {/* Label */}
-        <span className="text-sm font-semibold text-text-light">Pensando...</span>
+        <span className="text-sm font-semibold text-content-light">Pensando...</span>
 
         {/* Pulsing dots */}
         <div className="flex gap-1">

@@ -16,7 +16,7 @@ export function CompanyProfileCard({ settings }: { settings: CompanySettingsStat
   const { company, loading, error, saveCompany } = settings
   if (loading || !company) {
     return (
-      <div className="rounded-2xl border border-border-color bg-card p-7 text-sm text-text-gray" role={error ? 'alert' : 'status'}>
+      <div className="rounded-2xl border border-brand-border bg-brand-card p-7 text-sm text-content-gray" role={error ? 'alert' : 'status'}>
         {error ?? 'Carregando dados da empresa...'}
       </div>
     )
@@ -62,14 +62,14 @@ function CompanyForm({ company, saveCompany }: { company: Company; saveCompany: 
   }
 
   return (
-    <div className="rounded-2xl border border-border-color bg-card p-7">
+    <div className="rounded-2xl border border-brand-border bg-brand-card p-7">
       <div className="mb-6 flex items-center gap-4">
         <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10">
           <Building2 className="h-5 w-5 text-primary" />
         </div>
         <div>
-          <h3 className="text-lg font-semibold text-text-light">Informações da Empresa</h3>
-          <p className="text-sm text-text-gray">O Agent usa estes dados para atender seus clientes</p>
+          <h3 className="text-lg font-semibold text-content-light">Informações da Empresa</h3>
+          <p className="text-sm text-content-gray">O Agent usa estes dados para atender seus clientes</p>
         </div>
       </div>
 
@@ -97,7 +97,7 @@ function CompanyForm({ company, saveCompany }: { company: Company; saveCompany: 
           {text('address_state', 'UF', { placeholder: 'CE' })}
         </div>
 
-        <div className="border-t border-border-color" />
+        <div className="border-t border-brand-border" />
 
         <HoursEditor
           hours={draft.hours}
@@ -119,12 +119,12 @@ function CompanyForm({ company, saveCompany }: { company: Company; saveCompany: 
 
       <div className="mt-6 flex items-center justify-end gap-4">
         {errors._form && (
-          <p role="alert" className="text-sm text-red-300">
+          <p role="alert" className="text-sm text-status-error">
             {errors._form}
           </p>
         )}
         {saved && (
-          <p role="status" className="text-sm text-success">
+          <p role="status" className="text-sm text-status-success">
             Alterações salvas
           </p>
         )}

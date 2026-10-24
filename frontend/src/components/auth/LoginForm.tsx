@@ -53,23 +53,23 @@ export function LoginForm({ callbackUrl }: LoginFormProps) {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-dark">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-brand-base">
       {/* Background gradient circles */}
       <div className="absolute left-[100px] top-[100px] h-[400px] w-[400px] rounded-full bg-gradient-radial from-primary/20 to-transparent blur-3xl" />
-      <div className="absolute bottom-[100px] right-[100px] h-[300px] w-[300px] rounded-full bg-gradient-radial from-secondary-violet/20 to-transparent blur-3xl" />
+      <div className="absolute bottom-[100px] right-[100px] h-[300px] w-[300px] rounded-full bg-gradient-radial from-secondary/20 to-transparent blur-3xl" />
 
       {/* Login card */}
-      <div className="relative z-10 w-full max-w-[440px] rounded-[20px] border border-border-color bg-card p-12 shadow-2xl">
+      <div className="relative z-10 w-full max-w-[440px] rounded-[20px] border border-brand-border bg-brand-card p-12 shadow-2xl">
         {/* Logo */}
         <div className="mb-8 flex flex-col items-center gap-4">
           <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary shadow-lg shadow-primary/30">
-            <Zap className="h-8 w-8 text-text-light" />
+            <Zap className="h-8 w-8 text-content-light" />
           </div>
           <div className="text-center">
-            <h1 className="text-2xl font-bold text-text-light">
+            <h1 className="text-2xl font-bold text-content-light">
               Bem-vindo ao Neuralilux
             </h1>
-            <p className="mt-2 text-sm text-text-gray">
+            <p className="mt-2 text-sm text-content-gray">
               Faça login para continuar
             </p>
           </div>
@@ -78,7 +78,7 @@ export function LoginForm({ callbackUrl }: LoginFormProps) {
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="space-y-2">
-            <label htmlFor="email" className="text-sm font-medium text-text-light">
+            <label htmlFor="email" className="text-sm font-medium text-content-light">
               Email ou Usuário
             </label>
             <Input
@@ -93,7 +93,7 @@ export function LoginForm({ callbackUrl }: LoginFormProps) {
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="password" className="text-sm font-medium text-text-light">
+            <label htmlFor="password" className="text-sm font-medium text-content-light">
               Senha
             </label>
             <div className="relative">
@@ -111,7 +111,7 @@ export function LoginForm({ callbackUrl }: LoginFormProps) {
                 aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
                 aria-pressed={showPassword}
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-gray focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-content-muted hover:text-content-gray focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
               >
                 {showPassword ? (
                   <EyeOff className="h-5 w-5" aria-hidden="true" />
@@ -132,7 +132,7 @@ export function LoginForm({ callbackUrl }: LoginFormProps) {
           </div>
 
           {error && (
-            <div className="rounded-md bg-error/10 p-3 text-sm text-error">
+            <div className="rounded-md bg-status-error/10 p-3 text-sm text-status-error">
               {error}
             </div>
           )}

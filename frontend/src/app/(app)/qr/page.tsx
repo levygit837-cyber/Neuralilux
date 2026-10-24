@@ -18,18 +18,18 @@ const STATUS_CONFIG: Record<
 > = {
   disconnected: {
     label: 'Desconectado',
-    color: 'text-error',
-    bgColor: 'bg-error/10',
+    color: 'text-status-error',
+    bgColor: 'bg-status-error/10',
   },
   connecting: {
     label: 'Conectando...',
-    color: 'text-warning',
-    bgColor: 'bg-warning/10',
+    color: 'text-status-warning',
+    bgColor: 'bg-status-warning/10',
   },
   connected: {
     label: 'Conectado',
-    color: 'text-success',
-    bgColor: 'bg-success/10',
+    color: 'text-status-success',
+    bgColor: 'bg-status-success/10',
   },
 }
 
@@ -50,7 +50,7 @@ export default function QrPage() {
   // No instance selected
   if (isResolvingInstance && !resolvedInstance) {
     return (
-      <div className="flex flex-1 items-center justify-center text-text-gray">
+      <div className="flex flex-1 items-center justify-center text-content-gray">
         Carregando instância...
       </div>
     )
@@ -61,7 +61,7 @@ export default function QrPage() {
       <div className="flex flex-1 items-center justify-center p-4 sm:p-8">
         <Card className="w-full max-w-md">
           <CardContent className="flex flex-col items-center py-12">
-            <p className="text-text-gray">Nenhuma instância selecionada</p>
+            <p className="text-content-gray">Nenhuma instância selecionada</p>
             <Button onClick={handleBack} className="mt-4">
               <ArrowLeft className="mr-2 h-4 w-4" />
               Voltar para Instâncias
@@ -96,7 +96,7 @@ export default function QrPage() {
 
           {/* Error Message */}
           {error && (
-            <div role="alert" className="rounded-lg border border-error/30 bg-error/10 px-4 py-3 text-center text-sm text-error">
+            <div role="alert" className="rounded-lg border border-status-error/30 bg-status-error/10 px-4 py-3 text-center text-sm text-status-error">
               {error}
             </div>
           )}
@@ -124,9 +124,9 @@ export default function QrPage() {
                 )}
               </div>
             ) : status === 'connected' ? (
-              <div className="flex h-64 w-64 flex-col items-center justify-center rounded-xl border-2 border-dashed border-success/30 bg-success/5">
+              <div className="flex h-64 w-64 flex-col items-center justify-center rounded-xl border-2 border-dashed border-status-success/30 bg-status-success/5">
                 <svg
-                  className="mb-3 h-16 w-16 text-success"
+                  className="mb-3 h-16 w-16 text-status-success"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -138,15 +138,15 @@ export default function QrPage() {
                     d="M5 13l4 4L19 7"
                   />
                 </svg>
-                <span className="font-semibold text-success">WhatsApp Conectado!</span>
-                <span className="mt-1 text-sm text-text-muted">
+                <span className="font-semibold text-status-success">WhatsApp Conectado!</span>
+                <span className="mt-1 text-sm text-content-muted">
                   Suas mensagens estão ativas
                 </span>
               </div>
             ) : (
-              <div className="flex h-64 w-64 flex-col items-center justify-center rounded-xl border-2 border-dashed border-border-color bg-hover/30">
+              <div className="flex h-64 w-64 flex-col items-center justify-center rounded-xl border-2 border-dashed border-brand-border bg-brand-hover/30">
                 <svg
-                  className="mb-3 h-16 w-16 text-text-muted"
+                  className="mb-3 h-16 w-16 text-content-muted"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -158,7 +158,7 @@ export default function QrPage() {
                     d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"
                   />
                 </svg>
-                <span className="text-center text-sm text-text-muted">
+                <span className="text-center text-sm text-content-muted">
                   Clique em &quot;Conectar&quot; para gerar o QR Code
                 </span>
               </div>
@@ -231,11 +231,11 @@ export default function QrPage() {
 
           {/* Help Text */}
           {status === 'connecting' && (
-            <div className="rounded-lg bg-hover/50 p-4">
-              <h4 className="mb-2 text-sm font-semibold text-text-light">
+            <div className="rounded-lg bg-brand-hover/50 p-4">
+              <h4 className="mb-2 text-sm font-semibold text-content-light">
                 Como conectar:
               </h4>
-              <ol className="list-inside list-decimal space-y-1 text-sm text-text-muted">
+              <ol className="list-inside list-decimal space-y-1 text-sm text-content-muted">
                 <li>Abra o WhatsApp no seu celular</li>
                 <li>Toque em Menu ou Configurações</li>
                 <li>Toque em Aparelhos conectados</li>

@@ -75,7 +75,7 @@ export function ChatHeader({
             size="md"
           />
           {isOnline && (
-            <div className="absolute bottom-0 right-0 w-3 h-3 bg-status-success border-[2.5px] border-[#1A1333] rounded-full" />
+            <div className="absolute bottom-0 right-0 w-3 h-3 bg-status-success border-[2.5px] border-brand-card rounded-full" />
           )}
         </div>
         <div>
@@ -83,7 +83,7 @@ export function ChatHeader({
           {status && (
             <p className="text-[13px] text-content-muted flex items-center gap-1.5">
               {isOnline && (
-                <span className="w-1.5 h-1.5 rounded-full bg-status-success shadow-[0_0_5px_#10B981]" />
+                <span className="w-1.5 h-1.5 rounded-full bg-status-success shadow-glow-success" />
               )}
               {status}
             </p>
@@ -94,7 +94,7 @@ export function ChatHeader({
       {/* Actions */}
       <div className="flex flex-wrap items-center gap-2">
         {humanHandoff && (
-          <span className="rounded-full border border-warning/30 bg-warning/10 px-3 py-1 text-xs font-semibold text-warning">
+          <span className="rounded-full border border-status-warning/30 bg-status-warning/10 px-3 py-1 text-xs font-semibold text-status-warning">
             Atendimento humano
           </span>
         )}

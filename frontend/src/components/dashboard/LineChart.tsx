@@ -96,10 +96,10 @@ export function LineChart({ data, period, onPeriodChange, isLoading, className }
     <Card className={`flex flex-col h-[380px] animate-slide-up delay-400 ${className}`}>
       <div className="flex justify-between items-start mb-6">
         <div>
-          <h3 className="font-medium text-text-light">Conversas ao Longo do Tempo</h3>
-          <p className="text-xs text-text-muted mt-1">Volume diário de interações via IA</p>
+          <h3 className="font-medium text-content-light">Conversas ao Longo do Tempo</h3>
+          <p className="text-xs text-content-muted mt-1">Volume diário de interações via IA</p>
         </div>
-        <div className="flex bg-dark rounded-md p-1 border border-border-color">
+        <div className="flex bg-brand-base rounded-md p-1 border border-brand-border">
           {timePeriods.map((p) => (
             <button
               key={p.value}
@@ -108,8 +108,8 @@ export function LineChart({ data, period, onPeriodChange, isLoading, className }
               onClick={() => onPeriodChange(p.value)}
               className={`px-3 py-1 text-xs font-medium rounded transition ${
                 period === p.value
-                  ? 'bg-card border border-border-color text-text-light shadow-sm'
-                  : 'text-text-muted hover:text-text-light transition'
+                  ? 'bg-brand-card border border-brand-border text-content-light shadow-sm'
+                  : 'text-content-muted hover:text-content-light transition'
               }`}
             >
               {p.label}
@@ -121,10 +121,10 @@ export function LineChart({ data, period, onPeriodChange, isLoading, className }
       <div className="flex-1 relative w-full mt-4">
         {/* Background Grid Lines */}
         <div className="absolute inset-0 flex flex-col justify-between z-0 pb-6 opacity-20 pointer-events-none">
-          <div className="border-b border-border-color w-full flex-1" />
-          <div className="border-b border-border-color w-full flex-1" />
-          <div className="border-b border-border-color w-full flex-1" />
-          <div className="border-b border-border-color w-full flex-1" />
+          <div className="border-b border-brand-border w-full flex-1" />
+          <div className="border-b border-brand-border w-full flex-1" />
+          <div className="border-b border-brand-border w-full flex-1" />
+          <div className="border-b border-brand-border w-full flex-1" />
           <div className="w-full flex-1" />
         </div>
 
@@ -133,7 +133,7 @@ export function LineChart({ data, period, onPeriodChange, isLoading, className }
             {isLoading ? (
               <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
             ) : (
-              <p className="text-xs text-text-muted">Sem dados para o período selecionado</p>
+              <p className="text-xs text-content-muted">Sem dados para o período selecionado</p>
             )}
           </div>
         ) : (
@@ -141,16 +141,16 @@ export function LineChart({ data, period, onPeriodChange, isLoading, className }
             {/* SVG Line + Area Chart */}
             <svg
               viewBox={`0 0 ${VIEWPORT_WIDTH} ${VIEWPORT_HEIGHT + PADDING_TOP}`}
-              className="w-full h-full preserve-3d z-10 relative overflow-visible"
+              className="w-full h-full z-10 relative overflow-visible"
             >
               <defs>
                 <linearGradient id="purpleGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                  <stop offset="0%" stopColor="#8B5CF6" />
-                  <stop offset="100%" stopColor="#6D28D9" />
+                  <stop offset="0%" stopColor="rgb(var(--color-primary))" />
+                  <stop offset="100%" stopColor="rgb(var(--color-secondary))" />
                 </linearGradient>
                 <linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#8B5CF6" stopOpacity="0.5" />
-                  <stop offset="100%" stopColor="#8B5CF6" stopOpacity="0.0" />
+                  <stop offset="0%" stopColor="rgb(var(--color-primary))" stopOpacity="0.5" />
+                  <stop offset="100%" stopColor="rgb(var(--color-primary))" stopOpacity="0.0" />
                 </linearGradient>
               </defs>
 
@@ -179,8 +179,8 @@ export function LineChart({ data, period, onPeriodChange, isLoading, className }
                     cx={lx}
                     cy={ly}
                     r="4"
-                    fill="#8B5CF6"
-                    stroke="#0F0A1E"
+                    fill="rgb(var(--color-primary))"
+                    stroke="rgb(var(--color-brand-base))"
                     strokeWidth="2"
                     className="animate-pulse"
                   />
@@ -193,14 +193,14 @@ export function LineChart({ data, period, onPeriodChange, isLoading, className }
               className="absolute right-0 -mt-10 -mr-4 glass-tooltip px-3 py-2 rounded-lg pointer-events-none z-20 shadow-xl"
               style={{ top: `${lastNormYPct}%` }}
             >
-              <div className="text-[0.65rem] text-text-muted uppercase mb-1">
+              <div className="text-[0.65rem] text-content-muted uppercase mb-1">
                 {new Date(lastPoint.date).toLocaleDateString('pt-BR', {
                   weekday: 'short',
                   day: '2-digit',
                   month: 'short',
                 })}
               </div>
-              <div className="text-sm font-bold text-text-light flex items-center gap-1">
+              <div className="text-sm font-bold text-content-light flex items-center gap-1">
                 <span className="w-2 h-2 rounded-full bg-primary" />
                 {lastPoint.count} Conversas
               </div>
@@ -209,7 +209,7 @@ export function LineChart({ data, period, onPeriodChange, isLoading, className }
         )}
 
         {/* X Axis Labels */}
-        <div className="absolute bottom-0 w-full flex justify-between text-[0.65rem] text-text-muted font-medium pt-2">
+        <div className="absolute bottom-0 w-full flex justify-between text-[0.65rem] text-content-muted font-medium pt-2">
           {axisLabels.length > 0
             ? axisLabels.map((label, i) => <span key={i}>{label}</span>)
             : ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map((d) => (

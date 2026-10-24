@@ -13,8 +13,8 @@ interface BarChartProps {
 const CHANNEL_CONFIG = [
   {
     name: 'WhatsApp',
-    color: 'bg-success',
-    icon: <WhatsappLogo weight="fill" className="text-success text-xl" />,
+    color: 'bg-status-success',
+    icon: <WhatsappLogo weight="fill" className="text-status-success text-xl" />,
   },
   {
     name: 'Website',
@@ -50,10 +50,10 @@ export function BarChart({ channels, isLoading, className }: BarChartProps) {
     <Card className={`flex flex-col h-[380px] animate-slide-up delay-400 ${className}`}>
       <div className="flex justify-between items-start mb-8">
         <div>
-          <h3 className="font-medium text-text-light">Mensagens por Canal</h3>
-          <p className="text-xs text-text-muted mt-1">Distribuição de envios omnicanal</p>
+          <h3 className="font-medium text-content-light">Mensagens por Canal</h3>
+          <p className="text-xs text-content-muted mt-1">Distribuição de envios omnicanal</p>
         </div>
-        <div className="p-2 rounded bg-dark/50 text-primary">
+        <div className="p-2 rounded bg-brand-base/50 text-primary">
           <ShareNetwork weight="regular" className="text-xl" />
         </div>
       </div>
@@ -63,14 +63,14 @@ export function BarChart({ channels, isLoading, className }: BarChartProps) {
           <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
         </div>
       ) : (
-        <div className="flex-1 flex items-end justify-between gap-12 px-8 pb-6 relative z-10 border-b border-border-color/60">
+        <div className="flex-1 flex items-end justify-between gap-12 px-8 pb-6 relative z-10 border-b border-brand-border/60">
           {bars.map((bar) => (
             <div
               key={bar.name}
               className="flex flex-col items-center flex-1 group chart-bar-group cursor-pointer"
             >
               <div className="w-full flex items-end justify-center h-48 relative">
-                <div className="absolute -top-8 opacity-0 group-hover:opacity-100 transition-opacity text-xs font-bold text-text-light bg-dark px-2 py-1 rounded border border-border-color z-20">
+                <div className="absolute -top-8 opacity-0 group-hover:opacity-100 transition-opacity text-xs font-bold text-content-light bg-brand-base px-2 py-1 rounded border border-brand-border z-20">
                   {formatCount(bar.count)}
                 </div>
                 <div
@@ -83,7 +83,7 @@ export function BarChart({ channels, isLoading, className }: BarChartProps) {
               </div>
               <div className="mt-4 flex flex-col items-center gap-1">
                 {bar.icon}
-                <span className="text-xs font-medium text-text-muted">{bar.name}</span>
+                <span className="text-xs font-medium text-content-muted">{bar.name}</span>
               </div>
             </div>
           ))}

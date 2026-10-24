@@ -28,14 +28,14 @@ export function GatewayForm({
 }: GatewayFormProps) {
   return (
     <form
-      className="space-y-4 rounded-2xl border border-primary/50 bg-card p-6"
+      className="space-y-4 rounded-2xl border border-primary/50 bg-brand-card p-6"
       aria-label={gatewayDraft.id ? 'Editar gateway' : 'Novo gateway'}
       onSubmit={(e) => {
         e.preventDefault()
         onSubmit()
       }}
     >
-      <h3 className="text-base font-semibold text-text-light">
+      <h3 className="text-base font-semibold text-content-light">
         {gatewayDraft.id ? 'Editar gateway' : 'Novo gateway'}
       </h3>
       <div>
@@ -52,7 +52,7 @@ export function GatewayForm({
           aria-invalid={Boolean(gatewayErrors.base_url)}
           aria-describedby={gatewayErrors.base_url ? 'gw-url-hint gw-url-error' : 'gw-url-hint'}
           onChange={(e) => patchGateway({ base_url: e.target.value })} />
-        <p id="gw-url-hint" className="mt-1.5 text-xs text-text-muted">
+        <p id="gw-url-hint" className="mt-1.5 text-xs text-content-muted">
           O cliente acrescenta /v1/messages a esta URL.
         </p>
         <FieldError id="gw-url-error" message={gatewayErrors.base_url} />
@@ -67,13 +67,13 @@ export function GatewayForm({
           }
           onChange={(e) => patchGateway({ api_key: e.target.value })} />
         {keyRequired && (
-          <p id="gw-key-reason" role="alert" className="mt-1.5 text-xs text-red-300">
+          <p id="gw-key-reason" role="alert" className="mt-1.5 text-xs text-status-error">
             {ORIGIN_KEY_MESSAGE}
           </p>
         )}
         <FieldError id="gw-key-error" message={gatewayErrors.api_key} />
         {(gatewayDraft.hasStoredKey || originMoved) && (
-          <label className="mt-2 flex items-center gap-2 text-xs text-text-gray">
+          <label className="mt-2 flex items-center gap-2 text-xs text-content-gray">
             <input type="checkbox" checked={gatewayDraft.clearKey}
               onChange={(e) => patchGateway({ clearKey: e.target.checked })} />
             {gatewayDraft.hasStoredKey ? 'Remover a chave salva' : 'Este endereço não usa chave de API'}
@@ -91,7 +91,7 @@ export function GatewayForm({
             } />
           <FieldError id="gw-timeout-error" message={gatewayErrors.timeout_seconds} />
         </div>
-        <label className="flex items-center gap-2 self-end pb-3 text-sm text-text-light">
+        <label className="flex items-center gap-2 self-end pb-3 text-sm text-content-light">
           <input type="checkbox" checked={gatewayDraft.is_active}
             onChange={(e) => patchGateway({ is_active: e.target.checked })} />
           Ativo

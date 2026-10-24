@@ -16,7 +16,7 @@ export function MessageStatus({ status }: MessageStatusProps) {
     case 'delivered':
       return <Check weight="fill" className="text-sm text-content-muted" />
     case 'read':
-      return <Check weight="fill" className="text-sm text-blue-400" />
+      return <Check weight="fill" className="text-sm text-status-info" />
     default:
       return null
   }

@@ -19,15 +19,15 @@ export function ItemList({
   onDeleteItem: (item: MenuItem) => void
 }) {
   return (
-    <section className="rounded-3xl border border-border-color bg-card p-5">
+    <section className="rounded-3xl border border-brand-border bg-brand-card p-5">
       {selectedCategory ? (
         <>
-          <div className="mb-5 flex flex-col gap-4 border-b border-border-color pb-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="mb-5 flex flex-col gap-4 border-b border-brand-border pb-5 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <h3 className="text-2xl font-semibold text-text-light">
+              <h3 className="text-2xl font-semibold text-content-light">
                 {selectedCategory.name}
               </h3>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-text-muted">
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-content-muted">
                 {selectedCategory.description ||
                   'Use esta categoria para concentrar itens parecidos e manter o cardápio organizado.'}
               </p>
@@ -43,25 +43,25 @@ export function ItemList({
               categoryItems.map((item) => (
                 <article
                   key={item.id}
-                  className="rounded-3xl border border-border-color bg-dark p-5"
+                  className="rounded-3xl border border-brand-border bg-brand-base p-5"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="space-y-2">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h4 className="text-lg font-semibold text-text-light">
+                        <h4 className="text-lg font-semibold text-content-light">
                           {item.name}
                         </h4>
                         <span
                           className={`rounded-full px-2.5 py-1 text-xs font-medium ${
                             item.is_available
-                              ? 'bg-success/15 text-success'
-                              : 'bg-warning/15 text-warning'
+                              ? 'bg-status-success/15 text-status-success'
+                              : 'bg-status-warning/15 text-status-warning'
                           }`}
                         >
                           {item.is_available ? 'Disponível' : 'Indisponível'}
                         </span>
                       </div>
-                      <div className="flex items-center gap-2 text-sm text-text-gray">
+                      <div className="flex items-center gap-2 text-sm text-content-gray">
                         <CircleDollarSign className="h-4 w-4 text-primary-light" />
                         {formatPrice(item.price)}
                       </div>
@@ -71,26 +71,26 @@ export function ItemList({
                       <button
                         type="button"
                         onClick={() => onEditItem(item)}
-                        className="rounded-full bg-hover p-2 text-text-muted hover:text-text-light"
+                        className="rounded-full bg-brand-hover p-2 text-content-muted hover:text-content-light"
                       >
                         <Pencil className="h-4 w-4" />
                       </button>
                       <button
                         type="button"
                         onClick={() => onDeleteItem(item)}
-                        className="rounded-full bg-hover p-2 text-text-muted hover:text-error"
+                        className="rounded-full bg-brand-hover p-2 text-content-muted hover:text-status-error"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
                   </div>
 
-                  <p className="mt-4 text-sm leading-6 text-text-gray">
+                  <p className="mt-4 text-sm leading-6 text-content-gray">
                     {item.description || 'Sem descrição cadastrada.'}
                   </p>
 
                   <div className="mt-5">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-text-muted">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-content-muted">
                       Variáveis extras
                     </p>
                     {item.custom_attributes.length ? (
@@ -98,15 +98,15 @@ export function ItemList({
                         {item.custom_attributes.map((attribute, index) => (
                           <span
                             key={`${attribute.key}-${index}`}
-                            className="rounded-full border border-border-color bg-card px-3 py-1.5 text-xs text-text-gray"
+                            className="rounded-full border border-brand-border bg-brand-card px-3 py-1.5 text-xs text-content-gray"
                           >
-                            <strong className="text-text-light">{attribute.key}:</strong>{' '}
+                            <strong className="text-content-light">{attribute.key}:</strong>{' '}
                             {attribute.value}
                           </span>
                         ))}
                       </div>
                     ) : (
-                      <p className="mt-3 text-sm text-text-muted">
+                      <p className="mt-3 text-sm text-content-muted">
                         Este item ainda não tem variáveis extras.
                       </p>
                     )}
@@ -114,12 +114,12 @@ export function ItemList({
                 </article>
               ))
             ) : (
-              <div className="rounded-3xl border border-dashed border-border-color bg-dark px-6 py-12 text-center xl:col-span-2">
-                <PackagePlus className="mx-auto h-9 w-9 text-text-muted" />
-                <p className="mt-4 text-sm font-medium text-text-light">
+              <div className="rounded-3xl border border-dashed border-brand-border bg-brand-base px-6 py-12 text-center xl:col-span-2">
+                <PackagePlus className="mx-auto h-9 w-9 text-content-muted" />
+                <p className="mt-4 text-sm font-medium text-content-light">
                   Nenhum item nesta categoria
                 </p>
-                <p className="mt-2 text-sm text-text-muted">
+                <p className="mt-2 text-sm text-content-muted">
                   Adicione o primeiro item para começar a montar esta seção do cardápio.
                 </p>
                 <Button
@@ -135,12 +135,12 @@ export function ItemList({
           </div>
         </>
       ) : (
-        <div className="flex h-full min-h-[420px] flex-col items-center justify-center rounded-3xl border border-dashed border-border-color bg-dark px-6 text-center">
-          <Boxes className="h-10 w-10 text-text-muted" />
-          <p className="mt-4 text-base font-medium text-text-light">
+        <div className="flex h-full min-h-[420px] flex-col items-center justify-center rounded-3xl border border-dashed border-brand-border bg-brand-base px-6 text-center">
+          <Boxes className="h-10 w-10 text-content-muted" />
+          <p className="mt-4 text-base font-medium text-content-light">
             Selecione uma categoria para ver os itens
           </p>
-          <p className="mt-2 max-w-md text-sm leading-6 text-text-muted">
+          <p className="mt-2 max-w-md text-sm leading-6 text-content-muted">
             Você poderá adicionar itens, editar disponibilidade e cadastrar variáveis
             extras assim que escolher ou criar uma categoria.
           </p>

@@ -21,19 +21,19 @@ export function InferenceProviderCard() {
   const error = query.isError ? (query.error instanceof Error ? query.error.message : 'Falha ao carregar atribuições') : null
 
   return (
-    <div className="rounded-2xl border border-border-color bg-card p-7">
+    <div className="rounded-2xl border border-brand-border bg-brand-card p-7">
       <div className="mb-6 flex items-center gap-4">
         <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-purple-500/10">
           <Cpu className="h-5 w-5 text-purple-500" />
         </div>
         <div>
-          <h3 className="text-lg font-semibold text-text-light">Provedor de Inferência</h3>
-          <p className="text-sm text-text-gray">O provedor é o Gateway atribuído a cada agente</p>
+          <h3 className="text-lg font-semibold text-content-light">Provedor de Inferência</h3>
+          <p className="text-sm text-content-gray">O provedor é o Gateway atribuído a cada agente</p>
         </div>
       </div>
 
       {error && (
-        <p role="alert" className="mb-4 text-sm text-red-400">
+        <p role="alert" className="mb-4 text-sm text-status-error">
           {error}
         </p>
       )}
@@ -44,10 +44,10 @@ export function InferenceProviderCard() {
           return (
             <li
               key={agentType}
-              className="flex items-center justify-between rounded-xl border border-border-color bg-input px-4 py-3"
+              className="flex items-center justify-between rounded-xl border border-brand-border bg-brand-base px-4 py-3"
             >
-              <span className="text-sm font-medium text-text-light">{AGENT_LABELS[agentType].title}</span>
-              <span className="text-sm text-text-gray">
+              <span className="text-sm font-medium text-content-light">{AGENT_LABELS[agentType].title}</span>
+              <span className="text-sm text-content-gray">
                 {loading
                   ? 'Carregando...'
                   : assignment

@@ -3,8 +3,38 @@
 @tailwind utilities;
 
 @layer base {
+  /* Fonte única dos tokens de design (RGB em canais para suportar alpha). O produto é só dark. */
+  :root {
+    --color-brand-base: 15 10 30;
+    --color-brand-deep: 18 15 39;
+    --color-brand-card: 26 19 51;
+    --color-brand-hover: 37 27 71;
+    --color-brand-border: 45 36 71;
+    --color-brand-line: 42 35 70;
+    --color-primary: 139 92 246;
+    --color-primary-dark: 124 58 237;
+    --color-primary-light: 167 139 250;
+    --color-primary-soft: 196 181 253;
+    --color-primary-pale: 233 213 255;
+    --color-primary-deep: 34 26 68;
+    --color-primary-strong: 45 34 85;
+    --color-primary-edge: 58 44 112;
+    --color-secondary: 109 40 217;
+    --color-accent: 236 72 153;
+    --color-content-light: 249 250 251;
+    --color-content-soft: 213 202 233;
+    --color-content-gray: 209 213 219;
+    --color-content-subtle: 167 161 197;
+    --color-content-muted: 156 163 175;
+    --color-status-success: 16 185 129;
+    --color-status-error: 239 68 68;
+    --color-status-warning: 245 158 11;
+  }
+}
+
+@layer base {
   body {
-    @apply bg-dark text-text-light;
+    @apply bg-brand-base text-content-light;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 
@@ -25,12 +55,12 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: #2D2447;
+    background: rgb(var(--color-brand-border));
     border-radius: 10px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: #6D28D9;
+    background: rgb(var(--color-secondary));
   }
 
   /* SVG Chart Animations & Strokes */
@@ -60,7 +90,7 @@
   }
   .chart-bar-group:hover .bar-fill {
     filter: brightness(1.2);
-    box-shadow: 0 0 15px rgba(139, 92, 246, 0.4);
+    box-shadow: 0 0 15px rgb(var(--color-primary) / 0.4);
   }
 
   /* Staggered Animations */
@@ -72,35 +102,35 @@
 
   /* Glass Tooltip */
   .glass-tooltip {
-    background: rgba(26, 19, 51, 0.85);
+    background: rgb(var(--color-brand-card) / 0.85);
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
-    border: 1px solid #2D2447;
+    border: 1px solid rgb(var(--color-brand-border));
   }
   
   /* Subtle Grid Background for App */
   .bg-grid-pattern {
-    background-image: linear-gradient(to right, rgba(45, 36, 71, 0.1) 1px, transparent 1px),
-                      linear-gradient(to bottom, rgba(45, 36, 71, 0.1) 1px, transparent 1px);
+    background-image: linear-gradient(to right, rgb(var(--color-brand-border) / 0.1) 1px, transparent 1px),
+                      linear-gradient(to bottom, rgb(var(--color-brand-border) / 0.1) 1px, transparent 1px);
     background-size: 24px 24px;
   }
 
   /* Chat-specific utilities */
   .chat-pattern {
-    background-color: #0F0A1E;
-    background-image: radial-gradient(#251B47 1px, transparent 1px);
+    background-color: rgb(var(--color-brand-base));
+    background-image: radial-gradient(rgb(var(--color-brand-hover)) 1px, transparent 1px);
     background-size: 24px 24px;
   }
 
   /* Agent area dot pattern (matches 3-agent.html reference design) */
   .bg-dots {
-    background-image: radial-gradient(#2D2447 1px, transparent 1px);
+    background-image: radial-gradient(rgb(var(--color-brand-border)) 1px, transparent 1px);
     background-size: 24px 24px;
     background-position: -12px -12px;
   }
 
   .glass-header {
-    background: rgba(26, 19, 51, 0.85);
+    background: rgb(var(--color-brand-card) / 0.85);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
   }
@@ -109,19 +139,19 @@
   .wave-bar {
     width: 3px;
     border-radius: 2px;
-    background-color: #7C3AED;
+    background-color: rgb(var(--color-primary-dark));
   }
 
   .wave-bar.played {
-    background-color: #A78BFA;
+    background-color: rgb(var(--color-primary-light));
   }
 
   .wave-bar-light {
-    background-color: #D1D5DB;
+    background-color: rgb(var(--color-content-gray));
   }
 
   .wave-bar-light.played {
-    background-color: #F9FAFB;
+    background-color: rgb(var(--color-content-light));
   }
 
   /* Typing indicator dots */

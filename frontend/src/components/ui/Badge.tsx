@@ -8,9 +8,9 @@ interface BadgeProps extends React.HTMLAttributes<HTMLDivElement> {
 
 const variantClasses = {
   default: 'bg-primary',
-  success: 'bg-success',
-  warning: 'bg-warning',
-  error: 'bg-error',
+  success: 'bg-status-success',
+  warning: 'bg-status-warning',
+  error: 'bg-status-error',
 }
 
 const Badge = React.forwardRef<HTMLDivElement, BadgeProps>(
@@ -21,7 +21,7 @@ const Badge = React.forwardRef<HTMLDivElement, BadgeProps>(
       <div
         ref={ref}
         className={cn(
-          'flex h-6 min-w-[24px] items-center justify-center rounded-full px-2 text-xs font-semibold text-text-light',
+          'flex h-6 min-w-[24px] items-center justify-center rounded-full px-2 text-xs font-semibold text-content-light',
           variantClasses[variant],
           className
         )}

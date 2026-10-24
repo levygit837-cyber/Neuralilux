@@ -13,9 +13,9 @@ import { useInstanceStore, type SelectedInstance } from '@/stores/useInstanceSto
 import { ROUTES } from '@/lib/constants'
 
 const STATUS_LABEL: Record<InstanceStatus, { label: string; color: string }> = {
-  connected: { label: 'Conectada', color: 'text-success' },
-  connecting: { label: 'Conectando', color: 'text-warning' },
-  disconnected: { label: 'Desconectada', color: 'text-error' },
+  connected: { label: 'Conectada', color: 'text-status-success' },
+  connecting: { label: 'Conectando', color: 'text-status-warning' },
+  disconnected: { label: 'Desconectada', color: 'text-status-error' },
 }
 
 // Mesmo conjunto que a Evolution aceita no nome de uma Instance.
@@ -90,7 +90,7 @@ export default function InstancesPage() {
   return (
     <div className="space-y-6 p-4 sm:p-8">
       {error && (
-        <div role="alert" className="rounded-lg border border-error/30 bg-error/10 px-4 py-3 text-sm text-error">
+        <div role="alert" className="rounded-lg border border-status-error/30 bg-status-error/10 px-4 py-3 text-sm text-status-error">
           {error}
         </div>
       )}
@@ -122,18 +122,18 @@ export default function InstancesPage() {
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <p className="text-text-muted">Carregando...</p>
+            <p className="text-content-muted">Carregando...</p>
           ) : query.isError ? null : instances.length === 0 ? (
-            <p className="text-text-muted">Você ainda não tem nenhuma instância. Crie a primeira acima.</p>
+            <p className="text-content-muted">Você ainda não tem nenhuma instância. Crie a primeira acima.</p>
           ) : (
-            <ul className="divide-y divide-border-color">
+            <ul className="divide-y divide-brand-border">
               {instances.map((instance) => {
                 const state = STATUS_LABEL[instance.status]
                 return (
                   <li key={instance.id} className="flex flex-wrap items-center justify-between gap-4 py-4">
                     <div>
-                      <p className="font-semibold text-text-light">{instance.name}</p>
-                      <p className="text-sm text-text-muted">
+                      <p className="font-semibold text-content-light">{instance.name}</p>
+                      <p className="text-sm text-content-muted">
                         <span className={state.color}>{state.label}</span>
                         {instance.profileName && ` · ${instance.profileName}`}
                       </p>

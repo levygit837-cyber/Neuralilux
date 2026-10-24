@@ -1,5 +1,9 @@
 import nextVitals from 'eslint-config-next/core-web-vitals'
+import { fileURLToPath } from 'node:url'
 import jsxA11y from 'eslint-plugin-jsx-a11y'
+import tailwind from 'eslint-plugin-tailwindcss'
+
+const tailwindConfig = fileURLToPath(new URL('./tailwind.config.js', import.meta.url))
 
 // O eslint-config-next só liga 6 regras jsx-a11y; aqui entram as do conjunto recomendado como erro, com as opções
 // de cada uma. As que o recomendado deixa desligadas (obsoletas ou ruidosas, como `label-has-for` e
@@ -33,6 +37,20 @@ const config = [
           depth: 3,
         },
       ],
+    },
+  },
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    plugins: { tailwindcss: tailwind },
+    settings: {
+      tailwindcss: {
+        config: tailwindConfig,
+        callees: ['classnames', 'clsx', 'ctl', 'cva', 'tv', 'cn'],
+      },
+    },
+    rules: {
+      // Classe Tailwind inexistente gera CSS vazio sem erro: falha o lint.
+      'tailwindcss/no-custom-classname': 'error',
     },
   },
 ]

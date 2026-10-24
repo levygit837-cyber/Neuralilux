@@ -30,17 +30,17 @@ export function GatewayCard({
   onLoadRemote,
 }: GatewayCardProps) {
   return (
-    <section className="rounded-2xl border border-border-color bg-card p-6" aria-label={`Gateway ${g.name}`}>
+    <section className="rounded-2xl border border-brand-border bg-brand-card p-6" aria-label={`Gateway ${g.name}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="flex items-center gap-2 text-base font-semibold text-text-light">
+          <h3 className="flex items-center gap-2 text-base font-semibold text-content-light">
             {g.name}
             {!g.is_active && (
-              <span className="rounded-full bg-hover px-2 py-0.5 text-xs font-normal text-text-gray">inativo</span>
+              <span className="rounded-full bg-brand-hover px-2 py-0.5 text-xs font-normal text-content-gray">inativo</span>
             )}
           </h3>
-          <p className="truncate font-mono text-xs text-text-gray">{g.base_url}</p>
-          <p className="mt-1 flex items-center gap-1 text-xs text-text-gray">
+          <p className="truncate font-mono text-xs text-content-gray">{g.base_url}</p>
+          <p className="mt-1 flex items-center gap-1 text-xs text-content-gray">
             <KeyRound className="h-3 w-3" aria-hidden />
             {g.has_api_key ? 'Chave de API salva (não exibida)' : 'Sem chave de API'}
           </p>
@@ -67,17 +67,17 @@ export function GatewayCard({
         </div>
       </div>
 
-      <ul className="mt-4 divide-y divide-border-color">
+      <ul className="mt-4 divide-y divide-brand-border">
         {g.models.map((m) => {
           const result = probes[m.id]
           return (
             <li key={m.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
               <div className="min-w-0">
-                <p className="text-sm font-medium text-text-light">
+                <p className="text-sm font-medium text-content-light">
                   {m.name}
-                  {!m.is_active && <span className="ml-2 text-xs font-normal text-text-gray">(inativo)</span>}
+                  {!m.is_active && <span className="ml-2 text-xs font-normal text-content-gray">(inativo)</span>}
                 </p>
-                <p className="font-mono text-xs text-text-gray">
+                <p className="font-mono text-xs text-content-gray">
                   {m.model_id}
                   {m.reasoning_effort ? ` · effort ${m.reasoning_effort}` : ''}
                   {m.supports_tools ? '' : ' · sem ferramentas'}
@@ -85,7 +85,7 @@ export function GatewayCard({
                 {result && (
                   <p
                     role="status"
-                    className={`mt-1 text-xs ${result === 'running' ? 'text-text-gray' : result.ok ? 'text-green-400' : 'text-red-300'}`}
+                    className={`mt-1 text-xs ${result === 'running' ? 'text-content-gray' : result.ok ? 'text-status-success' : 'text-status-error'}`}
                   >
                     {result === 'running'
                       ? 'Testando…'
@@ -138,7 +138,7 @@ export function GatewayCard({
         </Button>
       </div>
       {remoteModels && (
-        <p className="mt-2 text-xs text-text-gray">
+        <p className="mt-2 text-xs text-content-gray">
           Disponíveis: {remoteModels.length ? remoteModels.join(', ') : 'nenhum'}
         </p>
       )}

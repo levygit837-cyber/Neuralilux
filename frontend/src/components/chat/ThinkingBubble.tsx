@@ -23,7 +23,7 @@ export function ThinkingBubble({ tokens, onCollapse, isLive = true }: ThinkingBu
 
   return (
     <div className="flex items-start gap-3 py-2">
-      <div className="flex w-full max-w-[480px] flex-col gap-3 rounded-[18px] border border-[#8B5CF630] bg-[#120F27] p-4">
+      <div className="flex w-full max-w-[480px] flex-col gap-3 rounded-[18px] border border-primary/20 bg-brand-deep p-4">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -37,13 +37,13 @@ export function ThinkingBubble({ tokens, onCollapse, isLive = true }: ThinkingBu
             </div>
 
             {/* Meta text */}
-            <span className="text-sm font-semibold text-text-light">Raciocínio</span>
+            <span className="text-sm font-semibold text-content-light">Raciocínio</span>
           </div>
 
           {isLive && (
-            <div className="flex items-center gap-1.5 rounded-full border border-[#8B5CF655] bg-[#8B5CF622] px-2.5 py-1.5">
-              <span className="h-1.5 w-1.5 rounded-full bg-[#C4B5FD] animate-pulse" />
-              <span className="text-xs font-semibold text-[#C4B5FD]">Ao vivo</span>
+            <div className="flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/15 px-2.5 py-1.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-primary-soft animate-pulse" />
+              <span className="text-xs font-semibold text-primary-soft">Ao vivo</span>
             </div>
           )}
         </div>
@@ -54,7 +54,7 @@ export function ThinkingBubble({ tokens, onCollapse, isLive = true }: ThinkingBu
           className="flex max-h-[200px] flex-col gap-2 overflow-y-auto"
         >
           {fullText ? (
-            <div className="space-y-3 text-sm text-[#D5CAE9]">
+            <div className="space-y-3 text-sm text-content-soft">
               <p className="whitespace-pre-wrap break-words">{fullText}</p>
               {isLive && (
                 <span className="ml-0.5 inline-block h-4 w-[2px] animate-pulse bg-primary align-middle" />
@@ -63,23 +63,23 @@ export function ThinkingBubble({ tokens, onCollapse, isLive = true }: ThinkingBu
           ) : (
             // Placeholder lines when no tokens yet
             <div className="flex flex-col gap-2">
-              <div className="h-2 w-full rounded-full bg-[#2A2346]" />
-              <div className="h-2 w-full rounded-full bg-[#2A2346]" />
-              <div className="h-2 w-[320px] rounded-full bg-[#2A2346]" />
+              <div className="h-2 w-full rounded-full bg-brand-line" />
+              <div className="h-2 w-full rounded-full bg-brand-line" />
+              <div className="h-2 w-[320px] rounded-full bg-brand-line" />
             </div>
           )}
         </div>
 
         {/* Footer */}
         <div className="flex items-center justify-between">
-          <span className="text-xs text-[#A7A1C5]">
+          <span className="text-xs text-content-subtle">
             {isLive ? 'Baseado em contexto, memória e histórico recente.' : ''}
           </span>
           <button
             onClick={onCollapse}
             type="button"
             aria-label="Recolher raciocínio"
-            className="flex h-9 w-9 items-center justify-center rounded-lg border border-[#3A2C70] bg-[#221A44] text-[#E9D5FF] transition-colors hover:bg-[#2D2255]"
+            className="flex h-9 w-9 items-center justify-center rounded-lg border border-primary-edge bg-primary-deep text-primary-pale transition-colors hover:bg-primary-strong"
           >
             <CaretDown weight="bold" className="text-lg -rotate-90 transition-transform duration-200" />
           </button>

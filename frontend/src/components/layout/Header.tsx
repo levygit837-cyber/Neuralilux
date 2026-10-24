@@ -1,5 +1,4 @@
-import { Bell, MagnifyingGlass, CalendarBlank, CaretDown } from '@phosphor-icons/react'
-import { Avatar } from '@/components/ui/Avatar'
+import { CalendarBlank } from '@phosphor-icons/react'
 
 interface HeaderProps {
   title?: string
@@ -14,12 +13,12 @@ export function Header({ title, showOnlineBadge = true }: HeaderProps) {
   })
 
   return (
-    <header className="h-20 border-b border-border-color/50 bg-dark/80 backdrop-blur-xl flex items-center justify-between px-4 sm:px-8 sticky top-0 z-10">
+    <header className="h-20 border-b border-brand-border/50 bg-brand-base/80 backdrop-blur-xl flex items-center justify-between px-4 sm:px-8 sticky top-0 z-10">
       <div>
-        <h1 className="text-2xl font-semibold text-text-light tracking-tight flex items-center gap-2">
+        <h1 className="text-2xl font-semibold text-content-light tracking-tight flex items-center gap-2">
           {title || 'Dashboard'}
           {showOnlineBadge && (
-            <span className="text-xs font-normal px-2 py-1 bg-success/10 text-success rounded border border-success/20 ml-2">
+            <span className="text-xs font-normal px-2 py-1 bg-status-success/10 text-status-success rounded border border-status-success/20 ml-2">
               Online
             </span>
           )}
@@ -28,29 +27,9 @@ export function Header({ title, showOnlineBadge = true }: HeaderProps) {
       
       <div className="flex items-center gap-4">
         {/* Date Picker */}
-        <div className="hidden md:flex items-center gap-2 bg-card border border-border-color rounded-lg px-3 py-1.5 text-sm cursor-pointer hover:border-primary/50 transition-colors">
-          <CalendarBlank weight="regular" className="text-text-muted" />
+        <div className="hidden md:flex items-center gap-2 bg-brand-card border border-brand-border rounded-lg px-3 py-1.5 text-sm">
+          <CalendarBlank weight="regular" className="text-content-muted" />
           <span>Hoje: {today}</span>
-          <CaretDown weight="regular" className="text-text-muted ml-2" />
-        </div>
-        
-        {/* Utilities */}
-        <div className="flex items-center gap-2 border-l border-border-color pl-4">
-          <button
-            type="button"
-            aria-label="Notificações"
-            className="w-9 h-9 rounded bg-card border border-border-color flex items-center justify-center hover:text-primary hover:border-primary transition-all relative focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-          >
-            <Bell weight="regular" className="text-lg" aria-hidden="true" />
-            <span className="absolute top-2 right-2 w-2 h-2 bg-accent rounded-full animate-pulse-slow"></span>
-          </button>
-          <button
-            type="button"
-            aria-label="Buscar"
-            className="w-9 h-9 rounded bg-card border border-border-color flex items-center justify-center hover:text-primary hover:border-primary transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-          >
-            <MagnifyingGlass weight="regular" className="text-lg" aria-hidden="true" />
-          </button>
         </div>
       </div>
     </header>

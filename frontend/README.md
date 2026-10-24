@@ -46,7 +46,7 @@ npm run type-check   # Verificar tipos
 
 - **Framework**: Next.js 16 (App Router)
 - **Linguagem**: TypeScript
-- **Styling**: TailwindCSS
+- **Styling**: TailwindCSS, só tema dark. Os tokens de cor vivem como variáveis CSS em `src/app/globals.css` (`:root`) e são expostos em `tailwind.config.js` como `brand-*`, `primary-*`, `content-*` e `status-*`; não use hex nem cor fora desses nomes. O lint (`tailwindcss/no-custom-classname`) falha em classe inexistente.
 - **State**: React Query (dados do backend) + Zustand (sessão, Instance selecionada, chat)
 - **Forms**: React Hook Form + Zod
 - **Icons**: Lucide React

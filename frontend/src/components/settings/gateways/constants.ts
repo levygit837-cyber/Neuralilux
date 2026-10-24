@@ -7,9 +7,9 @@ export const EFFORTS: { value: ReasoningEffort | ''; label: string }[] = [
   { value: 'high', label: 'Alto' },
 ]
 
-export const fieldLabel = 'mb-1.5 block text-xs font-medium text-text-gray'
+export const fieldLabel = 'mb-1.5 block text-xs font-medium text-content-gray'
 export const selectClass =
-  'h-12 w-full rounded-md border border-border-color bg-dark px-3 text-sm text-text-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
+  'h-12 w-full rounded-md border border-brand-border bg-brand-base px-3 text-sm text-content-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
 
 export const READ_ONLY_MESSAGE = 'Somente administradores podem alterar Gateways'
 export const ORIGIN_KEY_MESSAGE =
