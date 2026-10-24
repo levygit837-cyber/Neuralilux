@@ -1,19 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import { MetricCard } from '@/components/dashboard/MetricCard'
 import { LineChart } from '@/components/dashboard/LineChart'
 import { BarChart } from '@/components/dashboard/BarChart'
 import { DonutChart } from '@/components/dashboard/DonutChart'
 import { AreaChart } from '@/components/dashboard/AreaChart'
-import {
-  dashboardService,
-  type DashboardStats,
-  type DashboardMetrics,
-} from '@/services/dashboardService'
+import { useDashboardData, type DashboardPeriod } from '@/hooks/useDashboardData'
 import type {
-  ChannelData,
-  ConversationTimeSeriesPoint,
   Metric,
   ResolutionMetrics,
   SatisfactionMetrics,
@@ -28,67 +22,11 @@ const DEFAULT_SATISFACTION: SatisfactionMetrics = {
 }
 
 export default function DashboardPage() {
-  const [stats, setStats] = useState<DashboardStats | null>(null)
-  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null)
-  const [timePeriod, setTimePeriod] = useState<'7d' | '30d' | '90d'>('7d')
-  const [conversationsOverTime, setConversationsOverTime] = useState<ConversationTimeSeriesPoint[]>([])
-  const [channelMetrics, setChannelMetrics] = useState<ChannelData[]>([])
-  const [resolutionMetrics, setResolutionMetrics] = useState<ResolutionMetrics>(DEFAULT_RESOLUTION)
-  const [satisfactionMetrics, setSatisfactionMetrics] = useState<SatisfactionMetrics>(DEFAULT_SATISFACTION)
-
-  const [isLoading, setIsLoading] = useState(true)
-  const [isTimeSeriesLoading, setIsTimeSeriesLoading] = useState(false)
-
-  // Fetch all dashboard data on mount
-  useEffect(() => {
-    const loadAll = async () => {
-      try {
-        const [
-          statsData,
-          metricsData,
-          timeSeriesData,
-          channelData,
-          resolutionData,
-          satisfactionData,
-        ] = await Promise.all([
-          dashboardService.getStats(),
-          dashboardService.getMetrics(),
-          dashboardService.getConversationsOverTime(timePeriod),
-          dashboardService.getChannelMetrics(),
-          dashboardService.getResolutionMetrics(),
-          dashboardService.getSatisfactionMetrics(),
-        ])
-
-        setStats(statsData)
-        setMetrics(metricsData)
-        setConversationsOverTime(timeSeriesData.data)
-        setChannelMetrics(channelData.channels)
-        setResolutionMetrics(resolutionData)
-        setSatisfactionMetrics(satisfactionData)
-      } catch (error) {
-        console.error('Failed to load dashboard data:', error)
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    loadAll()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // Re-fetch time series when period changes (after first load)
-  const handlePeriodChange = useCallback(async (period: '7d' | '30d' | '90d') => {
-    setTimePeriod(period)
-    setIsTimeSeriesLoading(true)
-    try {
-      const data = await dashboardService.getConversationsOverTime(period)
-      setConversationsOverTime(data.data)
-    } catch (error) {
-      console.error('Failed to load conversations over time:', error)
-    } finally {
-      setIsTimeSeriesLoading(false)
-    }
-  }, [])
+  const [timePeriod, setTimePeriod] = useState<DashboardPeriod>('7d')
+  const dashboard = useDashboardData(timePeriod)
+  const { stats, metrics, isLoading } = dashboard
+  const resolutionMetrics = dashboard.resolution ?? DEFAULT_RESOLUTION
+  const satisfactionMetrics = dashboard.satisfaction ?? DEFAULT_SATISFACTION
 
   const formatNumber = (num: number): string => {
     if (num >= 1000) return `${(num / 1000).toFixed(1)}k`
@@ -130,6 +68,18 @@ export default function DashboardPage() {
     <div className="w-full bg-grid-pattern">
       <div className="max-w-[1400px] mx-auto p-4 sm:p-8 space-y-8 pb-12">
 
+        {dashboard.error && (
+          <div
+            role="alert"
+            className="flex items-center justify-between gap-4 rounded-2xl border border-error/30 bg-error/10 px-4 py-3 text-sm text-error"
+          >
+            <span>{dashboard.error}</span>
+            <button type="button" className="underline" onClick={() => void dashboard.refetch()}>
+              Tentar de novo
+            </button>
+          </div>
+        )}
+
         {/* TOP SECTION: Metrics Cards */}
         <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
           {isLoading ? (
@@ -161,13 +111,13 @@ export default function DashboardPage() {
         {/* BOTTOM SECTION: Charts Grid */}
         <section className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-12">
           <LineChart
-            data={conversationsOverTime}
+            data={dashboard.series}
             period={timePeriod}
-            onPeriodChange={handlePeriodChange}
-            isLoading={isTimeSeriesLoading}
+            onPeriodChange={setTimePeriod}
+            isLoading={dashboard.isSeriesFetching}
           />
           <BarChart
-            channels={channelMetrics}
+            channels={dashboard.channels}
             isLoading={isLoading}
           />
           <DonutChart

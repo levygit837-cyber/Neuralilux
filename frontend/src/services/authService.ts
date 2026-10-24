@@ -1,4 +1,5 @@
 import { API_BASE_URL as API_URL } from '@/lib/constants'
+import { apiRequest } from '@/services/http'
 
 export interface LoginCredentials {
   email: string
@@ -42,20 +43,9 @@ export const authService = {
     return response.json()
   },
 
-  async getCurrentUser(token: string): Promise<User> {
-    const response = await fetch(`${API_URL}/api/v1/auth/me`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-    })
-
-    if (!response.ok) {
-      throw new Error('Erro ao obter dados do usuário')
-    }
-
-    return response.json()
+  /** `token` explícito: no login o token ainda não está salvo. Um 401 passa pela camada HTTP central. */
+  getCurrentUser(token: string): Promise<User> {
+    return apiRequest<User>('/auth/me', { headers: { Authorization: `Bearer ${token}` } }, 'Erro ao obter dados do usuário')
   },
 
   async register(data: {

@@ -64,14 +64,14 @@ export const instanceService = {
     }))
   },
 
-  /** Cria a Instance na Evolution e a linha local; devolve o QR quando já disponível. */
-  async create(name: string): Promise<{ qrCode: string | null }> {
-    const response = await apiRequest<{ qr_code: string | null }>(
+  /** Cria a Instance na Evolution e a linha local; devolve o id local e o QR quando já disponível. */
+  async create(name: string): Promise<{ id: string; qrCode: string | null }> {
+    const response = await apiRequest<{ id: string; qr_code: string | null }>(
       path(name),
       { method: 'POST' },
       'Falha ao criar a instância'
     )
-    return { qrCode: response.qr_code }
+    return { id: response.id, qrCode: response.qr_code }
   },
 
   async getStatus(name: string): Promise<InstanceStatus> {

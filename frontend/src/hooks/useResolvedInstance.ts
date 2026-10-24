@@ -1,9 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { ROUTES } from '@/lib/constants'
-import { instanceService, type Instance } from '@/services/instanceService'
+import { useInstances } from '@/hooks/useInstances'
+import type { Instance } from '@/services/instanceService'
 import { useInstanceStore, type SelectedInstance } from '@/stores/useInstanceStore'
 
 const toSelected = (instance: Instance): SelectedInstance => ({
@@ -20,46 +21,34 @@ const toSelected = (instance: Instance): SelectedInstance => ({
 export function useResolvedInstance() {
   const router = useRouter()
   const { selectedInstance, setSelectedInstance } = useInstanceStore()
-  const [resolvedInstance, setResolvedInstance] = useState<SelectedInstance | null>(selectedInstance)
-  const [isResolvingInstance, setIsResolvingInstance] = useState(true)
-  const [resolveError, setResolveError] = useState<string | null>(null)
+  const query = useInstances()
 
+  const available = useMemo(() => (query.data ?? []).map(toSelected), [query.data])
+  const match = useMemo(
+    () =>
+      available.find((instance) => instance.id === selectedInstance?.id) ||
+      available.find((instance) => instance.status === 'connected') ||
+      available[0] ||
+      null,
+    [available, selectedInstance?.id]
+  )
+  const resolveError = query.isError
+    ? query.error instanceof Error
+      ? query.error.message
+      : 'Falha ao carregar as instâncias'
+    : null
+  const isResolvingInstance = query.isPending
+  const resolvedInstance = query.isSuccess ? match : selectedInstance
+
+  // Mantém a seleção persistida alinhada com a lista vinda do backend.
   useEffect(() => {
-    let cancelled = false
-
-    instanceService
-      .list()
-      .then((instances) => {
-        if (cancelled) return
-        const available = instances.map(toSelected)
-        const match =
-          available.find((instance) => instance.id === selectedInstance?.id) ||
-          available.find((instance) => instance.status === 'connected') ||
-          available[0] ||
-          null
-
-        setResolvedInstance(match)
-        setResolveError(null)
-
-        const changed =
-          match?.id !== selectedInstance?.id ||
-          match?.name !== selectedInstance?.name ||
-          match?.status !== selectedInstance?.status
-        if (changed) setSelectedInstance(match)
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return
-        setResolveError(error instanceof Error ? error.message : 'Falha ao carregar as instâncias')
-        setResolvedInstance(selectedInstance)
-      })
-      .finally(() => {
-        if (!cancelled) setIsResolvingInstance(false)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [selectedInstance, setSelectedInstance])
+    if (!query.isSuccess) return
+    const changed =
+      match?.id !== selectedInstance?.id ||
+      match?.name !== selectedInstance?.name ||
+      match?.status !== selectedInstance?.status
+    if (changed) setSelectedInstance(match)
+  }, [query.isSuccess, match, selectedInstance, setSelectedInstance])
 
   useEffect(() => {
     if (!isResolvingInstance && !resolvedInstance && !resolveError) {

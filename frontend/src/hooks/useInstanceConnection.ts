@@ -1,6 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
+import { queryKeys } from '@/lib/queryKeys'
 import { instanceService, type InstanceStatus } from '@/services/instanceService'
 import { socketService } from '@/services/socketService'
 import { useAuthStore } from '@/stores/useAuthStore'
@@ -16,6 +18,7 @@ const messageOf = (error: unknown, fallback: string) => (error instanceof Error 
  * Socket.IO adiantam os dois. O polling cobre o socket fora do ar.
  */
 export function useInstanceConnection(instanceName: string | undefined) {
+  const queryClient = useQueryClient()
   const token = useAuthStore((state) => state.token)
   const [status, setStatus] = useState<InstanceStatus>('disconnected')
   const [qrCode, setQrCode] = useState<string | null>(null)
@@ -24,17 +27,25 @@ export function useInstanceConnection(instanceName: string | undefined) {
   const [isWatching, setIsWatching] = useState(false)
   const statusRef = useRef(status)
 
-  useEffect(() => {
-    statusRef.current = status
-  }, [status])
+  // Instances em cache (Configurações, Instâncias, Instance ativa) mostram o status daqui: mudou, refaz.
+  const invalidateInstances = useCallback(
+    () => queryClient.invalidateQueries({ queryKey: queryKeys.instances }),
+    [queryClient]
+  )
 
-  const applyStatus = useCallback((next: InstanceStatus) => {
-    setStatus(next)
-    if (next === 'connected') {
-      setQrCode(null)
-      setIsWatching(false)
-    }
-  }, [])
+  const applyStatus = useCallback(
+    (next: InstanceStatus) => {
+      const changed = statusRef.current !== next
+      statusRef.current = next
+      setStatus(next)
+      if (next === 'connected') {
+        setQrCode(null)
+        setIsWatching(false)
+      }
+      if (changed) void invalidateInstances()
+    },
+    [invalidateInstances]
+  )
 
   const requestQr = useCallback(async () => {
     if (!instanceName) return
@@ -62,7 +73,9 @@ export function useInstanceConnection(instanceName: string | undefined) {
     setError(null)
     try {
       await instanceService.logout(instanceName)
-      setStatus('disconnected')
+      applyStatus('disconnected')
+      // O logout muda o estado no backend mesmo que o status local já fosse 'disconnected'.
+      void invalidateInstances()
       setQrCode(null)
       setIsWatching(false)
     } catch (e) {
@@ -70,7 +83,7 @@ export function useInstanceConnection(instanceName: string | undefined) {
     } finally {
       setIsLoading(false)
     }
-  }, [instanceName])
+  }, [instanceName, applyStatus, invalidateInstances])
 
   // Ao abrir: lê o estado; se não está conectada, já pede o QR.
   useEffect(() => {
@@ -107,7 +120,7 @@ export function useInstanceConnection(instanceName: string | undefined) {
       if (notice.type === 'qr_code') {
         setError(null)
         setQrCode(notice.qrCode)
-        setStatus('connecting')
+        applyStatus('connecting')
       } else if (notice.type === 'instance_status') {
         setError(null)
         applyStatus(notice.status)

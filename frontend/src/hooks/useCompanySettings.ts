@@ -1,90 +1,94 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
-import { authService } from '@/services/authService'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCurrentUser } from '@/hooks/useCurrentUser'
+import { queryKeys } from '@/lib/queryKeys'
 import { companyService } from '@/services/companyService'
 import { HttpError } from '@/services/http'
-import { useAuthStore } from '@/stores/useAuthStore'
 import type { AgentSettings, Company } from '@/types/company'
 
 export type SaveResult<T> = { ok: true; value: T } | { ok: false; fieldErrors: Record<string, string> }
 
-interface CompanyState {
-  company: Company | null
-  agent: AgentSettings | null
-  loading: boolean
-  /** Falha ao carregar (sem Company, 403, rede). */
-  error: string | null
-}
-
 const messageOf = (e: unknown, fallback: string) => (e instanceof Error ? e.message : fallback)
+
+function toSaveError(e: unknown): { ok: false; fieldErrors: Record<string, string> } {
+  if (e instanceof HttpError && e.status === 422) {
+    return { ok: false, fieldErrors: { ...e.fieldErrors, _form: e.message } }
+  }
+  return { ok: false, fieldErrors: { _form: messageOf(e, 'Falha ao salvar') } }
+}
 
 /**
  * Company e Agent do usuário logado, sempre lidos do backend (nada fica em localStorage).
- * `saveCompany` e `saveAgent` devolvem os erros de validação por campo, sem lançar.
+ * `saveCompany` e `saveAgent` devolvem os erros de validação por campo, sem lançar, e
+ * invalidam a query do recurso para a tela refletir o que o backend gravou.
  */
 export type CompanySettingsState = ReturnType<typeof useCompanySettings>
 
 export function useCompanySettings() {
-  const token = useAuthStore((state) => state.token)
-  const [state, setState] = useState<CompanyState>({ company: null, agent: null, loading: true, error: null })
+  const queryClient = useQueryClient()
+  const me = useCurrentUser()
+  const companyId = me.data?.company_id ?? null
 
-  useEffect(() => {
-    if (!token) return
-    let cancelled = false
-    const load = async () => {
-      try {
-        const me = await authService.getCurrentUser(token)
-        if (!me.company_id) throw new Error('Seu usuário não está vinculado a uma empresa.')
-        const [company, agent] = await Promise.all([
-          companyService.get(me.company_id),
-          // Company sem Agent (404) ainda edita os dados da empresa.
-          companyService.getAgent(me.company_id).catch((e) => {
-            if (e instanceof HttpError && e.status === 404) return null
-            throw e
-          }),
-        ])
-        if (!cancelled) setState({ company, agent, loading: false, error: null })
-      } catch (e) {
-        if (!cancelled) setState({ company: null, agent: null, loading: false, error: messageOf(e, 'Falha ao carregar') })
-      }
-    }
-    load()
-    return () => {
-      cancelled = true
-    }
-  }, [token])
+  const companyQuery = useQuery({
+    queryKey: queryKeys.company(companyId ?? ''),
+    queryFn: () => companyService.get(companyId as string),
+    enabled: Boolean(companyId),
+  })
+  const agentQuery = useQuery({
+    queryKey: queryKeys.agent(companyId ?? ''),
+    // Company sem Agent (404) ainda edita os dados da empresa.
+    queryFn: () =>
+      companyService.getAgent(companyId as string).catch((e) => {
+        if (e instanceof HttpError && e.status === 404) return null
+        throw e
+      }),
+    enabled: Boolean(companyId),
+  })
 
-  const save = useCallback(async <T,>(action: () => Promise<T>, apply: (value: T) => void): Promise<SaveResult<T>> => {
+  const companyMutation = useMutation({
+    mutationFn: (body: Parameters<typeof companyService.update>[1]) =>
+      companyService.update(companyId as string, body),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.company(companyId as string) }),
+  })
+  const agentMutation = useMutation({
+    mutationFn: (body: Partial<AgentSettings>) => companyService.updateAgent(companyId as string, body),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.agent(companyId as string) }),
+  })
+
+  const noCompany = <T,>() => Promise.resolve<SaveResult<T>>({ ok: false, fieldErrors: { _form: 'Empresa não carregada' } })
+
+  const saveCompany = async (body: Parameters<typeof companyService.update>[1]): Promise<SaveResult<Company>> => {
+    if (!companyId) return noCompany()
     try {
-      const value = await action()
-      apply(value)
-      return { ok: true, value }
+      return { ok: true, value: await companyMutation.mutateAsync(body) }
     } catch (e) {
-      if (e instanceof HttpError && e.status === 422) {
-        return { ok: false, fieldErrors: { ...e.fieldErrors, _form: e.message } }
-      }
-      return { ok: false, fieldErrors: { _form: messageOf(e, 'Falha ao salvar') } }
+      return toSaveError(e)
     }
-  }, [])
+  }
 
-  const saveCompany = useCallback(
-    (body: Parameters<typeof companyService.update>[1]) => {
-      const id = state.company?.id
-      if (!id) return Promise.resolve<SaveResult<Company>>({ ok: false, fieldErrors: { _form: 'Empresa não carregada' } })
-      return save(() => companyService.update(id, body), (company) => setState((s) => ({ ...s, company })))
-    },
-    [save, state.company?.id]
-  )
+  const saveAgent = async (body: Partial<AgentSettings>): Promise<SaveResult<AgentSettings>> => {
+    if (!companyId) return noCompany()
+    try {
+      return { ok: true, value: await agentMutation.mutateAsync(body) }
+    } catch (e) {
+      return toSaveError(e)
+    }
+  }
 
-  const saveAgent = useCallback(
-    (body: Partial<AgentSettings>) => {
-      const id = state.company?.id
-      if (!id) return Promise.resolve<SaveResult<AgentSettings>>({ ok: false, fieldErrors: { _form: 'Empresa não carregada' } })
-      return save(() => companyService.updateAgent(id, body), (agent) => setState((s) => ({ ...s, agent })))
-    },
-    [save, state.company?.id]
-  )
-
-  return { ...state, saveCompany, saveAgent }
+  const loadError = me.error ?? companyQuery.error ?? agentQuery.error
+  const missingCompany = me.isSuccess && !me.data.company_id
+  return {
+    company: companyQuery.data ?? null,
+    agent: agentQuery.data ?? null,
+    loading: !missingCompany && !loadError && (me.isPending || companyQuery.isPending || agentQuery.isPending),
+    /** Falha ao carregar (sem Company, 403, rede). */
+    error: missingCompany
+      ? 'Seu usuário não está vinculado a uma empresa.'
+      : loadError
+        ? messageOf(loadError, 'Falha ao carregar')
+        : null,
+    saveCompany,
+    saveAgent,
+  }
 }

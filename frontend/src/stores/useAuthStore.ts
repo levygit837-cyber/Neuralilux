@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 import type { User, AuthState } from '@/types/auth'
 import { cookieStorage } from '@/lib/cookieStorage'
 import { isTokenExpired, syncTokenToLocalStorage } from '@/lib/authToken'
+import { clearQueryCache } from '@/lib/queryClient'
 import { useChatStore } from '@/stores/useChatStore'
 
 interface AuthStore extends AuthState {
@@ -21,6 +22,7 @@ export const useAuthStore = create<AuthStore>()(
       isAuthenticated: false,
       hasHydrated: false,
       login: (user, token) => {
+        clearQueryCache()
         syncTokenToLocalStorage(token)
         set({ user, token, isAuthenticated: true })
       },
@@ -28,6 +30,8 @@ export const useAuthStore = create<AuthStore>()(
         syncTokenToLocalStorage(null)
         // As Conversations e Messages em memória são do usuário que saiu.
         useChatStore.getState().reset()
+        // E o cache de queries: o próximo login não pode ver dados do usuário que saiu.
+        clearQueryCache()
         set({ user: null, token: null, isAuthenticated: false })
       },
       setUser: (user) => set({ user }),

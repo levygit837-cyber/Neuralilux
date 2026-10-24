@@ -1,10 +1,12 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
-import { authService } from '@/services/authService'
+import { useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useCurrentUser } from '@/hooks/useCurrentUser'
+import { useSessionReady } from '@/hooks/useSessionReady'
+import { queryKeys } from '@/lib/queryKeys'
 import { HttpError } from '@/services/http'
 import { gatewayService } from '@/services/gatewayService'
-import { useAuthStore } from '@/stores/useAuthStore'
 import {
   DEFAULT_GATEWAY_TIMEOUT_SECONDS,
   originChanged,
@@ -15,56 +17,39 @@ import {
 } from '@/types/gateway'
 import { needsKeyForNewOrigin, type GatewayDraft, type ModelDraft } from './drafts'
 
+const NO_GATEWAYS: Gateway[] = []
+const NO_ASSIGNMENTS: GatewayAssignment[] = []
+
 export function useGatewaysController() {
-  const [gateways, setGateways] = useState<Gateway[]>([])
-  const [assignments, setAssignments] = useState<GatewayAssignment[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const queryClient = useQueryClient()
+  const enabled = useSessionReady()
+  const gatewaysQuery = useQuery({ queryKey: queryKeys.gatewayList, queryFn: gatewayService.list, enabled })
+  const assignmentsQuery = useQuery({
+    queryKey: queryKeys.gatewayAssignments,
+    queryFn: gatewayService.assignments,
+    enabled,
+  })
+  const gateways = gatewaysQuery.data ?? NO_GATEWAYS
+  const assignments = assignmentsQuery.data ?? NO_ASSIGNMENTS
+  const loading = gatewaysQuery.isPending || assignmentsQuery.isPending
+  const loadError = gatewaysQuery.error ?? assignmentsQuery.error
+  const [actionError, setActionError] = useState<string | null>(null)
+  const error = actionError ?? (loadError ? (loadError instanceof Error ? loadError.message : 'Falha ao carregar gateways') : null)
+  const setError = setActionError
   const [gatewayDraft, setGatewayDraft] = useState<GatewayDraft | null>(null)
   const [modelDraft, setModelDraft] = useState<ModelDraft | null>(null)
   const [remoteModels, setRemoteModels] = useState<Record<string, string[]>>({})
   const [probes, setProbes] = useState<Record<string, ProbeResult | 'running'>>({})
   const [saving, setSaving] = useState(false)
-  const token = useAuthStore((state) => state.token)
-  const [isSuperuser, setIsSuperuser] = useState<boolean | null>(null)
+  // Sem o perfil (`null`), vale o 403 do backend.
+  const isSuperuser = useCurrentUser().data?.is_superuser ?? null
   const [forbidden, setForbidden] = useState(false)
   const [gatewayErrors, setGatewayErrors] = useState<Record<string, string>>({})
   const [modelErrors, setModelErrors] = useState<Record<string, string>>({})
   // `is_superuser` desconhecido (null): a trava fica por conta do 403 do backend.
   const readOnly = isSuperuser === false || forbidden
 
-  const reload = useCallback(async () => {
-    try {
-      const [g, a] = await Promise.all([gatewayService.list(), gatewayService.assignments()])
-      setGateways(g)
-      setAssignments(a)
-      setError(null)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Falha ao carregar gateways')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    reload()
-  }, [reload])
-
-  useEffect(() => {
-    if (!token) return
-    let cancelled = false
-    authService
-      .getCurrentUser(token)
-      .then((me) => {
-        if (!cancelled) setIsSuperuser(me.is_superuser)
-      })
-      .catch(() => {
-        /* sem o perfil, vale o 403 do backend */
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [token])
+  const reload = () => queryClient.invalidateQueries({ queryKey: queryKeys.gateways })
 
   /** Mostra o erro no banner. 403 vira modo somente leitura (a mensagem fica no aviso fixo). */
   const reportError = (e: unknown, fallback: string) => {
