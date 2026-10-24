@@ -118,10 +118,11 @@ def ensure_default_gateway(db: Session) -> InferenceGateway | None:
 
 
 def reencrypt_gateway_secrets(db: Session) -> int:
-    """Converte chaves de API gravadas com a derivacao SHA-256 antiga para HKDF.
+    """Converte chaves de API gravadas com derivacao da `SECRET_KEY` para a `GATEWAY_ENCRYPTION_KEY`.
 
-    Idempotente. Tokens que nao abrem com nenhuma das duas derivacoes ficam intactos
-    (o usuario precisa informar a chave de novo). Devolve quantas chaves foram convertidas.
+    Aceita os formatos antigos (HKDF e SHA-256 sobre a `SECRET_KEY`). Idempotente. Tokens que nao abrem
+    com nenhuma das chaves ficam intactos (o usuario precisa informar a chave de novo). Devolve quantas
+    chaves foram convertidas.
     """
     converted = 0
     for gateway in db.query(InferenceGateway).filter(InferenceGateway.api_key_encrypted.isnot(None)).all():

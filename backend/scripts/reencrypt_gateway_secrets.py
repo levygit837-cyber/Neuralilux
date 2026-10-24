@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Re-criptografa as chaves de API dos Gateways da derivacao SHA-256 antiga para HKDF.
+"""Re-criptografa as chaves de API dos Gateways da derivacao da SECRET_KEY para a GATEWAY_ENCRYPTION_KEY.
 
-Idempotente: rodar de novo nao altera nada. Chaves que nao abrem com a SECRET_KEY atual
-ficam intactas e precisam ser informadas de novo pela API.
+Cobre tokens HKDF(SECRET_KEY) e SHA-256(SECRET_KEY). Idempotente: rodar de novo nao altera nada.
+Chaves que nao abrem com nenhuma das duas ficam intactas e precisam ser informadas de novo pela API.
+Passo unico de upgrade: rode antes de subir a app, com GATEWAY_ENCRYPTION_KEY e a SECRET_KEY antiga no .env.
 """
 import os
 import sys

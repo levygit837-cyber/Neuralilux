@@ -315,16 +315,18 @@ def test_secret_roundtrip_and_ciphertext_hides_plaintext():
     assert "sk-abc" not in token and decrypt_secret(token) == "sk-abc"
 
 
-def test_secret_key_is_derived_with_hkdf_not_plain_sha256():
-    """Um token feito com a chave SHA-256 antiga NAO abre mais; a derivacao e HKDF."""
+def test_tokens_derived_from_secret_key_no_longer_open():
+    """Tokens feitos com a SECRET_KEY (SHA-256 ou HKDF) NAO abrem: so a GATEWAY_ENCRYPTION_KEY decifra."""
     import base64
     import hashlib
 
     from cryptography.fernet import Fernet
 
     from app.core.config import settings
-    from app.core.crypto import SecretDecryptionError, decrypt_secret
+    from app.core.crypto import SecretDecryptionError, _fernet_for, decrypt_secret
 
-    legacy = Fernet(base64.urlsafe_b64encode(hashlib.sha256(settings.SECRET_KEY.encode()).digest()))
-    with pytest.raises(SecretDecryptionError):
-        decrypt_secret(legacy.encrypt(b"sk-old").decode())
+    sha256 = Fernet(base64.urlsafe_b64encode(hashlib.sha256(settings.SECRET_KEY.encode()).digest()))
+    hkdf = _fernet_for(settings.SECRET_KEY)
+    for old in (sha256, hkdf):
+        with pytest.raises(SecretDecryptionError):
+            decrypt_secret(old.encrypt(b"sk-old").decode())

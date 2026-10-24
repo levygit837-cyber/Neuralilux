@@ -245,7 +245,7 @@ def main():
         print("\nRegistering default inference gateway (Kiro-backend)...")
         gateway = ensure_default_gateway(db)
         print("Gateway created: Kiro-backend (Sonnet 5.5, effort low)" if gateway else "Gateway already exists")
-        print(f"Gateway API keys re-encrypted (SHA-256 -> HKDF): {reencrypt_gateway_secrets(db)}")
+        print(f"Gateway API keys re-encrypted (SECRET_KEY -> GATEWAY_ENCRYPTION_KEY): {reencrypt_gateway_secrets(db)}")
 
         print("\n✅ Database seed completed successfully!")
 
