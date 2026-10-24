@@ -110,8 +110,8 @@ class WhatsAppMessageConsumer:
             elif event == "messages.update":
                 await update_message_status(db, data)
             elif event == "connection.update":
-                await update_connection_status(db, data)
-                if unwrap_event_payload(data).get("state") == "open":
+                applied = await update_connection_status(db, data)  # `open` velho reenviado não importa histórico
+                if applied and unwrap_event_payload(data).get("state") == "open":
                     self._spawn_history_sync(db, data)
             elif event == "qrcode.updated":
                 await publish_qr_code_update(data)

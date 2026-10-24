@@ -291,13 +291,28 @@ Com `WEBHOOK_GLOBAL_WEBHOOK_BY_EVENTS=false` o nome vem em `event` e a URL não 
 | Evento | `data` | Consumer (`consumer.process_webhook_event`) |
 |---|---|---|
 | `messages.upsert` | um record como no `findMessages`, sem `MessageUpdate` (`key`, `pushName`, `message`, `messageType`, `messageTimestamp`, `source`, `instanceId`) | `_save_message_to_database` |
-| `messages.update` | **plano**: `{ messageId, keyId, remoteJid, fromMe, participant, status, instanceId }` (`status` ∈ `SERVER_ACK`, `DELIVERY_ACK`, `READ`); `keyId` é o `Message.message_id` | `update_message_status` |
+| `messages.update` | **plano**: `{ messageId, keyId, remoteJid, fromMe, participant, status, instanceId }` (`status` ∈ `SERVER_ACK`, `DELIVERY_ACK`, `READ`, e pelo tipo `StatusMessage` da Evolution também `ERROR`, `PENDING`, `PLAYED`, `DELETED`; tratamento abaixo); `keyId` é o `Message.message_id` | `update_message_status` |
 | `connection.update` | `{ instance, state, statusReason, wuid, profileName, profilePictureUrl }` | `update_connection_status`; `state: "open"` dispara a importação de histórico |
 | `qrcode.updated` | QR code e contador | `publish_qr_code_update` |
 | `messages.set`, `chats.set`, `contacts.set` | histórico em lote | importação de histórico (`HISTORY_EVENTS`) |
 | `chats.upsert` | **lista** `{ remoteJid, instanceId, name, unreadMessages }` | importação de histórico (`HISTORY_EVENTS`) |
 | `contacts.update` | `{ remoteJid, pushName, instanceId }` | **não tratado**: cai em `Unknown webhook event` (warning) |
 | `contacts.upsert`, `chats.update`, `chats.delete`, `messages.edited`, `messages.delete`, `send.message`, `presence.update`, `groups.upsert`, `groups.update`, `group.participants.update`, `labels.*`, `call` | vários | **não tratados** (warning `Unknown webhook event`) |
+
+Status de `messages.update` e como `update_message_status` os trata (ordem `pending < failed < sent < delivered < read`; só avança):
+
+| Evolution | Message | Efeito |
+|---|---|---|
+| `PENDING` | `pending` | Nunca avança nada: o backend não grava `pending`, toda Message nasce `sent`. |
+| `SERVER_ACK` | `sent` | Avança de `pending`/`failed`; senão é ignorado. |
+| `DELIVERY_ACK` | `delivered` | Avança de `sent`. |
+| `READ` | `read` | Avança de qualquer anterior. |
+| `PLAYED` | `read` | Áudio/vídeo tocado: tratado como `read`. |
+| `ERROR` | `failed` | **Hoje sem efeito**: `failed` fica abaixo de `sent` e a Message já está `sent`, então o `ERROR` é ignorado como status velho. Só teria efeito sobre uma Message `pending`, que o backend nunca grava. |
+| `DELETED` | (nenhum) | Não é progresso de entrega: ignorado com log `debug`. |
+| qualquer outro valor | (nenhum) | Ignorado com log `debug`. |
+
+`messages.update` de Message desconhecida: `warning`; se o `remoteJid` termina em `@broadcast` (o upsert nunca grava esses), `debug`.
 
 Evento que chegou ao websocket da Evolution durante a captura: `groups.update`, com `data` = lista de grupos (campos de `fetchAllGroups` mais `addressingMode`, `subjectOwnerPn`, `ownerPn`, `descOwner`, `descOwnerPn`, `descTime`, `joinApprovalMode`, `memberAddMode` e `participants: [{ id, phoneNumber, admin }]`).
 

@@ -132,3 +132,25 @@ async def test_connection_update_without_date_time_is_applied_as_before(db, owne
     db.refresh(owned_instance)
 
     assert owned_instance.status == "disconnected"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "remote_jid, level",
+    [("status@broadcast", "debug"), ("123456@broadcast", "debug"), ("5511999999999@s.whatsapp.net", "warning")],
+)
+async def test_unknown_message_log_level_depends_on_the_chat(db, owned_instance, published, remote_jid, level):
+    update = {"instance": "evo-realtime-1", "data": {"keyId": "x", "remoteJid": remote_jid, "status": "READ"}}
+
+    with structlog.testing.capture_logs() as logs:
+        await update_message_status(db, update)
+
+    discarded = [log for log in logs if log["event"].startswith("Message status update for unknown message")]
+    assert [log["log_level"] for log in discarded] == [level]
+
+
+@pytest.mark.asyncio
+async def test_connection_update_reports_whether_it_was_applied(db, owned_instance, published):
+    assert await update_connection_status(db, _connection("open", "2026-01-01T12:10:00.000-03:00")) is True
+    assert await update_connection_status(db, _connection("close", "2026-01-01T12:00:00.000-03:00")) is False
+    assert await update_connection_status(db, {"instance": "desconhecida", "data": {"state": "open"}}) is False

@@ -99,7 +99,9 @@ async def update_message_status(db: Session, data: Dict[str, Any]) -> None:
         message = db.query(Message).filter(Message.message_id == message_id).first()
         if message is None:
             # O ack pode chegar antes de o `messages.upsert` ser gravado; ele não é reenfileirado e se perde.
-            logger.warning("Message status update for unknown message discarded", message_id=message_id, status=status)
+            # `@broadcast` (status, listas) nunca é gravado pelo upsert: descartar é o esperado, não um alerta.
+            level = logger.debug if str(message_payload.get("remoteJid") or "").endswith("@broadcast") else logger.warning
+            level("Message status update for unknown message discarded", message_id=message_id, status=status)
             return
         # A Evolution reenvia (e reordena) webhooks: o status só avança, nunca volta de `read` para `delivered`.
         if MESSAGE_STATUS_RANK.get(message.status, -1) >= MESSAGE_STATUS_RANK[status]:
@@ -141,8 +143,12 @@ def _event_time(data: Dict[str, Any]) -> Optional[datetime]:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
-async def update_connection_status(db: Session, data: Dict[str, Any]) -> None:
-    """Grava a conexão da Instance; um `connection.update` mais antigo que o já aplicado (reenvio) é ignorado."""
+async def update_connection_status(db: Session, data: Dict[str, Any]) -> bool:
+    """Grava a conexão da Instance e devolve se aplicou o evento.
+
+    Um `connection.update` mais antigo que o já aplicado (reenvio) é ignorado e devolve `False`, para o
+    consumer não reagir (ex.: importar histórico) a um `open` velho.
+    """
     try:
         instance_name = data.get("instance")
         message_payload = unwrap_event_payload(data)
@@ -152,12 +158,12 @@ async def update_connection_status(db: Session, data: Dict[str, Any]) -> None:
             instance = find_instance(db, instance_name)
             if instance is None:
                 logger.warning("Connection update for unknown instance discarded", instance_name=instance_name)
-                return
+                return False
             event_time = _event_time(data)
             last = _last_connection_event.get(instance_name)
             if event_time and last and event_time < last:
                 logger.debug("Stale connection update ignored", instance=instance_name, state=state, event_time=event_time.isoformat())
-                return
+                return False
             if event_time:
                 _last_connection_event[instance_name] = event_time
             instance.status = normalize_connection_status(state)
@@ -174,9 +180,11 @@ async def update_connection_status(db: Session, data: Dict[str, Any]) -> None:
                     },
                 }
             )
+            return True
     except Exception as e:
         logger.error("Error updating connection status", error=str(e))
         db.rollback()
+    return False
 
 
 async def publish_qr_code_update(data: Dict[str, Any]) -> None:

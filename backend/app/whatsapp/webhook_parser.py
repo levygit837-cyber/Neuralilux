@@ -131,6 +131,8 @@ def unwrap_event_payload(data: Dict[str, Any]) -> Dict[str, Any]:
 
 # Ordem do domínio: o status só avança. `failed` fica abaixo de `sent`: só vale enquanto a Message está
 # `pending`, e qualquer ack real a tira de `failed`.
+# Hoje o backend nunca grava `pending` (toda Message nasce `sent`), então `ERROR` -> `failed` não tem efeito:
+# `failed` (rank 1) fica abaixo de `sent` (rank 2) e seria ignorado como status velho.
 MESSAGE_STATUS_RANK = {"pending": 0, "failed": 1, "sent": 2, "delivered": 3, "read": 4}
 
 _EVOLUTION_MESSAGE_STATUS = {
