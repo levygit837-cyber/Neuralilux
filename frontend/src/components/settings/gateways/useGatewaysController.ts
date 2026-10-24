@@ -22,7 +22,12 @@ const NO_ASSIGNMENTS: GatewayAssignment[] = []
 
 export function useGatewaysController() {
   const queryClient = useQueryClient()
-  const enabled = useSessionReady()
+  const sessionReady = useSessionReady()
+  const profile = useCurrentUser()
+  // `null` até o perfil chegar. As leituras de Gateways são só de superusuário (o backend responde 403 aos
+  // demais), então só disparam com o perfil confirmado: usuário comum nunca faz essas chamadas.
+  const isSuperuser = profile.data?.is_superuser ?? null
+  const enabled = sessionReady && isSuperuser === true
   const gatewaysQuery = useQuery({ queryKey: queryKeys.gatewayList, queryFn: gatewayService.list, enabled })
   const assignmentsQuery = useQuery({
     queryKey: queryKeys.gatewayAssignments,
@@ -31,23 +36,26 @@ export function useGatewaysController() {
   })
   const gateways = gatewaysQuery.data ?? NO_GATEWAYS
   const assignments = assignmentsQuery.data ?? NO_ASSIGNMENTS
-  const loading = gatewaysQuery.isPending || assignmentsQuery.isPending
-  const loadError = gatewaysQuery.error ?? assignmentsQuery.error
+  const loadError = profile.error ?? gatewaysQuery.error ?? assignmentsQuery.error
+  // Sem acesso: perfil sem `is_superuser`, ou um 403 que escapou (perfil desatualizado). Vira estado próprio do
+  // painel, não banner de erro.
+  const restricted = isSuperuser === false || (loadError instanceof HttpError && loadError.status === 403)
+  const loading =
+    !restricted && !loadError && (isSuperuser === null || gatewaysQuery.isPending || assignmentsQuery.isPending)
   const [actionError, setActionError] = useState<string | null>(null)
-  const error = actionError ?? (loadError ? (loadError instanceof Error ? loadError.message : 'Falha ao carregar gateways') : null)
+  const error =
+    actionError ??
+    (loadError && !restricted ? (loadError instanceof Error ? loadError.message : 'Falha ao carregar gateways') : null)
   const setError = setActionError
   const [gatewayDraft, setGatewayDraft] = useState<GatewayDraft | null>(null)
   const [modelDraft, setModelDraft] = useState<ModelDraft | null>(null)
   const [remoteModels, setRemoteModels] = useState<Record<string, string[]>>({})
   const [probes, setProbes] = useState<Record<string, ProbeResult | 'running'>>({})
   const [saving, setSaving] = useState(false)
-  // Sem o perfil (`null`), vale o 403 do backend.
-  const isSuperuser = useCurrentUser().data?.is_superuser ?? null
   const [forbidden, setForbidden] = useState(false)
   const [gatewayErrors, setGatewayErrors] = useState<Record<string, string>>({})
   const [modelErrors, setModelErrors] = useState<Record<string, string>>({})
-  // `is_superuser` desconhecido (null): a trava fica por conta do 403 do backend.
-  const readOnly = isSuperuser === false || forbidden
+  const readOnly = restricted || forbidden
 
   const reload = () => queryClient.invalidateQueries({ queryKey: queryKeys.gateways })
 
@@ -224,6 +232,7 @@ export function useGatewaysController() {
     probes,
     saving,
     readOnly,
+    restricted,
     gatewayErrors,
     modelErrors,
     run,

@@ -3,6 +3,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { Cpu, Network } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useSessionReady } from '@/hooks/useSessionReady'
 import { queryKeys } from '@/lib/queryKeys'
 import { gatewayService } from '@/services/gatewayService'
@@ -11,11 +12,13 @@ import { AGENT_LABELS, AGENT_TYPES } from '@/types/gateway'
 
 export function InferenceProviderCard() {
   const setActiveTab = useSettingsStore((state) => state.setActiveTab)
+  // Leitura enxuta, liberada a qualquer usuário logado: a lista completa de Gateways (com URL) é só de superusuário.
   const query = useQuery({
-    queryKey: queryKeys.gatewayAssignments,
-    queryFn: gatewayService.assignments,
+    queryKey: queryKeys.gatewayActiveModels,
+    queryFn: gatewayService.activeModels,
     enabled: useSessionReady(),
   })
+  const canManage = useCurrentUser().data?.is_superuser !== false
   const assignments = query.data ?? []
   const loading = query.isPending
   const error = query.isError ? (query.error instanceof Error ? query.error.message : 'Falha ao carregar atribuições') : null
@@ -59,12 +62,14 @@ export function InferenceProviderCard() {
         })}
       </ul>
 
-      <div className="flex justify-end">
-        <Button type="button" onClick={() => setActiveTab('gateways')}>
-          <Network className="mr-2 h-4 w-4" />
-          Gerenciar na aba Gateways
-        </Button>
-      </div>
+      {canManage && (
+        <div className="flex justify-end">
+          <Button type="button" onClick={() => setActiveTab('gateways')}>
+            <Network className="mr-2 h-4 w-4" />
+            Gerenciar na aba Gateways
+          </Button>
+        </div>
+      )}
     </div>
   )
 }

@@ -38,6 +38,13 @@ export interface GatewayAssignment {
   model_id: string
 }
 
+/** Leitura enxuta para qualquer usuário logado (`GET /gateways/active-models`): sem URL, ids nem chave. */
+export interface ActiveModel {
+  agent_type: AgentType
+  gateway_name: string
+  model_name: string
+}
+
 export interface GatewayInput {
   name: string
   base_url: string
