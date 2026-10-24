@@ -128,8 +128,10 @@ export function ChatHeader({
             role="switch"
             aria-checked={agentEnabled === true}
             aria-label="Agent ativo nesta conversa"
-            onClick={onToggleAgent}
-            disabled={isButtonDisabled}
+            // `aria-disabled` em vez de `disabled`: durante a requisição o botão desabilitado perderia o foco
+            // e quem usa só teclado cairia fora do controle.
+            aria-disabled={isButtonDisabled}
+            onClick={isButtonDisabled ? undefined : onToggleAgent}
             className={`relative w-11 h-6 rounded-full transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
               agentEnabled ? 'bg-primary' : 'bg-brand-border'
             } ${isButtonDisabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}

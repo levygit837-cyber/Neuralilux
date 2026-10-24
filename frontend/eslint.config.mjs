@@ -19,6 +19,16 @@ const config = [
       'jsx-a11y/label-has-for': 'off',
       // depth 3: o texto do label costuma estar em <div><p> dentro do <label> (ex.: checkbox com descrição).
       'jsx-a11y/label-has-associated-control': ['error', { depth: 3 }],
+      // Vem desligada no recomendado; é ela que acusa botão só com ícone e sem nome acessível.
+      'jsx-a11y/control-has-associated-label': [
+        'error',
+        {
+          ignoreElements: ['audio', 'canvas', 'embed', 'input', 'textarea', 'tr', 'video'],
+          ignoreRoles: ['grid', 'listbox', 'menu', 'menubar', 'radiogroup', 'row', 'tablist', 'toolbar', 'tree', 'treegrid'],
+          includeRoles: ['alert', 'dialog'],
+          depth: 3,
+        },
+      ],
     },
   },
 ]

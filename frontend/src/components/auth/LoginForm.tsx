@@ -87,7 +87,7 @@ export function LoginForm({ callbackUrl }: LoginFormProps) {
               placeholder="seu@email.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              icon={<Mail className="h-5 w-5" />}
+              icon={<Mail className="h-5 w-5" aria-hidden="true" />}
               required
             />
           </div>
@@ -103,18 +103,20 @@ export function LoginForm({ callbackUrl }: LoginFormProps) {
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                icon={<Lock className="h-5 w-5" />}
+                icon={<Lock className="h-5 w-5" aria-hidden="true" />}
                 required
               />
               <button
                 type="button"
+                aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                aria-pressed={showPassword}
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-gray"
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-gray focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
               >
                 {showPassword ? (
-                  <EyeOff className="h-5 w-5" />
+                  <EyeOff className="h-5 w-5" aria-hidden="true" />
                 ) : (
-                  <Eye className="h-5 w-5" />
+                  <Eye className="h-5 w-5" aria-hidden="true" />
                 )}
               </button>
             </div>
