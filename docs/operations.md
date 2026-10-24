@@ -223,6 +223,14 @@ Antes do #85, `POST /instances/{nome}` criava a Instance na Evolution com a `EVO
 2. Reinicie Evolution, API e worker.
 3. As Instances antigas passam a ter um token que não vale mais nada; a app usa só a chave global no header `apikey`, então o atendimento segue. Recrie as Instances que precisem de token próprio.
 
+### A API fica lenta, o `/health` demora ou a importação de histórico repete
+
+O event loop da API e do worker só espera rede ([ADR 0009](adr/0009-event-loop-livre-sqlalchemy-sincrono-em-thread.md)): banco, bcrypt e `resolve_gateway` rodam em threads. Se o `/health` ou o Socket.IO engasgam sob carga, procure o que voltou a bloquear o loop. Ligue o modo debug do asyncio (`PYTHONASYNCIODEBUG=1`, ou `loop.set_debug(True)`) e leia o log do logger `asyncio`: `Executing <...> took N seconds` aponta a corrotina que segurou o loop por mais de `slow_callback_duration` (100 ms por padrão).
+
+- **Pool de conexões**: as threads esperam conexão do pool (`pool_size=10`, `max_overflow=20`). `QueuePool limit … reached` no log é falta de conexão, não do loop: confira se alguma rota segura a Session durante uma chamada de rede.
+- **Um `httpx.AsyncClient` por destino** (Evolution e cada Gateway) vive o processo todo; a API o fecha no fim do `lifespan` e o worker no `finally` do `run()`. Trocar a URL da Evolution ou de um Gateway abre um cliente novo para a nova URL na primeira chamada.
+- **Reimportação do histórico**: `chats.upsert` e `connection.update` com `open` só disparam a importação se a última da mesma Instance foi há mais de `HISTORY_REIMPORT_MIN_INTERVAL_SECONDS` (padrão 300; 0 desliga). Dentro do intervalo, o log traz `History reimport ignored: the last one was less than the minimum interval ago`. O controle é uma chave no Redis (`neuralilux:history_reimport:<instance_id>`, `SET NX EX`), compartilhada por todos os workers: com N workers sai **uma** reimportação por intervalo, não uma por worker. Para forçar uma reimportação agora: `redis-cli DEL neuralilux:history_reimport:<instance_id>` e peça a sincronização de novo. Com o Redis fora do ar a guarda **falha aberta** (reimporta e loga `History reimport guard unavailable; importing anyway`); a importação segue limitada a uma por Instance pelo advisory lock do Postgres.
+
 ### A app não sobe
 
 - `Configuração recusada com ENVIRONMENT='production' (sem ENVIRONMENT definido vale 'production')…`: sem `ENVIRONMENT=development` explícito a app recusa `SECRET_KEY`, `EVOLUTION_WEBHOOK_TOKEN` e `GATEWAY_ENCRYPTION_KEY` vazios ou de exemplo (e exige `GATEWAY_ENCRYPTION_KEY` diferente da `SECRET_KEY`, as duas com 32+ caracteres). Em dev local, ponha `ENVIRONMENT=development` no `backend/.env`. Fora dele, defina valores fortes e distintos (`python3 -c "import secrets; print(secrets.token_urlsafe(48))"`).
