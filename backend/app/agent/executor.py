@@ -8,6 +8,7 @@ WhatsApp e nova leitura do Handoff antes de devolver a resposta. Quem chama envi
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import Iterable, Sequence
 from datetime import datetime
@@ -27,6 +28,7 @@ from app.agent.sessions import previous_message_at
 from app.agent.tools import ToolRegistry
 from app.agent.turn_context import attach_turn_context, build_turn_context
 from app.core import database
+from app.core.config import settings
 from app.llm.registry import resolve as resolve_gateway
 from app.models import Agent, Company, Contact, Conversation, Instance
 
@@ -88,6 +90,8 @@ async def handle_incoming(
         request_id=uuid.uuid4().hex,
     )
 
+    # O prazo do Turn inteiro conta daqui, mas só é armado em volta do loop (Gateway e Tools): o resto é síncrono.
+    deadline = asyncio.timeout_at(asyncio.get_running_loop().time() + settings.TURN_TIMEOUT_SECONDS)
     try:
         # Antes de qualquer `await`: Message que chega depois fica para o Turn seguinte, não entra neste histórico.
         summary, history = build_context(db, conversation, exclude_ids=[*message_ids, *deferred_ids])
@@ -106,22 +110,27 @@ async def handle_incoming(
             time_context=when, opening=opening_notice(company, now), packs=packs, ctx=ctx, summary=summary
         )
         history = attach_turn_context(history, block)
-        result = await run_turn(
-            client,
-            model,
-            system,
-            history,
-            ToolRegistry.from_packs(packs),
-            ctx,
-            effort=effort,
-            max_tokens=(agent.max_tokens if agent else None) or DEFAULT_MAX_TOKENS,
-            temperature=agent.temperature if agent else None,
-            observer=events,
-        )
+        async with deadline:
+            result = await run_turn(
+                client,
+                model,
+                system,
+                history,
+                ToolRegistry.from_packs(packs),
+                ctx,
+                effort=effort,
+                max_tokens=(agent.max_tokens if agent else None) or DEFAULT_MAX_TOKENS,
+                temperature=agent.temperature if agent else None,
+                observer=events,
+            )
     except Exception:
-        # A Session do Turn pode ter ficado inválida (flush que falhou); quem chama ainda vai usá-la.
+        # A Session do Turn pode ter ficado inválida (flush que falhou) ou com transação aberta (Tool cancelada pelo
+        # prazo); quem chama ainda vai usá-la. Sem `turn_id` no retorno, nenhum Pack valida nada do Turn (Recap).
         db.rollback()
-        log.exception("Turn failed")
+        if deadline.expired():
+            log.error("Turn timed out", timeout_seconds=settings.TURN_TIMEOUT_SECONDS)
+        else:
+            log.exception("Turn failed")
         return TurnResult(reply_text=FALLBACK_REPLY)
     finally:
         await events.flush()

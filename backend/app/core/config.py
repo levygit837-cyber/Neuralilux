@@ -63,6 +63,13 @@ class Settings(BaseSettings):
     # Agrupamento de Messages picadas (ticket #36)
     DEBOUNCE_SECONDS: float = 3.0  # pausa do Contact antes do Turn; 0 desliga o agrupamento
     TYPING_REFRESH_SECONDS: float = 20.0  # a presença "digitando" expira sozinha; renovada enquanto o Turn roda
+    DEBOUNCE_MAX_WAIT_SECONDS: float = 15.0  # teto da espera da rajada: passado isso o Turn roda com o que já chegou
+
+    # Prazos do Turn (issue #89)
+    TURN_TIMEOUT_SECONDS: float = 90.0  # o Turn inteiro; vencido, cancela Gateway e Tools e o Contact recebe o fallback
+    TOOL_TIMEOUT_SECONDS: float = 15.0  # cada Tool; vencida, vira tool_result com is_error e rollback
+    TURN_RETRY_BUDGET: int = 2  # retries ao Gateway que o Turn inteiro pode gastar (não por chamada)
+    TURN_RETRY_WAIT_SECONDS: float = 20.0  # espera total (backoff com jitter ou Retry-After) que os retries do Turn podem gastar
 
     # Realtime
     REALTIME_REDIS_CHANNEL: str = "neuralilux:realtime:events"
@@ -108,6 +115,16 @@ class Settings(BaseSettings):
     def _window_block_fits_the_window(self) -> "Settings":
         if not 1 <= self.MEMORY_WINDOW_BLOCK <= self.MEMORY_WINDOW:
             raise ValueError("MEMORY_WINDOW_BLOCK deve ficar entre 1 e MEMORY_WINDOW")
+        return self
+
+    @model_validator(mode="after")
+    def _deadlines_are_positive_and_ordered(self) -> "Settings":
+        if min(self.TURN_TIMEOUT_SECONDS, self.TOOL_TIMEOUT_SECONDS) <= 0:
+            raise ValueError("TURN_TIMEOUT_SECONDS e TOOL_TIMEOUT_SECONDS devem ser maiores que zero")
+        if self.TURN_RETRY_BUDGET < 0 or self.TURN_RETRY_WAIT_SECONDS < 0:
+            raise ValueError("TURN_RETRY_BUDGET e TURN_RETRY_WAIT_SECONDS não podem ser negativos")
+        if self.DEBOUNCE_SECONDS > 0 and self.DEBOUNCE_MAX_WAIT_SECONDS < self.DEBOUNCE_SECONDS:
+            raise ValueError("DEBOUNCE_MAX_WAIT_SECONDS deve ser maior ou igual a DEBOUNCE_SECONDS")
         return self
 
     @model_validator(mode="after")

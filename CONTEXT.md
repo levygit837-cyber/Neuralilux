@@ -46,7 +46,7 @@ O texto que a Company escreve no painel para o seu Agent (nome do atendente, tom
 _Avoid_: Prompt da Company, system prompt (é o nome da coluna, não do conceito)
 
 **Turn**:
-O ciclo em que o Agent recebe as Messages que o Contact mandou numa rajada (agrupadas por uma pausa curta), pensa, chama Tools e produz no máximo uma resposta.
+O ciclo em que o Agent recebe as Messages que o Contact mandou numa rajada (agrupadas por uma pausa curta), pensa, chama Tools e produz no máximo uma resposta. Tem prazo total: vencido, o Contact recebe a resposta de erro fixa e o Turn conta como falho.
 _Avoid_: Execução, run, invocação
 
 **Turn Context**:
@@ -104,7 +104,7 @@ O pedido que o Contact monta e confirma na Conversation. Só fecha depois que o 
 _Avoid_: Compra, carrinho, venda
 
 **Recap** (Recapitulação):
-O resumo de itens, entrega, pagamento e total que o Contact precisa ver e confirmar, numa Message posterior, antes de o Order fechar. Só vale depois que a resposta que a traz foi enviada; qualquer alteração no Order depois dela, ou um Turn que falhe antes do envio, a invalida e exige uma nova.
+O resumo de itens, entrega, pagamento e total que o Contact precisa ver e confirmar, numa Message posterior, antes de o Order fechar. Só vale depois que a resposta que a traz foi enviada; qualquer alteração no Order depois dela, ou um Turn que falhe ou estoure o prazo antes do envio, a invalida e exige uma nova.
 _Avoid_: Resumo do pedido, confirmação (é a resposta do Contact à Recap, não a Recap), checkout
 
 **Delivery Zone**:
