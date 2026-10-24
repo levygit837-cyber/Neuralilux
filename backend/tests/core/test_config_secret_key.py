@@ -69,3 +69,12 @@ def test_debounce_max_wait_shorter_than_the_window_is_refused():
 def test_non_positive_deadlines_are_refused(name):
     with pytest.raises(ValidationError, match="maiores que zero"):
         _settings(ENVIRONMENT="development", **{name: 0})
+
+
+def test_tool_timeout_longer_than_the_turn_timeout_is_refused():
+    with pytest.raises(ValidationError, match="TOOL_TIMEOUT_SECONDS deve ser menor ou igual"):
+        _settings(ENVIRONMENT="development", TURN_TIMEOUT_SECONDS=10, TOOL_TIMEOUT_SECONDS=20)
+
+
+def test_tool_timeout_equal_to_the_turn_timeout_is_accepted():
+    assert _settings(ENVIRONMENT="development", TURN_TIMEOUT_SECONDS=10, TOOL_TIMEOUT_SECONDS=10).TOOL_TIMEOUT_SECONDS == 10

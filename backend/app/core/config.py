@@ -121,6 +121,8 @@ class Settings(BaseSettings):
     def _deadlines_are_positive_and_ordered(self) -> "Settings":
         if min(self.TURN_TIMEOUT_SECONDS, self.TOOL_TIMEOUT_SECONDS) <= 0:
             raise ValueError("TURN_TIMEOUT_SECONDS e TOOL_TIMEOUT_SECONDS devem ser maiores que zero")
+        if self.TOOL_TIMEOUT_SECONDS > self.TURN_TIMEOUT_SECONDS:
+            raise ValueError("TOOL_TIMEOUT_SECONDS deve ser menor ou igual a TURN_TIMEOUT_SECONDS (o prazo da Tool nunca valeria)")
         if self.TURN_RETRY_BUDGET < 0 or self.TURN_RETRY_WAIT_SECONDS < 0:
             raise ValueError("TURN_RETRY_BUDGET e TURN_RETRY_WAIT_SECONDS não podem ser negativos")
         if self.DEBOUNCE_SECONDS > 0 and self.DEBOUNCE_MAX_WAIT_SECONDS < self.DEBOUNCE_SECONDS:

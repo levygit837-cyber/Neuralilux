@@ -14,7 +14,7 @@ from app.agent.contracts import Tool, ToolContext, ToolResult
 from app.agent.loop import run_turn
 from app.agent.tools import TOOL_TIMEOUT_ERROR, ToolRegistry
 from app.core.config import settings
-from app.models import Company
+from app.models import Company, Message
 from tests.agent.test_agent_executor import _handle, agent, turn_setup  # noqa: F401  (fixtures)
 from tests.agent_fakes import FakeMessagesClient, FakePack, reply, text, tool_use
 
@@ -52,6 +52,23 @@ async def test_slow_gateway_gets_the_fallback_within_the_turn_timeout(turn_setup
     assert result.turn_id is None  # nenhum Pack valida nada de um Turn vencido
     assert 0.3 <= elapsed < 0.3 + MARGIN
     assert gateway.cancelled  # a chamada ao Gateway foi cancelada de verdade, não só abandonada
+
+
+@pytest.mark.asyncio
+async def test_external_cancellation_propagates_without_fallback_or_stored_message(turn_setup, agent):  # noqa: F811
+    db, conversation, contact, instance = turn_setup
+    gateway = agent["client"] = SlowGateway()
+    task = asyncio.create_task(_handle(db, conversation, contact, instance, "oi"))
+    await asyncio.wait_for(gateway.started.wait(), timeout=2)  # o Turn está dentro da chamada ao Gateway
+
+    task.cancel()  # o worker em shutdown, não o prazo do Turn
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert gateway.cancelled
+    assert task.cancelled()  # nada devolveu um TurnResult: o consumer não envia FALLBACK_REPLY
+    db.expire_all()
+    assert db.query(Message).filter(Message.content == executor.FALLBACK_REPLY).count() == 0
 
 
 @pytest.mark.asyncio
