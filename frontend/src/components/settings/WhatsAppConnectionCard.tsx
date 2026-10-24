@@ -1,15 +1,15 @@
 'use client'
 
 import Link from 'next/link'
-import { Smartphone, Wifi, WifiOff, Loader2 } from 'lucide-react'
+import { DeviceMobile, WifiHigh, WifiSlash, CircleNotch } from '@phosphor-icons/react'
 import { ROUTES } from '@/lib/constants'
 import { useInstances } from '@/hooks/useInstances'
 import type { InstanceStatus } from '@/services/instanceService'
 
-const STATUS_CONFIG: Record<InstanceStatus, { label: string; color: string; bgColor: string; icon: typeof Wifi }> = {
-  connected: { label: 'Conectado', color: 'text-status-success', bgColor: 'bg-status-success/10', icon: Wifi },
-  disconnected: { label: 'Desconectado', color: 'text-status-error', bgColor: 'bg-status-error/10', icon: WifiOff },
-  connecting: { label: 'Conectando', color: 'text-status-warning', bgColor: 'bg-status-warning/10', icon: Loader2 },
+const STATUS_CONFIG: Record<InstanceStatus, { label: string; color: string; bgColor: string; icon: typeof WifiHigh }> = {
+  connected: { label: 'Conectado', color: 'text-status-success', bgColor: 'bg-status-success/10', icon: WifiHigh },
+  disconnected: { label: 'Desconectado', color: 'text-status-error', bgColor: 'bg-status-error/10', icon: WifiSlash },
+  connecting: { label: 'Conectando', color: 'text-status-warning', bgColor: 'bg-status-warning/10', icon: CircleNotch },
 }
 
 const LINK_CLASS =
@@ -24,7 +24,7 @@ export function WhatsAppConnectionCard() {
     <div className="rounded-2xl border border-brand-border bg-brand-card p-7">
       <div className="mb-6 flex items-center gap-4">
         <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-status-success/10">
-          <Smartphone className="h-5 w-5 text-status-success" />
+          <DeviceMobile className="h-5 w-5 text-status-success" aria-hidden="true" />
         </div>
         <div className="flex-1">
           <h3 className="text-lg font-semibold text-content-light">Conexão WhatsApp</h3>
@@ -56,7 +56,7 @@ export function WhatsAppConnectionCard() {
               >
                 <span className="text-sm font-medium text-content-light">{instance.name}</span>
                 <span className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${status.bgColor} ${status.color}`}>
-                  <StatusIcon className={`h-3.5 w-3.5 ${instance.status === 'connecting' ? 'animate-spin' : ''}`} />
+                  <StatusIcon aria-hidden="true" className={`h-3.5 w-3.5 ${instance.status === 'connecting' ? 'animate-spin' : ''}`} />
                   {status.label}
                 </span>
               </li>

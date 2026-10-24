@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Bot, Save } from 'lucide-react'
+import { Robot, FloppyDisk } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { FieldError } from '@/components/settings/gateways/FieldError'
@@ -57,7 +57,7 @@ function AgentForm({ agent, saveAgent }: { agent: AgentSettings; saveAgent: Comp
     <div className="rounded-2xl border border-brand-border bg-brand-card p-7">
       <div className="mb-6 flex items-center gap-4">
         <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-secondary/10">
-          <Bot className="h-5 w-5 text-secondary" />
+          <Robot className="h-5 w-5 text-secondary" aria-hidden="true" />
         </div>
         <div>
           <h3 className="text-lg font-semibold text-content-light">Comportamento do Agent</h3>
@@ -173,7 +173,7 @@ function AgentForm({ agent, saveAgent }: { agent: AgentSettings; saveAgent: Comp
           </p>
         )}
         <Button onClick={handleSave} disabled={isSaving}>
-          <Save className="mr-2 h-4 w-4" />
+          <FloppyDisk className="mr-2 h-4 w-4" aria-hidden="true" />
           {isSaving ? 'Salvando...' : 'Salvar alterações'}
         </Button>
       </div>

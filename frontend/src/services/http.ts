@@ -72,12 +72,11 @@ export function endSession(): void {
 }
 
 /**
- * Chamada JSON autenticada ao backend (`/api/v1` + `path`). É a única porta do frontend para
- * dados: nenhuma chave de terceiros passa por aqui. A sessão é o cookie `httpOnly` (`credentials: 'include'`);
- * o JavaScript nunca vê o token.
+ * `fetch` ao backend (`/api/v1` + `path`) com o cookie de sessão (`credentials: 'include'`), sem tratar a resposta.
+ * Só para quem precisa da `Response` crua (o login, onde um 401 é senha errada e não sessão vencida); o resto usa `apiRequest`.
  */
-export async function apiRequest<T>(path: string, init: RequestInit = {}, fallback?: string): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}/api/v1${path}`, {
+export function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  return fetch(`${API_BASE_URL}/api/v1${path}`, {
     ...init,
     credentials: 'include',
     headers: {
@@ -85,6 +84,15 @@ export async function apiRequest<T>(path: string, init: RequestInit = {}, fallba
       ...(init.headers as Record<string, string> | undefined),
     },
   })
+}
+
+/**
+ * Chamada JSON autenticada ao backend (`/api/v1` + `path`). É a única porta do frontend para
+ * dados: nenhuma chave de terceiros passa por aqui. A sessão é o cookie `httpOnly` (`credentials: 'include'`);
+ * o JavaScript nunca vê o token.
+ */
+export async function apiRequest<T>(path: string, init: RequestInit = {}, fallback?: string): Promise<T> {
+  const response = await apiFetch(path, init)
 
   if (!response.ok) {
     if (response.status === 401) endSession()

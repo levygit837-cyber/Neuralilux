@@ -1,5 +1,4 @@
-import { API_BASE_URL as API_URL } from '@/lib/constants'
-import { apiRequest, clearServerSession, errorFromResponse } from '@/services/http'
+import { apiFetch, apiRequest, clearServerSession, errorFromResponse, HttpError } from '@/services/http'
 import type { User as SessionUser } from '@/types/auth'
 
 export interface LoginCredentials {
@@ -46,18 +45,21 @@ export const authService = {
     formData.append('username', credentials.email)
     formData.append('password', credentials.password)
 
-    const response = await fetch(`${API_URL}/api/v1/auth/login`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: formData.toString(),
-    })
-
-    if (!response.ok) {
-      throw new Error(await loginErrorMessage(response))
+    // `apiFetch`, não `apiRequest`: 401 aqui é senha errada, e `apiRequest` encerraria uma sessão que não existe.
+    let response: Response
+    try {
+      response = await apiFetch('/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: formData.toString(),
+      })
+    } catch (error) {
+      // `fetch` rejeita com `TypeError` quando não chega ao servidor (rede caída, API fora do ar, CORS).
+      if (error instanceof TypeError) throw new Error('Sem conexão com o servidor. Tente de novo.')
+      throw error
     }
+
+    if (!response.ok) throw new HttpError(response.status, await loginErrorMessage(response))
   },
 
   /** Usuário da sessão (cookie). Um 401 passa pela camada HTTP central, que encerra a sessão. */
@@ -72,26 +74,5 @@ export const authService = {
   async logout(): Promise<void> {
     const response = await clearServerSession()
     if (!response.ok) throw await errorFromResponse(response, 'Erro ao encerrar a sessão')
-  },
-
-  async register(data: {
-    email: string
-    password: string
-    full_name: string
-  }): Promise<User> {
-    const response = await fetch(`${API_URL}/api/v1/auth/register`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(data),
-    })
-
-    if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.detail || 'Erro ao registrar usuário')
-    }
-
-    return response.json()
   },
 }

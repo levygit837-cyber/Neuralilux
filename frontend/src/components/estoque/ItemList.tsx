@@ -1,4 +1,4 @@
-import { Boxes, CircleDollarSign, PackagePlus, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Stack, CurrencyCircleDollar, Package, PencilSimple, Plus, Trash } from '@phosphor-icons/react'
 
 import { Button } from '@/components/ui/Button'
 import type { MenuCategory, MenuItem } from '@/types/menu'
@@ -33,7 +33,7 @@ export function ItemList({
               </p>
             </div>
             <Button type="button" onClick={() => onNewItem(selectedCategory.id)}>
-              <PackagePlus className="h-4 w-4" />
+              <Package className="h-4 w-4" aria-hidden="true" />
               Novo item
             </Button>
           </div>
@@ -62,7 +62,7 @@ export function ItemList({
                         </span>
                       </div>
                       <div className="flex items-center gap-2 text-sm text-content-gray">
-                        <CircleDollarSign className="h-4 w-4 text-primary-light" />
+                        <CurrencyCircleDollar className="h-4 w-4 text-primary-light" aria-hidden="true" />
                         {formatPrice(item.price)}
                       </div>
                     </div>
@@ -73,14 +73,14 @@ export function ItemList({
                         onClick={() => onEditItem(item)}
                         className="rounded-full bg-brand-hover p-2 text-content-muted hover:text-content-light"
                       >
-                        <Pencil className="h-4 w-4" />
+                        <PencilSimple className="h-4 w-4" aria-hidden="true" />
                       </button>
                       <button
                         type="button"
                         onClick={() => onDeleteItem(item)}
                         className="rounded-full bg-brand-hover p-2 text-content-muted hover:text-status-error"
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash className="h-4 w-4" aria-hidden="true" />
                       </button>
                     </div>
                   </div>
@@ -115,7 +115,7 @@ export function ItemList({
               ))
             ) : (
               <div className="rounded-3xl border border-dashed border-brand-border bg-brand-base px-6 py-12 text-center xl:col-span-2">
-                <PackagePlus className="mx-auto h-9 w-9 text-content-muted" />
+                <Package className="mx-auto h-9 w-9 text-content-muted" aria-hidden="true" />
                 <p className="mt-4 text-sm font-medium text-content-light">
                   Nenhum item nesta categoria
                 </p>
@@ -127,7 +127,7 @@ export function ItemList({
                   className="mt-5"
                   onClick={() => onNewItem(selectedCategory.id)}
                 >
-                  <Plus className="h-4 w-4" />
+                  <Plus className="h-4 w-4" aria-hidden="true" />
                   Criar item
                 </Button>
               </div>
@@ -136,7 +136,7 @@ export function ItemList({
         </>
       ) : (
         <div className="flex h-full min-h-[420px] flex-col items-center justify-center rounded-3xl border border-dashed border-brand-border bg-brand-base px-6 text-center">
-          <Boxes className="h-10 w-10 text-content-muted" />
+          <Stack className="h-10 w-10 text-content-muted" aria-hidden="true" />
           <p className="mt-4 text-base font-medium text-content-light">
             Selecione uma categoria para ver os itens
           </p>

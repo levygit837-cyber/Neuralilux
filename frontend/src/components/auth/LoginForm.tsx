@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Zap, Eye, EyeOff, Mail, Lock } from 'lucide-react'
+import { Lightning, Eye, EyeSlash, Envelope, Lock } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { useAuthStore } from '@/stores/useAuthStore'
@@ -53,7 +53,7 @@ export function LoginForm({ callbackUrl }: LoginFormProps) {
         {/* Logo */}
         <div className="mb-8 flex flex-col items-center gap-4">
           <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary shadow-lg shadow-primary/30">
-            <Zap className="h-8 w-8 text-content-light" />
+            <Lightning className="h-8 w-8 text-content-light" aria-hidden="true" />
           </div>
           <div className="text-center">
             <h1 className="text-2xl font-bold text-content-light">
@@ -77,7 +77,7 @@ export function LoginForm({ callbackUrl }: LoginFormProps) {
               placeholder="seu@email.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              icon={<Mail className="h-5 w-5" aria-hidden="true" />}
+              icon={<Envelope className="h-5 w-5" aria-hidden="true" />}
               required
             />
           </div>
@@ -104,7 +104,7 @@ export function LoginForm({ callbackUrl }: LoginFormProps) {
                 className="absolute right-4 top-1/2 -translate-y-1/2 text-content-muted hover:text-content-gray focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
               >
                 {showPassword ? (
-                  <EyeOff className="h-5 w-5" aria-hidden="true" />
+                  <EyeSlash className="h-5 w-5" aria-hidden="true" />
                 ) : (
                   <Eye className="h-5 w-5" aria-hidden="true" />
                 )}

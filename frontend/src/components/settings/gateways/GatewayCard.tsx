@@ -1,4 +1,4 @@
-import { Plus, Trash2, Pencil, Play, Download, KeyRound } from 'lucide-react'
+import { Plus, Trash, PencilSimple, Play, DownloadSimple, Key } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/Button'
 import type { Gateway, GatewayModel, ProbeResult } from '@/types/gateway'
 
@@ -41,7 +41,7 @@ export function GatewayCard({
           </h3>
           <p className="truncate font-mono text-xs text-content-gray">{g.base_url}</p>
           <p className="mt-1 flex items-center gap-1 text-xs text-content-gray">
-            <KeyRound className="h-3 w-3" aria-hidden />
+            <Key className="h-3 w-3" aria-hidden />
             {g.has_api_key ? 'Chave de API salva (não exibida)' : 'Sem chave de API'}
           </p>
         </div>
@@ -53,7 +53,7 @@ export function GatewayCard({
             aria-label={`Editar gateway ${g.name}`}
             onClick={() => onEditGateway(g)}
           >
-            <Pencil className="h-4 w-4" aria-hidden />
+            <PencilSimple className="h-4 w-4" aria-hidden />
           </Button>
           <Button
             variant="secondary"
@@ -62,7 +62,7 @@ export function GatewayCard({
             aria-label={`Remover gateway ${g.name}`}
             onClick={() => onRemoveGateway(g)}
           >
-            <Trash2 className="h-4 w-4" aria-hidden />
+            <Trash className="h-4 w-4" aria-hidden />
           </Button>
         </div>
       </div>
@@ -112,7 +112,7 @@ export function GatewayCard({
                   aria-label={`Editar ${m.name}`}
                   onClick={() => onEditModel(m)}
                 >
-                  <Pencil className="h-4 w-4" aria-hidden />
+                  <PencilSimple className="h-4 w-4" aria-hidden />
                 </Button>
                 <Button
                   variant="secondary"
@@ -121,7 +121,7 @@ export function GatewayCard({
                   aria-label={`Remover ${m.name}`}
                   onClick={() => onRemoveModel(m)}
                 >
-                  <Trash2 className="h-4 w-4" aria-hidden />
+                  <Trash className="h-4 w-4" aria-hidden />
                 </Button>
               </div>
             </li>
@@ -134,7 +134,7 @@ export function GatewayCard({
           <Plus className="h-4 w-4" aria-hidden /> Adicionar modelo
         </Button>
         <Button variant="secondary" size="sm" disabled={readOnly} onClick={() => onLoadRemote(g)}>
-          <Download className="h-4 w-4" aria-hidden /> Buscar modelos do gateway
+          <DownloadSimple className="h-4 w-4" aria-hidden /> Buscar modelos do gateway
         </Button>
       </div>
       {remoteModels && (

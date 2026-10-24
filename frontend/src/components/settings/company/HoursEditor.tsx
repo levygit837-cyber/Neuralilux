@@ -1,6 +1,6 @@
 'use client'
 
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash } from '@phosphor-icons/react'
 import { DAY_KEYS, DAY_LABELS, type DayKey, type Interval } from '@/types/company'
 import { crossesMidnight } from './drafts'
 
@@ -58,7 +58,7 @@ export function HoursEditor({ hours, onChange, error }: Props) {
                   onClick={() => setDay(day, hours[day].filter((_, i) => i !== index))}
                   className="rounded-lg p-2 text-content-gray hover:text-status-error focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
-                  <Trash2 className="h-4 w-4" />
+                  <Trash className="h-4 w-4" aria-hidden="true" />
                 </button>
               </div>
             ))}
@@ -67,7 +67,7 @@ export function HoursEditor({ hours, onChange, error }: Props) {
               onClick={() => setDay(day, [...hours[day], hours[day].length === 0 ? ['18:00', '23:00'] : ['', '']])}
               className="inline-flex items-center gap-1 text-xs font-medium text-primary-light hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
-              <Plus className="h-3.5 w-3.5" /> Adicionar intervalo
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" /> Adicionar intervalo
             </button>
           </div>
         </div>

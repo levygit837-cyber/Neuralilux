@@ -1,4 +1,4 @@
-import { Network } from 'lucide-react'
+import { ShareNetwork } from '@phosphor-icons/react'
 import { gatewayService } from '@/services/gatewayService'
 import { AGENT_LABELS, AGENT_TYPES, type GatewayAssignment } from '@/types/gateway'
 import { selectClass } from './constants'
@@ -15,7 +15,7 @@ export function AssignmentsSection({ assignments, activeModels, disabled, run }:
     <section className="rounded-2xl border border-brand-border bg-brand-card p-7" aria-labelledby="gw-assign">
       <div className="mb-6 flex items-center gap-4">
         <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10">
-          <Network className="h-5 w-5 text-primary-light" />
+          <ShareNetwork className="h-5 w-5 text-primary-light" aria-hidden="true" />
         </div>
         <div>
           <h3 id="gw-assign" className="text-lg font-semibold text-content-light">Modelo de cada agente</h3>

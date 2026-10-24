@@ -10,7 +10,7 @@ import { useResolvedInstance } from '@/hooks/useResolvedInstance'
 import { useInstanceConnection } from '@/hooks/useInstanceConnection'
 import type { InstanceStatus } from '@/services/instanceService'
 import { ROUTES } from '@/lib/constants'
-import { ArrowLeft, Loader2 } from 'lucide-react'
+import { ArrowLeft, CircleNotch } from '@phosphor-icons/react'
 
 const STATUS_CONFIG: Record<
   InstanceStatus,
@@ -63,7 +63,7 @@ export default function QrPage() {
           <CardContent className="flex flex-col items-center py-12">
             <p className="text-content-gray">Nenhuma instância selecionada</p>
             <Button onClick={handleBack} className="mt-4">
-              <ArrowLeft className="mr-2 h-4 w-4" />
+              <ArrowLeft className="mr-2 h-4 w-4" aria-hidden="true" />
               Voltar para Instâncias
             </Button>
           </CardContent>
@@ -87,7 +87,7 @@ export default function QrPage() {
             className={`flex items-center justify-center gap-2 rounded-lg px-4 py-3 ${statusConfig.bgColor}`}
           >
             {status === 'connecting' && (
-              <Loader2 className={`h-5 w-5 animate-spin ${statusConfig.color}`} />
+              <CircleNotch className={`h-5 w-5 animate-spin ${statusConfig.color}`} aria-hidden="true" />
             )}
             <span className={`font-semibold ${statusConfig.color}`}>
               {statusConfig.label}
@@ -176,7 +176,7 @@ export default function QrPage() {
               >
                 {isLoading ? (
                   <>
-                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    <CircleNotch className="mr-2 h-5 w-5 animate-spin" aria-hidden="true" />
                     Conectando...
                   </>
                 ) : (
@@ -225,7 +225,7 @@ export default function QrPage() {
             variant="secondary"
             className="w-full"
           >
-            <ArrowLeft className="mr-2 h-4 w-4" />
+            <ArrowLeft className="mr-2 h-4 w-4" aria-hidden="true" />
             Voltar para Instâncias
           </Button>
 

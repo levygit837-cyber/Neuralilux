@@ -1,7 +1,7 @@
 'use client'
 
 import { useQuery } from '@tanstack/react-query'
-import { Cpu, Network } from 'lucide-react'
+import { Cpu, ShareNetwork } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/Button'
 import { useCurrentUser } from '@/hooks/useCurrentUser'
 import { useSessionReady } from '@/hooks/useSessionReady'
@@ -27,7 +27,7 @@ export function InferenceProviderCard() {
     <div className="rounded-2xl border border-brand-border bg-brand-card p-7">
       <div className="mb-6 flex items-center gap-4">
         <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10">
-          <Cpu className="h-5 w-5 text-primary-light" />
+          <Cpu className="h-5 w-5 text-primary-light" aria-hidden="true" />
         </div>
         <div>
           <h3 className="text-lg font-semibold text-content-light">Provedor de Inferência</h3>
@@ -65,7 +65,7 @@ export function InferenceProviderCard() {
       {canManage && (
         <div className="flex justify-end">
           <Button type="button" onClick={() => setActiveTab('gateways')}>
-            <Network className="mr-2 h-4 w-4" />
+            <ShareNetwork className="mr-2 h-4 w-4" aria-hidden="true" />
             Gerenciar na aba Gateways
           </Button>
         </div>
