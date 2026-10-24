@@ -17,7 +17,7 @@ redis==8.1.0
 hiredis==3.4.2
 
 # Authentication
-python-jose[cryptography]==3.5.0
+PyJWT==2.15.1
 cryptography==50.0.2
 bcrypt==5.0.0
 python-multipart==0.0.32
