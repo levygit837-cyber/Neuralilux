@@ -29,7 +29,7 @@ Hoje existe um Pack, "catálogo & pedidos" (restaurantes): cardápio, pedido com
 Pré-requisitos: Docker (Compose v2), Python 3.11 ou 3.12, Node 20.9+ e um Gateway que fale o protocolo Anthropic Messages ([ADR 0002](docs/adr/0002-anthropic-messages-via-gateways.md)).
 
 ```bash
-# 1. Variáveis do backend (defina EVOLUTION_API_KEY, EVOLUTION_WEBHOOK_TOKEN e SECRET_KEY)
+# 1. Variáveis do backend (defina EVOLUTION_API_KEY e EVOLUTION_WEBHOOK_TOKEN; o ENVIRONMENT=development do exemplo precisa ficar)
 cp backend/.env.example backend/.env
 
 # 2. Infra: PostgreSQL, Redis, RabbitMQ e Evolution API
@@ -70,7 +70,7 @@ Conectar o WhatsApp por QR code, ligar a Instance à Company e conferir a primei
 
 ## Limites atuais
 
-- Os defaults de desenvolvimento (senhas do compose, `usuario@teste.com`) não servem para produção; a app recusa `SECRET_KEY` e `EVOLUTION_WEBHOOK_TOKEN` de exemplo fora de `ENVIRONMENT=development`.
+- Os defaults de desenvolvimento (senhas do compose, `usuario@teste.com`) não servem para produção; sem `ENVIRONMENT=development` explícito a app recusa `SECRET_KEY`, `EVOLUTION_WEBHOOK_TOKEN` e `GATEWAY_ENCRYPTION_KEY` de exemplo e esconde `/docs`.
 - Só existe o Pack de catálogo & pedidos.
 - A navegação móvel e a acessibilidade do dashboard não passaram por validação completa.
 - Nenhuma métrica de clientes, disponibilidade ou uso comercial é comprovada pelo repositório.

@@ -96,7 +96,7 @@ Siga a ordem; o primeiro que bater é a causa. Mensagens em `código` aparecem n
 Causas comuns de `Turn failed`:
 
 - `LLMNotConfiguredError: Nenhum Gateway atribuido…`: nenhum modelo atribuído a `whatsapp_agent` nem a `default`. Atribua em **Configurações > Gateways**.
-- `LLMNotConfiguredError` com a chave do Gateway: a chave não abre. `SECRET_KEY` mudou, ou o banco tem chaves de antes do HKDF; rode `python scripts/reencrypt_gateway_secrets.py` (a primeira vem de [setup.md](setup.md)) ou regrave a chave do Gateway.
+- `LLMNotConfiguredError` com a chave do Gateway: a chave não abre. A `GATEWAY_ENCRYPTION_KEY` mudou, ou o banco ainda tem chaves criptografadas com a `SECRET_KEY` (antes da chave própria); rode `python scripts/reencrypt_gateway_secrets.py` (passo único, veja [Atualizar um banco existente](#atualizar-um-banco-existente-chaves-de-gateway)) ou regrave a chave do Gateway.
 - `LLMProviderError`: o Gateway respondeu fora do formato, deu 5xx ou estourou o timeout (60 s por padrão, 3 tentativas). Teste com `POST /gateways/models/{id}/test`.
 - Gateway em `localhost` com a API em container: dentro do container use `http://host.docker.internal:<porta>`.
 
@@ -139,9 +139,18 @@ O `finalizar` recusa em código, e o Agent repassa o motivo ao Contact. Os erros
 
 ### A app não sobe
 
-- `SECRET_KEY de exemplo nao pode ser usada…` ou `EVOLUTION_WEBHOOK_TOKEN vazio ou de exemplo…`: com `ENVIRONMENT != development` os valores de exemplo são recusados. Defina valores fortes.
+- `Configuração recusada com ENVIRONMENT='production' (sem ENVIRONMENT definido vale 'production')…`: sem `ENVIRONMENT=development` explícito a app recusa `SECRET_KEY`, `EVOLUTION_WEBHOOK_TOKEN` e `GATEWAY_ENCRYPTION_KEY` vazios ou de exemplo (e exige `GATEWAY_ENCRYPTION_KEY` diferente da `SECRET_KEY`). Em dev local, ponha `ENVIRONMENT=development` no `backend/.env`. Fora dele, defina valores fortes e distintos (`python3 -c "import secrets; print(secrets.token_urlsafe(48))"`).
 - Erro de migração com mais de uma head: veja [agents/migrations.md](agents/migrations.md).
 - O worker sai com `Failed to connect to RabbitMQ`: confira `RABBITMQ_URL`, o vhost `neuralilux` e `docker compose --env-file backend/.env ps`.
+
+### Atualizar um banco existente: chaves de Gateway
+
+Passo único e obrigatório ao atualizar um banco que já tem Gateways com chave de API, **antes de subir a app**:
+
+1. No `backend/.env`, defina `GATEWAY_ENCRYPTION_KEY` (valor novo e forte, diferente da `SECRET_KEY`) e mantenha a `SECRET_KEY` atual.
+2. `cd backend && python scripts/reencrypt_gateway_secrets.py`. Imprime quantas chaves converteu.
+
+O script abre cada chave com a `SECRET_KEY` (HKDF ou SHA-256 antigo) e regrava com a `GATEWAY_ENCRYPTION_KEY`. Idempotente: a segunda execução imprime 0 e não altera nada. Chaves que nenhuma das duas abre ficam intactas (regrave-as pela API). Depois disso a `SECRET_KEY` pode ser rotacionada sem tocar nos Gateways; já trocar a `GATEWAY_ENCRYPTION_KEY` invalida as chaves salvas.
 
 ### Agrupamento e prefetch
 

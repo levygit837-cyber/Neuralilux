@@ -158,7 +158,7 @@ Issue #55: 21 testes removidos nesta área. Quatro candidatos foram relidos e ma
 - `test_handoff_publica_um_dict`: `publish_handoff_requested` só tem este teste de pé; o equivalente em `tests/realtime/test_socket_thinking_events.py` é candidato da Área 2 e aponta para cá.
 - `test_handoff_event_without_instance_is_dropped_like_other_events`: o equivalente em `tests/realtime/test_socket_thinking_events.py` é candidato da Área 2 e aponta para cá; sobra só este para o descarte sem `instance_name`.
 - `test_six_tools_in_total`: nenhum outro teste monta um `ToolRegistry` com as Tools reais do núcleo e do Pack; `from_packs` só recusa duplicata nos testes com Packs falsos.
-- `test_secret_key_is_derived_with_hkdf_not_plain_sha256`: único teste que prova que `decrypt_secret` recusa token SHA-256 legado; `test_llm_registry.py::test_reencrypt_*` só prova a migração.
+- `test_tokens_derived_from_secret_key_no_longer_open`: único teste que prova que `decrypt_secret` recusa token derivado da `SECRET_KEY` (SHA-256 ou HKDF); `test_llm_registry.py::test_reencrypt_*` só prova a migração.
 
 ## Inventário por arquivo
 
@@ -342,12 +342,14 @@ Arquivo novo da #53. 2 testes: 2 keep.
 |`test_socket_subscription_follows_the_owner_rule`|`keep`|Regra de dono também vale na assinatura Socket.IO.|
 
 #### `tests/api/test_main.py`
-2 testes: 1 keep, 1 wording.
+4 testes: 3 keep, 1 wording.
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
 |`test_health_check`|`keep`|Probe de saúde responde 200 e healthy|
 |`test_root`|`wording`|Fixa o texto literal `"Neuralilux API"` da mensagem da raiz; nada além de 200 é contrato **Mantido na #53:** é o único teste que chama `GET /`; apagá-lo tira a rota `root` de `app/main.py` da cobertura. Fortalecido: a asserção do texto literal virou `version` não vazio.|
+|`test_docs_are_hidden_without_explicit_development`|`keep`|Sem `ENVIRONMENT=development` `/docs` e `/redoc` respondem 404 (processo novo: `docs_url` é decidido na importação)|
+|`test_docs_are_served_in_explicit_development`|`keep`|Com `development` explícito `/docs` e `/redoc` respondem 200|
 
 #### `tests/api/test_menu_inventory.py`
 6 testes: 6 keep (serviço sem chamador em `app/` fora do próprio módulo, mas cada teste cobre uma regra real da função).
@@ -475,16 +477,16 @@ Arquivo novo da #53. 2 testes: 2 keep.
 |`test_records_with_unexpected_args_pass_through`|`redundant`|Apesar do nome, usa tupla de `str` sem `token=` (não exercita args não-tuple/não-str); mesmo caminho e asserção de `tests/core/test_access_log_redaction.py::test_other_paths_are_left_untouched`. **Removido na #53.**|
 
 #### `tests/core/test_config_secret_key.py`
-6 testes: 6 keep.
+6 testes (alguns parametrizados): 6 keep (reescritos na #84: `ENVIRONMENT` sem padrão de dev, `GATEWAY_ENCRYPTION_KEY`).
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
-|`test_default_secret_key_is_refused_outside_development` (×2 casos)|`keep`|Produção/staging recusam SECRET_KEY padrão.|
-|`test_example_env_secret_key_is_also_refused_in_production`|`keep`|Pega validação por igualdade em vez de prefixo (chave do .env de exemplo).|
-|`test_default_secret_key_is_allowed_in_development`|`keep`|Fronteira: dev continua subindo com chave de exemplo.|
-|`test_real_secret_key_is_accepted_in_production`|`keep`|Evita bloqueio indevido de config válida em produção.|
-|`test_empty_or_example_webhook_token_is_refused_outside_development` (×6 casos)|`keep`|Webhook token vazio/exemplo recusado fora de dev.|
-|`test_empty_webhook_token_is_allowed_in_development`|`keep`|Dev aceita token vazio (fronteira do validator).|
+|`test_without_environment_the_example_secrets_are_refused_and_the_message_says_what_to_set`|`keep`|Sem `ENVIRONMENT` a app recusa os segredos de exemplo e a mensagem diz o que definir.|
+|`test_without_environment_and_strong_secrets_the_app_boots_as_production`|`keep`|Sem `ENVIRONMENT` e com segredos fortes sobe como produção.|
+|`test_empty_or_example_secret_is_refused_outside_development` (×18 casos)|`keep`|`SECRET_KEY`, `EVOLUTION_WEBHOOK_TOKEN` e `GATEWAY_ENCRYPTION_KEY` vazios ou de exemplo recusados fora de dev.|
+|`test_gateway_encryption_key_must_differ_from_secret_key`|`keep`|As duas chaves não podem ser iguais fora de dev.|
+|`test_real_secrets_are_accepted_in_production`|`keep`|Evita bloqueio indevido de config válida em produção.|
+|`test_example_secrets_and_empty_webhook_token_are_allowed_in_explicit_development`|`keep`|Fronteira: `development` explícito continua subindo com os exemplos.|
 
 #### `tests/models/test_payment_record_model.py`
 4 testes: 4 wiring.
@@ -1065,7 +1067,7 @@ Arquivo novo da #53. 2 testes: 2 keep.
 |`test_list_models_reads_v1_models`|`keep`|GET `/v1/models` e extração dos ids|
 |`test_list_models_404_carries_status_code`|`keep`|404 expõe `status_code` ao consumidor|
 |`test_secret_roundtrip_and_ciphertext_hides_plaintext`|`keep`|Roundtrip e texto cifrado sem o segredo em claro|
-|`test_secret_key_is_derived_with_hkdf_not_plain_sha256`|`keep`|Mantido (#55): único teste que prova que `decrypt_secret` recusa token SHA-256 legado; `test_llm_registry.py::test_reencrypt_*` só prova a migração.|
+|`test_tokens_derived_from_secret_key_no_longer_open`|`keep`|Mantido (#55, reescrito na #84): único teste que prova que `decrypt_secret` recusa token derivado da `SECRET_KEY` (SHA-256 ou HKDF); `test_llm_registry.py::test_reencrypt_*` só prova a migração.|
 
 #### `tests/llm/test_llm_registry.py`
 10 testes: 10 keep.
@@ -1080,8 +1082,9 @@ Arquivo novo da #53. 2 testes: 2 keep.
 |`test_undecryptable_api_key_raises_explicitly_and_is_not_cached`|`keep`|Chave ilegível falha explícito e não é cacheada|
 |`test_resolution_is_cached_until_invalidated`|`keep`|Cache de resolução e `invalidate()`|
 |`test_ensure_default_gateway_seeds_kiro_backend_with_messages_model_and_is_idempotent`|`keep`|Seed idempotente que preserva edição do usuário|
-|`test_reencrypt_migrates_legacy_sha256_tokens_and_is_idempotent`|`keep`|Migração de tokens legados sem tocar nos atuais/sem chave|
-|`test_reencrypt_skips_tokens_that_open_with_neither_key`|`keep`|Token irrecuperável é ignorado sem quebrar|
+|`test_reencrypt_migrates_secret_key_derived_tokens_and_is_idempotent`|`keep`|Migra SHA-256 e HKDF da `SECRET_KEY` sem tocar nos atuais/sem chave; segunda execução não muda nada|
+|`test_rotating_secret_key_after_migration_does_not_affect_gateway_keys`|`keep`|Trocar a `SECRET_KEY` depois da migração não afeta as chaves dos Gateways|
+|`test_reencrypt_skips_tokens_that_open_with_neither_key`|`keep`|Token irrecuperável é ignorado sem quebrar nem alterar|
 
 #### `tests/packs/test_pack_catalog_search.py`
 13 testes: 13 keep.

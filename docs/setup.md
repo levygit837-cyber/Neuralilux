@@ -25,7 +25,9 @@ Edite `backend/.env`:
   ```bash
   python3 -c "import secrets; print(secrets.token_urlsafe(32))"
   ```
-- `SECRET_KEY`: chave do JWT e da criptografia das chaves de Gateway. Fora de `ENVIRONMENT=development` a app recusa subir com o valor de exemplo.
+- `ENVIRONMENT`: no `.env.example` já vem `development`, e **precisa ficar explícito**. Sem ele a app assume produção: recusa subir com os segredos de exemplo e não expõe `/docs` nem `/redoc`.
+- `SECRET_KEY`: assina o JWT. Fora de `development` a app recusa o valor de exemplo.
+- `GATEWAY_ENCRYPTION_KEY`: criptografa as chaves de API dos Gateways no banco. É independente da `SECRET_KEY` (trocar o JWT para derrubar sessões não destrói as chaves salvas), obrigatória e diferente da `SECRET_KEY` fora de `development`. Trocá-la invalida as chaves salvas. Gere `SECRET_KEY` e `GATEWAY_ENCRYPTION_KEY` com `python3 -c "import secrets; print(secrets.token_urlsafe(48))"`.
 - `KIRO_GATEWAY_URL` (e `KIRO_GATEWAY_API_KEY`, opcional): onde o seed aponta o Gateway inicial.
 - `EVOLUTION_DB_PASSWORD` (opcional): senha do usuário `evolution` no PostgreSQL. Entra na URI do banco da Evolution, então use só letras, dígitos, `-` e `_` (`@ : / ? # %` quebram a URI). Vazio, vale o default de desenvolvimento do compose e do script de init.
 
@@ -73,13 +75,18 @@ alembic heads    # deve listar uma única head
 
 A cadeia de migrações está fixa em [agents/migrations.md](agents/migrations.md).
 
-### Banco já existente com Gateways gravados antes do HKDF
+### Banco já existente: chaves de Gateway gravadas com a `SECRET_KEY`
 
-Passo único e obrigatório, antes de subir a app. É idempotente: a segunda execução converte 0 chaves. Em banco novo não há o que converter.
+Até aqui as chaves de API dos Gateways eram criptografadas com uma chave derivada da `SECRET_KEY` (SHA-256 ou HKDF). Agora usam a `GATEWAY_ENCRYPTION_KEY`. Passo único e obrigatório ao atualizar um banco existente, antes de subir a app:
+
+1. Acrescente `GATEWAY_ENCRYPTION_KEY` ao `backend/.env` (valor novo, diferente da `SECRET_KEY`) e mantenha a `SECRET_KEY` **atual**: o script precisa dela para abrir as chaves antigas.
+2. Rode:
 
 ```bash
 python scripts/reencrypt_gateway_secrets.py
 ```
+
+É idempotente: a segunda execução converte 0 chaves. Chaves que nenhuma das duas abre ficam intactas e precisam ser informadas de novo pela API. Depois do script, a `SECRET_KEY` pode ser rotacionada sem afetar os Gateways. Em banco novo não há o que converter.
 
 ### Seed
 

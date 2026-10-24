@@ -18,7 +18,7 @@ Agente de atendimento por WhatsApp com IA (FastAPI + Next.js + Evolution API). V
 - Worktrees (caminhos absolutos, `npm ci` por worktree, conferir o checkout principal antes de reportar): `docs/agents/worktrees.md`.
 - Seed de dev: `cd backend && SEED_DEV_SUPERUSER=1 ./venv/bin/python scripts/seed_data.py`.
 - API e worker: `cd backend && ./venv/bin/uvicorn app.main:socket_app --host 0.0.0.0 --port 8000 --reload` e `./venv/bin/python scripts/run_worker.py`.
-- Re-criptografar chaves de Gateway (HKDF): `cd backend && ./venv/bin/python scripts/reencrypt_gateway_secrets.py`. Passo único obrigatório ao atualizar um banco existente, antes de subir a app; idempotente.
+- Re-criptografar chaves de Gateway (da `SECRET_KEY` para a `GATEWAY_ENCRYPTION_KEY`): `cd backend && ./venv/bin/python scripts/reencrypt_gateway_secrets.py`. Passo único obrigatório ao atualizar um banco existente, antes de subir a app, com `GATEWAY_ENCRYPTION_KEY` nova e a `SECRET_KEY` antiga no `.env`; idempotente.
 - Criar/promover superusuário (só superuser edita Gateways): `cd backend && SUPERUSER_EMAIL=... SUPERUSER_PASSWORD=... ./venv/bin/python scripts/create_superuser.py`. Em dev, `SEED_DEV_SUPERUSER=1` no `seed_data.py` promove o usuário de teste.
 - Frontend: `cd frontend && npx eslint . && npx tsc --noEmit && npm test && npx next build`
 - CI (`.github/workflows/backend.yml` e `frontend.yml`, em todo PR para `main`, sem segredos): o frontend roda o comando acima mais `npm audit --omit=dev --audit-level=high`; o backend roda a suíte, `ruff check --select F app`, `alembic heads` com uma só head, o limite de 400 linhas e `pip-audit` (versão fixa instalada só no CI; exceções sem correção comentadas no workflow). Local equivalente: `cd backend && ./venv/bin/ruff check --select F app && DATABASE_URL=sqlite:///./ci.db ./venv/bin/alembic heads; rm -f ci.db; ./venv/bin/python scripts/check_max_lines.py` (`alembic heads` deve listar uma única `(head)`).
@@ -27,6 +27,7 @@ Agente de atendimento por WhatsApp com IA (FastAPI + Next.js + Evolution API). V
 ## Regras
 
 - Dependências com versão exata (`==` no Python, versão sem `^` no npm). Actions dos workflows por SHA, com a versão em comentário.
+- Segredos: sem `ENVIRONMENT=development` explícito a app recusa `SECRET_KEY`, `EVOLUTION_WEBHOOK_TOKEN` e `GATEWAY_ENCRYPTION_KEY` vazios, de exemplo ou (as duas chaves) com menos de 32 caracteres, e esconde `/docs`. `GATEWAY_ENCRYPTION_KEY` só cifra as chaves dos Gateways; a `SECRET_KEY` só assina o JWT. Os testes definem `ENVIRONMENT=development` em `tests/conftest.py`; a CI não tem segredos.
 - Nunca commitar `backend/.env`, `docker-compose.yml` ou `design/` (ignorados).
 - Toda mudança entra por PR revisado; nunca push direto em `main`.
 - Testes rodam em SQLite; e2e só com `RUN_E2E=1`.
