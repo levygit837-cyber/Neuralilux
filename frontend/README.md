@@ -47,9 +47,13 @@ npm run type-check   # Verificar tipos
 - **Framework**: Next.js 16 (App Router)
 - **Linguagem**: TypeScript
 - **Styling**: TailwindCSS
-- **State**: Zustand + React Query
+- **State**: React Query (dados do backend) + Zustand (sessão, Instance selecionada, chat)
 - **Forms**: React Hook Form + Zod
 - **Icons**: Lucide React
+
+## Dados do backend
+
+Telas autenticadas leem e gravam pelo React Query. O `QueryClientProvider` fica em `src/app/(app)/layout.tsx` (via `components/providers/QueryProvider`); as chaves moram em `src/lib/queryKeys.ts`. Uma query só dispara com a sessão hidratada (`useSessionReady`), toda mutation invalida as queries que ela afeta, e o 401 continua encerrando a sessão em `services/http.ts`. O chat segue no store Zustand + Socket.IO, fora do React Query.
 
 ## Estrutura de Páginas
 

@@ -122,7 +122,7 @@ export default function InstancesPage() {
         <CardContent>
           {isLoading ? (
             <p className="text-text-muted">Carregando...</p>
-          ) : instances.length === 0 ? (
+          ) : query.isError ? null : instances.length === 0 ? (
             <p className="text-text-muted">Você ainda não tem nenhuma instância. Crie a primeira acima.</p>
           ) : (
             <ul className="divide-y divide-border-color">
