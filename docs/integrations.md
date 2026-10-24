@@ -24,6 +24,8 @@ curl -s -X POST http://localhost:8000/api/v1/auth/login \
 ```
 
 - O token expira em `ACCESS_TOKEN_EXPIRE_MINUTES` (padrão 30). Uma integração de servidor tem de refazer o login ao receber 401.
+- O 401 vale também para token adulterado, `sub` que não existe mais e **usuário desativado**: o token só abre a API (e o Socket.IO) enquanto o usuário existir e estiver ativo, mesmo antes de vencer. O JWT é HS256 assinado com `SECRET_KEY` (biblioteca PyJWT).
+- `POST /auth/register`: e-mail já cadastrado responde 409 (também quando dois cadastros chegam juntos) e `company_id` inexistente responde 422. Erro inesperado responde 500 com mensagem genérica; o detalhe fica só no log do servidor, em nenhuma rota o texto da exceção vai para o `detail`.
 - **Não há chave de API para máquinas.** A integração usa um usuário comum da Company, criado por um superusuário (`POST /auth/register` com `company_id` exige um superusuário autenticado) ou por `scripts/create_superuser.py`. O registro público só cria usuário **sem** Company. Use um usuário dedicado, com senha forte guardada no cofre do sistema de gestão, nunca a conta de uma pessoa.
 - O escopo da Company vem do usuário: as rotas de `/menu` operam sobre `current_user.company_id`.
 - O escopo das Instances vem do dono: `/instances`, `/conversations`, `/contacts`, `/dashboard`, `/tickets` e `/orders` só alcançam as Instances do usuário (`Instance.owner_id`); o superusuário alcança todas. Instance de outro dono responde 403 em `/instances`; Ticket fora do escopo responde 404.
