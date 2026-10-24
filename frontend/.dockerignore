@@ -1,9 +1,10 @@
-.env
-.env.*
-!.env.example
+.git
 node_modules/
 .next/
 out/
 coverage/
-.git
-codedb.snapshot
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+npm-debug.log*

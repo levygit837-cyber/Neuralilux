@@ -30,7 +30,7 @@ async def test_info_empresa_returns_what_the_panel_saved(client, db, monkeypatch
         headers=owner,
         json={
             "phone": "(85) 98888-1111",
-            "pix_key": "pagamentos@macedos.example",
+            "pix_key": "pagamentos@loja.example",
             "minimum_order": "42.00",
             "business_hours": {"mon": [["19:00", "02:00"]]},
             "timezone": "America/Fortaleza",
@@ -43,7 +43,7 @@ async def test_info_empresa_returns_what_the_panel_saved(client, db, monkeypatch
     assert after["horarios"]["segunda"] == "19:00-02:00"
     assert after["aberto_agora"] is True
     saved = payload(await call(conditions, world.ctx))
-    assert saved["chave_pix"] == "pagamentos@macedos.example"
+    assert saved["chave_pix"] == "pagamentos@loja.example"
     assert "pix" in saved["formas_pagamento"]
     assert saved["pedido_minimo"] == 42.0
 
@@ -59,9 +59,9 @@ async def test_pix_is_accepted_at_closing_once_the_panel_saves_a_key(client, db,
     refused = await fill_delivery(world, pedido, forma_pagamento="pix")
     assert refused.is_error
 
-    client.put(f"/api/v1/companies/{world.company.id}", headers=owner, json={"pix_key": "pagamentos@macedos.example"})
+    client.put(f"/api/v1/companies/{world.company.id}", headers=owner, json={"pix_key": "pagamentos@loja.example"})
 
     assert not (await fill_delivery(world, pedido, forma_pagamento="pix")).is_error
     closed = payload(await confirm_and_finalize(world, pedido))
-    assert closed["pix"]["chave"] == "pagamentos@macedos.example"
+    assert closed["pix"]["chave"] == "pagamentos@loja.example"
     assert order_of(world).status == "closed"

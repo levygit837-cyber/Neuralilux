@@ -2,7 +2,7 @@
 e2e do client da Evolution API contra a Evolution real (`EVOLUTION_API_URL`, padrão localhost:8081).
 
 Só leitura: lista chats e contatos, lê mensagens e consulta o estado da conexão da instância existente
-(`E2E_EVOLUTION_INSTANCE`, padrão `Macedos`). Nada cria nem apaga instância e nenhuma mensagem é enviada:
+(`E2E_EVOLUTION_INSTANCE`, padrão `Exemplo`). Nada cria nem apaga instância e nenhuma mensagem é enviada:
 o único envio é para uma instância que não existe e tem de falhar antes de chegar ao WhatsApp.
 
 Roda só com `RUN_E2E=1` (ver `tests/conftest.py`), que também deixa de forçar o SQLite; estes testes não
@@ -13,7 +13,7 @@ Uso (de `backend/`):
     RUN_E2E=1 DATABASE_URL=sqlite:////tmp/e2e-actions.db EVOLUTION_API_KEY=<chave> \\
         ./venv/bin/python -m pytest tests/whatsapp/test_whatsapp_actions.py -v -p no:cacheprovider
 
-Requisitos: Evolution no ar, `EVOLUTION_API_KEY` válida e a instância (`Macedos`) cadastrada nela.
+Requisitos: Evolution no ar, `EVOLUTION_API_KEY` válida e a instância (`Exemplo`) cadastrada nela.
 """
 
 import os
@@ -25,7 +25,7 @@ from app.whatsapp.evolution_client import evolution_api, EvolutionAPIError
 # Fala com a Evolution API real; roda só com RUN_E2E=1.
 pytestmark = pytest.mark.e2e
 
-INSTANCE_NAME = os.environ.get("E2E_EVOLUTION_INSTANCE", "Macedos")
+INSTANCE_NAME = os.environ.get("E2E_EVOLUTION_INSTANCE", "Loja Exemplo")
 MISSING_INSTANCE = "nonexistent-instance-12345"
 REMOTE_JID = "5511999999999@s.whatsapp.net"
 

@@ -55,7 +55,7 @@ async def test_info_empresa_timezone_changes_the_answer(world, monkeypatch):
 async def test_info_empresa_fields(world, monkeypatch):
     monkeypatch.setattr(clock, "utc_now", lambda: datetime(2026, 10, 19, 22, 0, tzinfo=timezone.utc))
     data = payload(await call(tool("info_empresa"), world.ctx))
-    assert data["nome"] == "Macedos"
+    assert data["nome"] == "Loja Exemplo"
     assert "Rua das Flores" in data["endereco"] and "100" in data["endereco"]
     assert data["telefone"] == "(85) 99999-0000"
     assert data["horarios"]["segunda"] == "18:00-23:00"
@@ -72,7 +72,7 @@ async def test_info_empresa_returns_only_company_identity_and_hours(world):
 
 async def test_info_empresa_is_scoped_to_context_company(world):
     data = payload(await call(tool("info_empresa"), world.ctx))
-    assert data["nome"] == "Macedos"
+    assert data["nome"] == "Loja Exemplo"
     assert "Outra Pizzaria" not in str(data)
 
 

@@ -5,6 +5,7 @@ Creates initial data including business types, test company and test user
 """
 import sys
 import os
+from pathlib import Path
 
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -13,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.core.database import SessionLocal, engine, Base
 from app.models import Agent, BusinessType, Company, Instance, User, DeliveryZone
 from app.core.security import get_password_hash
-from app.services.menu.sync import sync_macedos_menu_from_json
+from app.services.menu.sync import sync_menu_from_json
 from app.llm.registry import ensure_default_gateway
 
 
@@ -159,23 +160,23 @@ def create_company_agents(db: Session):
     return created
 
 
-MACEDOS_BUSINESS_HOURS = {
-    "mon": [["18:00", "23:00"]],
-    "tue": [["18:00", "23:00"]],
-    "wed": [["18:00", "23:00"]],
-    "thu": [["18:00", "23:00"]],
-    "fri": [["18:00", "00:00"]],
-    "sat": [["18:00", "00:00"]],
-    "sun": [["18:00", "23:00"]],
+SAMPLE_MENU_PATH = Path(__file__).resolve().with_name("sample_menu.json")
+
+SAMPLE_BUSINESS_HOURS = {
+    "mon": [["11:00", "22:00"]],
+    "tue": [["11:00", "22:00"]],
+    "wed": [["11:00", "22:00"]],
+    "thu": [["11:00", "22:00"]],
+    "fri": [["11:00", "23:00"]],
+    "sat": [["11:00", "23:00"]],
+    "sun": [["11:00", "22:00"]],
 }
 
 
 def configure_company_operations(db: Session, company: Company):
-    """Horários, fuso, pedido mínimo e uma zona de entrega de exemplo para a Company (idempotente)."""
+    """Horários, pedido mínimo e uma zona de entrega de exemplo para a Company (idempotente)."""
     if not company.business_hours:
-        company.business_hours = MACEDOS_BUSINESS_HOURS
-    if not company.timezone or company.timezone == "America/Sao_Paulo":
-        company.timezone = "America/Fortaleza"  # o default da coluna não conta como configuração
+        company.business_hours = SAMPLE_BUSINESS_HOURS
     if company.minimum_order is None:
         company.minimum_order = 30.00
 
@@ -212,31 +213,27 @@ def main():
         else:
             print("All business types already exist")
 
-        # As zonas de entrega pertencem a uma Company: são criadas depois da importação do cardápio da Macedos.
-
-        # Create test company
         print("\nCreating test company...")
         company = create_test_company(db)
-        if company:
-            print(f"Created company: {company.name} (ID: {company.id})")
+        if company is None:
+            raise RuntimeError("Business type 'restaurant' not found")
+        print(f"Test company: {company.name} (ID: {company.id})")
 
-        print("\nImporting Macedos menu...")
-        catalog = sync_macedos_menu_from_json(db)
+        print("\nImporting sample menu...")
+        catalog = sync_menu_from_json(db, company, SAMPLE_MENU_PATH)
         print(f"Imported catalog: {catalog.name}")
 
-        print("\nConfiguring Macedos operations (hours, timezone, delivery zone)...")
-        macedos = db.query(Company).filter(Company.id == catalog.company_id).one()
-        zones = configure_company_operations(db, macedos)
+        print("\nConfiguring company operations (hours, minimum order, delivery zone)...")
+        zones = configure_company_operations(db, company)
         print(f"Created zones: {', '.join(zones)}" if zones else "Delivery zones already exist")
 
-        print("\nEnsuring test user is bound to Macedos...")
-        user = create_or_update_test_user(db, catalog.company_id)
+        print("\nEnsuring test user is bound to the test company...")
+        user = create_or_update_test_user(db, company.id)
         if user:
-            target_company = db.query(Company).filter(Company.id == catalog.company_id).first()
             print(f"User ready: {user.email}")
             print(f"  Name: {user.full_name}")
             print(f"  Password: teste123")
-            print(f"  Company: {target_company.name if target_company else catalog.company_id}")
+            print(f"  Company: {company.name}")
 
         print("\nCreating one Agent per company and binding the company's instances...")
         agents = create_company_agents(db)

@@ -14,7 +14,7 @@ HOURS = {
 
 @pytest.fixture
 def world(client, db):
-    mine = make_company(db, "Macedos", with_agent=True)
+    mine = make_company(db, "Loja Exemplo", with_agent=True)
     other = make_company(db, "Outra", with_agent=True)
     return {
         "mine": mine,
@@ -49,7 +49,7 @@ def test_owner_saves_every_company_field_and_reloads_them(client, db, world):
         address_city="Fortaleza",
         address_state="CE",
         phone="(85) 99999-0000",
-        pix_key="pix@macedos.example",
+        pix_key="pix@loja.example",
         business_hours=HOURS,
         minimum_order="30.50",
         session_timeout_minutes=90,
@@ -61,24 +61,24 @@ def test_owner_saves_every_company_field_and_reloads_them(client, db, world):
     reloaded = client.get(f"/api/v1/companies/{world['mine'].id}", headers=world["owner"]).json()
     assert reloaded["address_street"] == "Rua das Flores"
     assert reloaded["phone"] == "(85) 99999-0000"
-    assert reloaded["pix_key"] == "pix@macedos.example"
+    assert reloaded["pix_key"] == "pix@loja.example"
     assert reloaded["business_hours"]["mon"] == [["11:00", "14:00"], ["18:00", "02:00"]]
     assert reloaded["minimum_order"] == 30.5
     assert reloaded["session_timeout_minutes"] == 90
     assert reloaded["handoff_timeout_hours"] == 6
     assert reloaded["timezone"] == "America/Fortaleza"
-    assert stored(db, world["mine"]).pix_key == "pix@macedos.example"
+    assert stored(db, world["mine"]).pix_key == "pix@loja.example"
 
 
 def test_a_partial_update_keeps_the_other_fields(client, db, world):
-    put(client, world["mine"], world["owner"], phone="(85) 1111-1111", pix_key="pix@macedos.example")
+    put(client, world["mine"], world["owner"], phone="(85) 1111-1111", pix_key="pix@loja.example")
     put(client, world["mine"], world["owner"], phone="(85) 2222-2222")
     company = stored(db, world["mine"])
-    assert (company.phone, company.pix_key) == ("(85) 2222-2222", "pix@macedos.example")
+    assert (company.phone, company.pix_key) == ("(85) 2222-2222", "pix@loja.example")
 
 
 def test_blank_text_clears_the_field(client, db, world):
-    put(client, world["mine"], world["owner"], pix_key="pix@macedos.example", phone="(85) 1111-1111")
+    put(client, world["mine"], world["owner"], pix_key="pix@loja.example", phone="(85) 1111-1111")
     response = put(client, world["mine"], world["owner"], pix_key="  ", phone="")
     assert response.status_code == 200
     company = stored(db, world["mine"])
@@ -254,7 +254,7 @@ def test_invalid_values_are_422_and_nothing_is_saved(client, db, world, fields):
 @pytest.mark.parametrize(
     "key",
     [
-        "pix@macedos.example",
+        "pix@loja.example",
         "123e4567-e89b-12d3-a456-426614174000",
         "+5585999990000",
         "12345678909",

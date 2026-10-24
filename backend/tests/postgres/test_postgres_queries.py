@@ -123,7 +123,7 @@ def test_payment_record_index_ignores_invalid_and_non_pix_rows(pg):
 def test_ensure_payment_record_returns_the_winner_when_the_index_rejects_the_insert(pg, monkeypatch):
     conversation = _conversation(pg, "pix-ensure")
     order = _order(pg, conversation, "PED-0003")
-    company = Company(name="Macedos", pix_key="pix@macedos.example", address_city="Fortaleza")
+    company = Company(name="Loja Exemplo", pix_key="pix@loja.example", address_city="Fortaleza")
     pg.add(company)
     winner = _pix(order, "pending")
     pg.add(winner)

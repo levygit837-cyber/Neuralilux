@@ -28,6 +28,7 @@ venv/
 env/
 ENV/
 .venv
+.venv-issue
 # IDEs
 .vscode/
 .idea/
@@ -41,7 +42,6 @@ ENV/
 # Database
 *.db
 *.sqlite3
-*.sql
 # Logs
 *.log
 logs/
@@ -70,17 +70,17 @@ coverage/
 # Evolution API data
 evolution-api/instances/
 evolution-api/store/
-# Backups
+# Backups e dumps do banco (pg_dump): nunca no repositório. Grave fora dele, ex. ~/backups/ (docs/operations.md)
 *.bak
 *.backup
+/*.sql
+backup*.sql
+dump*.sql
 .aidesigner/*
 !.aidesigner/.gitkeep
 # ============================
 # Portfolio protection rules
 # Logs e arquivos temporários
-*.txt
-!requirements.txt
-!requirements-dev.txt
 # Arquivos de IA / Assistants
 .aidesigner/
 .aider/
@@ -126,11 +126,11 @@ pytest_fail_details.txt
 *.doc
 *.xlsx
 *.pdf
-*.png
 *.jpg
 *.jpeg
 *.gif
-*.svg
+# Imagens do painel são código: o que estiver em frontend/public nunca é ignorado.
+!frontend/public/**
 output/
 # IDE / Local
 # Secrets / Configs locais

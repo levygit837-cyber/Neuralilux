@@ -8,11 +8,11 @@ from app.models import PaymentRecord
 from app.packs.catalog_orders import pix
 from app.packs.catalog_orders.pack import CatalogOrdersPack
 
-# BR Code gerado com chave, valor, txid, nome e cidade fixos. O CRC (88F4) foi conferido com
+# BR Code gerado com chave, valor, txid, nome e cidade fixos. O CRC (F164) foi conferido com
 # `binascii.crc_hqx(corpo, 0xFFFF)`, independente da implementação do Pack.
 EMV_FIXTURE = (
-    "00020101021226410014br.gov.bcb.pix0119pix@macedos.example5204000053039865405"
-    "95.005802BR5916MACEDOS PIZZARIA6009FORTALEZA6218051420261021ABC123630488F4"
+    "00020101021226380014br.gov.bcb.pix0116pix@loja.example5204000053039865405"
+    "95.005802BR5912LOJA EXEMPLO6009FORTALEZA6218051420261021ABC1236304F164"
 )
 
 
@@ -50,10 +50,10 @@ def test_crc16_matches_the_ccitt_false_check_vector():
 
 def test_build_emv_matches_the_known_fixture():
     emv = pix.build_emv(
-        key="pix@macedos.example",
+        key="pix@loja.example",
         amount=Decimal("95"),
         txid="20261021ABC123",
-        merchant_name="Macedos Pizzaria",
+        merchant_name="Loja Exemplo",
         merchant_city="Fortaleza",
     )
     assert emv == EMV_FIXTURE

@@ -1,28 +1,84 @@
-# Infra local de desenvolvimento: PostgreSQL, Redis, RabbitMQ e Evolution API.
+# Modelo versionado do Docker Compose do Neuralilux: infra (PostgreSQL, Redis, RabbitMQ, Evolution API) e, no perfil
+# `app`, a aplicação (migração, API, worker e painel).
 #
-# O docker-compose.yml real é local e ignorado pelo git (pode ter credenciais suas). Este arquivo é o
-# modelo versionado: copie-o e suba com as variáveis do backend/.env.
+# O docker-compose.yml real é local e ignorado pelo git (pode ter credenciais suas). Copie este arquivo e suba com as
+# variáveis do backend/.env (sempre com --env-file; sem ele o compose recusa subir):
 #
 #   cp docker-compose.example.yml docker-compose.yml
-#   docker compose --env-file backend/.env up -d     # sempre com --env-file; sem ele o compose recusa subir
+#   docker compose --env-file backend/.env up -d                  # só a infra; API e worker rodam no host
+#   docker compose --env-file backend/.env --profile app up -d --build   # infra + migração + API + worker + painel
 #
-# Senhas e portas abaixo são defaults de DESENVOLVIMENTO, os mesmos de backend/.env.example. Não use em produção.
-# EVOLUTION_DB_PASSWORD (opcional): senha do usuário `evolution` no Postgres, lida pelo script de init e pela URI da
-# Evolution. Entra numa URI: use só letras, dígitos, `-` e `_`. O init roda só na criação do volume do Postgres.
-# Obrigatórias no backend/.env: EVOLUTION_API_KEY e EVOLUTION_WEBHOOK_TOKEN (o compose recusa subir sem elas).
-# A API e o worker rodam no host, fora deste compose (veja docs/setup.md).
+# Nenhuma senha tem valor padrão: o compose recusa subir sem elas. Defina no backend/.env (o .env.example traz
+# exemplos de desenvolvimento). Para a infra: POSTGRES_PASSWORD, REDIS_PASSWORD, RABBITMQ_PASSWORD,
+# EVOLUTION_DB_PASSWORD, EVOLUTION_API_KEY e EVOLUTION_WEBHOOK_TOKEN (são as únicas que o `up` só da infra exige).
+# SECRET_KEY e GATEWAY_ENCRYPTION_KEY são repassadas à app só se existirem: o compose NÃO as exige (a interpolação
+# vale para o arquivo inteiro, mesmo sem o perfil `app`). Quem as recusa é a app: fora de ENVIRONMENT=development,
+# `migrate`, `api` e `worker` não sobem com elas ausentes, vazias, de exemplo ou com menos de 32 caracteres.
+# As três senhas de infra e EVOLUTION_DB_PASSWORD entram em URIs: use só letras, dígitos, `-` e `_`.
+# EVOLUTION_DB_PASSWORD é lida pelo init do Postgres, que só roda na criação do volume (num banco existente use
+# ALTER USER evolution).
+#
+# Todas as portas publicadas escutam só em 127.0.0.1. Para expor o painel e a API, ponha um proxy reverso com TLS na
+# frente; não troque o endereço aqui. Tags de imagem fixas: atualize de propósito, nunca por `latest`.
+#
+# Perfil `app` (ordem de subida): postgres -> migrate (alembic upgrade head, roda e sai) -> api e worker -> frontend.
+# API e worker só sobem depois de `migrate` terminar com sucesso. Detalhes e o aviso da janela de manutenção da
+# migração 0015: docs/setup.md e docs/operations.md.
+#
+# ENVIRONMENT: sem ele vale `production` (a app recusa subir com segredos de exemplo e grava o cookie de sessão como
+# Secure, que o navegador só aceita em HTTPS ou em localhost). Para testar por HTTP puro, defina ENVIRONMENT=development.
+# CORS_ORIGINS (JSON) tem de listar a origem REAL do painel, senão toda mutação responde 403 (ADR 0008).
+# NEXT_PUBLIC_API_URL é a URL pública da API, gravada no bundle do painel no build: trocá-la exige rebuild do frontend.
+
+x-backend-environment: &backend-environment
+  ENVIRONMENT: ${ENVIRONMENT:-production}
+  # Pass-through (sem `=`): se a variável não existe em backend/.env, ela NÃO entra no container e vale o default do
+  # config.py, que fora de development é recusado. Com `${VAR:-}` entraria uma string vazia, que em development
+  # (onde a checagem é pulada) viraria uma chave de assinatura vazia.
+  SECRET_KEY:
+  GATEWAY_ENCRYPTION_KEY:
+  EVOLUTION_WEBHOOK_TOKEN: ${EVOLUTION_WEBHOOK_TOKEN:?defina EVOLUTION_WEBHOOK_TOKEN em backend/.env}
+  EVOLUTION_API_KEY: ${EVOLUTION_API_KEY:?defina EVOLUTION_API_KEY em backend/.env}
+  EVOLUTION_API_URL: http://evolution-api:8080
+  DATABASE_URL: postgresql+psycopg://neuralilux:${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD em backend/.env}@postgres:5432/neuralilux
+  REDIS_URL: redis://:${REDIS_PASSWORD:?defina REDIS_PASSWORD em backend/.env}@redis:6379/0
+  RABBITMQ_URL: amqp://neuralilux:${RABBITMQ_PASSWORD:?defina RABBITMQ_PASSWORD em backend/.env}@rabbitmq:5672/neuralilux
+  # O Gateway "Kiro-backend" semeado roda no host; de dentro do container o host é host.docker.internal.
+  KIRO_GATEWAY_URL: ${KIRO_GATEWAY_URL:-http://host.docker.internal:5580}
+  CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000","http://127.0.0.1:3000"]}
+  AUTH_COOKIE_DOMAIN: ${AUTH_COOKIE_DOMAIN:-}
+  TURN_TIMEOUT_SECONDS: ${TURN_TIMEOUT_SECONDS:-90}
+  # Atrás de proxy reverso (docs/operations.md, "Login ou cadastro respondem 429 ou 503"). Pass-through: ausentes,
+  # valem os defaults da app (TRUSTED_PROXIES=[]) e do uvicorn (FORWARDED_ALLOW_IPS=127.0.0.1). Nunca `*`.
+  TRUSTED_PROXIES:
+  FORWARDED_ALLOW_IPS:
+  # Prazo do worker para terminar os Turns em voo no SIGTERM. Se subir, suba `stop_grace_period` do worker junto.
+  SHUTDOWN_TIMEOUT_SECONDS: ${SHUTDOWN_TIMEOUT_SECONDS:-20}
+  # Resposta durável (docs/operations.md, "Mensagens pendentes e recuperação"). Só o que o operador ajusta, em pass-through:
+  # ausentes, valem os defaults do config.py (um default só, sem cópia aqui). TURN_CLAIM_LEASE_SECONDS vai junto de
+  # TURN_TIMEOUT_SECONDS: a app exige posse > DEBOUNCE_MAX_WAIT_SECONDS + TURN_TIMEOUT_SECONDS, então subir um pede subir o outro.
+  # TURN_RECOVERY_INTERVAL_SECONDS (cadência interna da varredura) não é repassada.
+  TURN_CONCURRENCY:
+  TURN_RECOVERY_MAX_AGE_SECONDS:
+  TURN_CLAIM_LEASE_SECONDS:
+
+x-backend-image: &backend-image
+  image: neuralilux/backend:0.1.0
+  build:
+    context: ./backend
+
 services:
   postgres:
-    image: postgres:15-alpine
+    image: postgres:15.19-alpine@sha256:a8e042598834300dfaa17a54f695b87b7f25d3490433bbbe2ef3bffbb9747f24
     restart: unless-stopped
     ports:
-      - "${POSTGRES_PORT:-5434}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5434}:5432"
     environment:
       - POSTGRES_USER=neuralilux
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-neuralilux_password}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD em backend/.env}
       - POSTGRES_DB=neuralilux
       - POSTGRES_MULTIPLE_DATABASES=evolution # o script cria o banco e o usuário da Evolution
-      - EVOLUTION_DB_PASSWORD=${EVOLUTION_DB_PASSWORD:-} # vazio: o script usa o default de dev (precisa casar com a URI da Evolution)
+      - EVOLUTION_DB_PASSWORD=${EVOLUTION_DB_PASSWORD:?defina EVOLUTION_DB_PASSWORD em backend/.env}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./scripts/init-multiple-databases.sh:/docker-entrypoint-initdb.d/init-multiple-databases.sh:ro
@@ -33,30 +89,31 @@ services:
       retries: 5
 
   redis:
-    image: redis:7-alpine
+    # Redis 7 ou mais novo: o rate limit usa `EXPIRE ... NX` (docs/operations.md).
+    image: redis:7.4.10-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
     restart: unless-stopped
     ports:
-      - "${REDIS_PORT:-6380}:6379"
-    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_password}
+      - "127.0.0.1:${REDIS_PORT:-6380}:6379"
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:?defina REDIS_PASSWORD em backend/.env}
     environment:
-      - REDIS_PASSWORD=${REDIS_PASSWORD:-redis_password} # o healthcheck lê a senha do ambiente do container
+      - REDIS_PASSWORD=${REDIS_PASSWORD:?defina REDIS_PASSWORD em backend/.env} # o healthcheck lê a senha do ambiente do container
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a $${REDIS_PASSWORD:-redis_password} ping | grep -q PONG"]
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a $${REDIS_PASSWORD} ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   rabbitmq:
-    image: rabbitmq:3-management-alpine
+    image: rabbitmq:3.13.7-management-alpine@sha256:606d8c0d6b3c18d1da9afc53bc7cdb2a8d5486df91b5a9830e9e07626c9ae281
     restart: unless-stopped
     ports:
-      - "${RABBITMQ_PORT:-5672}:5672"
-      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+      - "127.0.0.1:${RABBITMQ_PORT:-5672}:5672"
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
     environment:
       - RABBITMQ_DEFAULT_USER=neuralilux
-      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASSWORD:-rabbitmq_password}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASSWORD:?defina RABBITMQ_PASSWORD em backend/.env}
       - RABBITMQ_DEFAULT_VHOST=neuralilux
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
@@ -67,19 +124,27 @@ services:
       retries: 5
 
   evolution-api:
-    image: evoapicloud/evolution-api:v2.3.7
+    # A imagem oficial roda como root; docker/evolution/Dockerfile só a troca para o usuário `node`. Este arquivo é o dono
+    # do default da versão (`v2.3.7`): o Dockerfile não tem default e a CI lê o valor daqui. Sem digest de propósito: um
+    # `@sha256` na base faria o Docker ignorar a tag e reconstruir a versão antiga em silêncio ao trocar EVOLUTION_VERSION.
+    # Volumes de um compose antigo são do root: veja docs/setup.md ("Migrando de um compose antigo") antes do 1º up.
+    image: neuralilux/evolution-api:${EVOLUTION_VERSION:-v2.3.7}
+    build:
+      context: ./docker/evolution
+      args:
+        EVOLUTION_VERSION: ${EVOLUTION_VERSION:-v2.3.7}
     restart: unless-stopped
     ports:
-      - "${EVOLUTION_PORT:-8081}:8080"
+      - "127.0.0.1:${EVOLUTION_PORT:-8081}:8080"
     environment:
       - SERVER_TYPE=http
       - SERVER_URL=http://localhost:${EVOLUTION_PORT:-8081}
       - SERVER_PORT=8080
 
-      # Banco próprio da Evolution, criado por scripts/init-multiple-databases.sh (mesma senha de dev do script).
+      # Banco próprio da Evolution, criado por scripts/init-multiple-databases.sh.
       - DATABASE_ENABLED=true
       - DATABASE_PROVIDER=postgresql
-      - DATABASE_CONNECTION_URI=postgresql://evolution:${EVOLUTION_DB_PASSWORD:-Ev0lution_S3cur3_P%40ssw0rd%21}@postgres:5432/evolution
+      - DATABASE_CONNECTION_URI=postgresql://evolution:${EVOLUTION_DB_PASSWORD:?defina EVOLUTION_DB_PASSWORD em backend/.env}@postgres:5432/evolution
       - DATABASE_SAVE_DATA_INSTANCE=true
       - DATABASE_SAVE_DATA_NEW_MESSAGE=true
       - DATABASE_SAVE_MESSAGE_UPDATE=true
@@ -88,7 +153,7 @@ services:
       - DATABASE_SAVE_DATA_LABELS=true
 
       - CACHE_REDIS_ENABLED=true
-      - CACHE_REDIS_URI=redis://:${REDIS_PASSWORD:-redis_password}@redis:6379
+      - CACHE_REDIS_URI=redis://:${REDIS_PASSWORD:?defina REDIS_PASSWORD em backend/.env}@redis:6379
       - CACHE_REDIS_PREFIX_KEY=evolution
       - CACHE_REDIS_SAVE_INSTANCES=true
       - CACHE_LOCAL_ENABLED=false
@@ -98,10 +163,12 @@ services:
       - AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES=false
 
       # Webhook (ADR 0006). O token vai na query string; EVOLUTION_WEBHOOK_TOKEN é o mesmo de backend/.env.
+      # Com a API no host (padrão) a Evolution a alcança por host.docker.internal; com o perfil `app`, defina
+      # EVOLUTION_WEBHOOK_BASE_URL=http://api:8000 no backend/.env.
       - WEBHOOK_GLOBAL_ENABLED=true
       # BY_EVENTS=false: o evento já vem em payload.event (por quê: docs/setup.md, seção 2).
       - WEBHOOK_GLOBAL_WEBHOOK_BY_EVENTS=false
-      - WEBHOOK_GLOBAL_URL=http://host.docker.internal:8000/api/v1/webhooks/evolution?token=${EVOLUTION_WEBHOOK_TOKEN:?defina EVOLUTION_WEBHOOK_TOKEN em backend/.env}
+      - WEBHOOK_GLOBAL_URL=${EVOLUTION_WEBHOOK_BASE_URL:-http://host.docker.internal:8000}/api/v1/webhooks/evolution?token=${EVOLUTION_WEBHOOK_TOKEN:?defina EVOLUTION_WEBHOOK_TOKEN em backend/.env}
       # Eventos do webhook (docs/agents/evolution-data-formats.md). A Evolution só entrega o que estiver `true`; sem
       # estas variáveis valem os defaults da imagem, que ligam quase tudo. Ligados: os que o consumer trata
       # (messages.upsert/update, connection.update, qrcode.updated e os de importação de histórico).
@@ -153,6 +220,81 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+
+  # ---- Perfil `app` ---------------------------------------------------------------------------------------------
+
+  # Job de migração: aplica `alembic upgrade head` e sai. API e worker esperam por ele. Se falhar, nada sobe.
+  # A 0015 pede janela de manutenção (docs/operations.md): pare API e worker antes de migrar um banco já em uso.
+  migrate:
+    <<: *backend-image
+    profiles: ["app"]
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    environment: *backend-environment
+    healthcheck:
+      disable: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *backend-image
+    profiles: ["app"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    environment: *backend-environment
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  worker:
+    <<: *backend-image
+    profiles: ["app"]
+    command: ["python", "scripts/run_worker.py"]
+    restart: unless-stopped
+    environment: *backend-environment
+    # SIGTERM faz o worker parar de consumir, esperar os Turns em voo até SHUTDOWN_TIMEOUT_SECONDS (20 s, prazo único
+    # que NÃO espera TURN_TIMEOUT_SECONDS), cancelar o que sobrar e desconectar (~5 s): pior caso ~25 s. Regra:
+    # stop_grace_period >= SHUTDOWN_TIMEOUT_SECONDS + 10 s. O Turn cancelado fica `pending` e o worker seguinte o
+    # retoma. O worker não escuta porta: sem healthcheck HTTP.
+    stop_grace_period: 30s
+    healthcheck:
+      disable: true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  frontend:
+    image: neuralilux/frontend:0.1.0
+    profiles: ["app"]
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL:-}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-3000}:3000"
+    environment:
+      # Como o servidor do Next alcança a API (validação da sessão em /auth/me): pela rede do compose.
+      API_INTERNAL_URL: http://api:8000
+      AUTH_COOKIE_DOMAIN: ${AUTH_COOKIE_DOMAIN:-}
+    depends_on:
+      api:
         condition: service_healthy
 
 volumes:
