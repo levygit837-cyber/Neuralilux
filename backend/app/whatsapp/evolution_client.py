@@ -4,6 +4,7 @@ Handles QR code, connection status, and disconnection.
 """
 
 import re
+import secrets
 
 import httpx
 import structlog
@@ -144,11 +145,14 @@ class EvolutionAPIService:
         """
         Create a new WhatsApp instance in Evolution API.
         
+        A Instance nasce com um token próprio e aleatório, nunca a chave global da Evolution: o token da
+        Instance autentica só ela. As chamadas do backend seguem usando a chave global no header `apikey`.
+
         Returns dict with instance details including QR code if available.
         """
         payload: Dict[str, Any] = {
             "instanceName": instance_name,
-            "token": self.api_key,
+            "token": secrets.token_urlsafe(32),
             "integration": "WHATSAPP-BAILEYS",
             "qrcode": True,
             "rejectCall": False,
