@@ -15,7 +15,7 @@ Base: `http://<host>:8000/api/v1`. A documentação interativa (`/docs` e `/redo
 
 ### Autenticação
 
-Toda rota de dados exige `Authorization: Bearer <JWT>`. O login é um formulário (`application/x-www-form-urlencoded`), não JSON:
+Toda rota de dados exige `Authorization: Bearer <JWT>`. (O painel no navegador usa o mesmo JWT num cookie `httpOnly`, [ADR 0008](adr/0008-sessao-em-cookie-httponly.md); quando os dois vêm, o Bearer vale. Integrações de servidor usam o Bearer e não precisam do cookie.) O login é um formulário (`application/x-www-form-urlencoded`), não JSON:
 
 ```bash
 curl -s -X POST http://localhost:8000/api/v1/auth/login \
