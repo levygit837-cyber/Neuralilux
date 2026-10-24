@@ -1,6 +1,8 @@
-"""Sincroniza o Catalog da Company Macedos a partir do JSON do cardápio."""
+"""Importa o cardápio de uma Company a partir de um JSON (categorias e itens) para o Catalog dela."""
 from __future__ import annotations
 
+import json
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Optional
 
@@ -8,74 +10,54 @@ import structlog
 from sqlalchemy.orm import Session
 
 from app.agent.clock import company_zone
-from app.models import BusinessType, Company, MenuCatalog, MenuCategory, MenuItem
+from app.models import Company, MenuCatalog, MenuCategory, MenuItem
 from app.services.menu.availability import capture_time, item_is_available
-from app.services.menu.snapshot import (
-    DEFAULT_MENU_JSON_PATH,
-    MACEDOS_CATALOG_NAME,
-    MACEDOS_COMPANY_DISPLAY_NAME,
-    MACEDOS_COMPANY_NAME,
-    load_menu_payload,
-    parse_price,
-)
 
 logger = structlog.get_logger()
 
-
-def _ensure_restaurant_business_type(db: Session) -> Optional[BusinessType]:
-    business_type = db.query(BusinessType).filter(BusinessType.slug == "restaurant").first()
-    if business_type:
-        return business_type
-
-    business_type = BusinessType(
-        name="Restaurante",
-        slug="restaurant",
-        description="Estabelecimentos de alimentação e gastronomia",
-        icon="restaurant",
-    )
-    db.add(business_type)
-    db.flush()
-    return business_type
+DEFAULT_CATALOG_NAME = "Cardápio"
 
 
-def _ensure_macedos_company(db: Session, payload: dict[str, Any]) -> Company:
-    company = db.query(Company).filter(Company.name == MACEDOS_COMPANY_NAME).first()
-    if company:
-        return company
+def parse_price(value: Any) -> Optional[Decimal]:
+    if value in {None, ""}:
+        return None
+    if isinstance(value, Decimal):
+        return value.quantize(Decimal("0.01"))
+    if isinstance(value, (int, float)):
+        return Decimal(str(value)).quantize(Decimal("0.01"))
 
-    business_type = _ensure_restaurant_business_type(db)
-    store = payload.get("store", {})
-
-    company = Company(
-        name=MACEDOS_COMPANY_NAME,
-        business_type_id=business_type.id if business_type else None,
-        description=store.get("name") or MACEDOS_COMPANY_DISPLAY_NAME,
-        whatsapp=str(store.get("whatsapp") or "") or None,
-        phone=str(store.get("phone") or "") or None,
-        is_active=True,
-    )
-    db.add(company)
-    db.flush()
-    return company
+    raw_value = str(value).strip()
+    raw_value = raw_value.replace("R$", "").replace("\xa0", "").replace(".", "").replace(",", ".")
+    try:
+        return Decimal(raw_value).quantize(Decimal("0.01"))
+    except (InvalidOperation, ValueError):
+        return None
 
 
-def sync_macedos_menu_from_json(
+def load_menu_payload(json_path: Path) -> dict[str, Any]:
+    with json_path.open("r", encoding="utf-8") as file_handle:
+        return json.load(file_handle)
+
+
+def sync_menu_from_json(
     db: Session,
-    json_path: Path = DEFAULT_MENU_JSON_PATH,
+    company: Company,
+    json_path: Path,
+    catalog_name: str = DEFAULT_CATALOG_NAME,
 ) -> MenuCatalog:
+    """Substitui categorias e itens do Catalog `catalog_name` da Company pelo conteúdo do JSON."""
     payload = load_menu_payload(json_path)
-    company = _ensure_macedos_company(db, payload)
     captured_local = capture_time(payload, company_zone(company))
 
     catalog = (
         db.query(MenuCatalog)
-        .filter(MenuCatalog.company_id == company.id, MenuCatalog.name == MACEDOS_CATALOG_NAME)
+        .filter(MenuCatalog.company_id == company.id, MenuCatalog.name == catalog_name)
         .first()
     )
     if not catalog:
         catalog = MenuCatalog(
             company_id=company.id,
-            name=MACEDOS_CATALOG_NAME,
+            name=catalog_name,
             source_type="json",
             source_file=str(json_path),
             is_active=True,
@@ -123,7 +105,7 @@ def sync_macedos_menu_from_json(
     db.refresh(catalog)
 
     logger.info(
-        "Macedos menu synchronized",
+        "Menu synchronized",
         company_id=company.id,
         catalog_id=catalog.id,
         categories=len(payload.get("categories", [])),

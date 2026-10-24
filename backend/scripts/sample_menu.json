@@ -1,0 +1,36 @@
+{
+  "categories": [
+    {
+      "id": 1,
+      "name": "Lanches",
+      "description": "Lanches artesanais",
+      "view_order": 1,
+      "items": [
+        {"id": 101, "name": "Hambúrguer Clássico", "description": "Pão, hambúrguer de 150 g, queijo e salada", "price": "28,00", "view_order": 1},
+        {"id": 102, "name": "Hambúrguer Duplo", "description": "Dois hambúrgueres de 150 g, queijo e molho da casa", "price": "38,00", "view_order": 2},
+        {"id": 103, "name": "Sanduíche Vegetariano", "description": "Grão-de-bico, rúcula e tomate", "price": "26,00", "view_order": 3}
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Bebidas",
+      "description": "Bebidas geladas",
+      "view_order": 2,
+      "items": [
+        {"id": 201, "name": "Refrigerante Lata", "description": "350 ml", "price": "6,00", "view_order": 1},
+        {"id": 202, "name": "Suco Natural", "description": "Laranja ou limão, 400 ml", "price": "9,00", "view_order": 2},
+        {"id": 203, "name": "Água sem Gás", "description": "500 ml", "price": "4,00", "view_order": 3}
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Sobremesas",
+      "description": "Doces da casa",
+      "view_order": 3,
+      "items": [
+        {"id": 301, "name": "Brownie", "description": "Com sorvete de creme", "price": "16,00", "view_order": 1},
+        {"id": 302, "name": "Pudim", "description": "Fatia individual", "price": "12,00", "view_order": 2}
+      ]
+    }
+  ]
+}

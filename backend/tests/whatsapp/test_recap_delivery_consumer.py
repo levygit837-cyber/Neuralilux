@@ -68,7 +68,7 @@ class HandoffDuringTurn(FakeMessagesClient):
 
 @pytest.fixture
 def shop(db, monkeypatch):
-    """Macedos com um Order pronto para recapitular, Agent ligado e envio registrado."""
+    """Company com um Order pronto para recapitular, Agent ligado e envio registrado."""
     w = make_world(db)
     business_type = BusinessType(name="Restaurante", slug="restaurant")
     db.add(business_type)
@@ -109,7 +109,7 @@ async def _ready_order(shop):
 def _inbound(shop, message_id, body, offset=0):
     # Timestamp inteiro e no futuro próximo: tem de ser posterior ao instante em que a resposta saiu.
     ts = int(datetime.now(timezone.utc).timestamp()) + 5 + offset
-    return upsert(text=body, remote_jid=shop.contact.remote_jid, message_id=message_id, instance="evo-macedos", ts=ts)
+    return upsert(text=body, remote_jid=shop.contact.remote_jid, message_id=message_id, instance="evo-loja", ts=ts)
 
 
 async def _confirm_and_get_status(shop, consumer):
@@ -199,7 +199,7 @@ async def test_confirmation_sent_before_the_recap_reached_the_contact_does_not_c
     shop.state["client"] = FakeMessagesClient([reply(FINALIZE), reply(text("ok"))])
     early = upsert(
         text="pode fechar", remote_jid=JID.replace("5511999990001", shop.contact.phone_number),
-        message_id="in-early", instance="evo-macedos", ts=int(datetime.now(timezone.utc).timestamp()) - 60,
+        message_id="in-early", instance="evo-loja", ts=int(datetime.now(timezone.utc).timestamp()) - 60,
     )
     await process(consumer, early)  # chegou antes de a recapitulação sair
     assert order_of(shop).status == "open"

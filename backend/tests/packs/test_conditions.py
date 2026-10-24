@@ -22,7 +22,7 @@ async def test_returns_the_zones_pix_and_minimum_of_the_context_company(world):
     data = payload(await call(conditions(), world.ctx))
 
     assert data["formas_pagamento"] == ["pix", "dinheiro", "cartao"]
-    assert data["chave_pix"] == "pix@macedos.example"
+    assert data["chave_pix"] == "pix@loja.example"
     assert data["pedido_minimo"] == 30.0
     assert data["taxas_entrega"] == [{"zona": "Centro", "bairros": ["Centro", "Aldeota"], "taxa": 5.0}]
 

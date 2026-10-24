@@ -70,9 +70,9 @@ def _catalog(db, company: Company, categories: dict[str, list[tuple]]) -> dict[s
     return items
 
 
-def make_world(db, *, with_zone: bool = True, pix_key: str | None = "pix@macedos.example") -> World:
+def make_world(db, *, with_zone: bool = True, pix_key: str | None = "pix@loja.example") -> World:
     company = Company(
-        name="Macedos",
+        name="Loja Exemplo",
         address_street="Rua das Flores",
         address_number="100",
         address_neighborhood="Centro",
@@ -88,7 +88,7 @@ def make_world(db, *, with_zone: bool = True, pix_key: str | None = "pix@macedos
     db.add_all([company, other_company])
     db.flush()
 
-    instance = Instance(name="inst-macedos", evolution_instance_id="evo-macedos", company_id=company.id)
+    instance = Instance(name="inst-loja", evolution_instance_id="evo-loja", company_id=company.id)
     db.add(instance)
     db.flush()
     contact = Contact(
@@ -134,7 +134,7 @@ def make_world(db, *, with_zone: bool = True, pix_key: str | None = "pix@macedos
                 minimum_order_value=Decimal("0"),
             )
         )
-    # Zona de outra Company e zona legada sem dono: nunca podem entrar nas contas da Macedos.
+    # Zona de outra Company e zona legada sem dono: nunca podem entrar nas contas da Company.
     db.add(
         DeliveryZone(company_id=other_company.id, name="Praia", neighborhoods=["Praia"], delivery_fee=Decimal("50.00"))
     )
