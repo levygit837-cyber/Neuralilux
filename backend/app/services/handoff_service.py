@@ -49,6 +49,14 @@ def _aware(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
 
+def in_handoff(db: Session, conversation_id: str) -> bool:
+    """A Conversation está em Handoff agora? Única regra da checagem: executor, TurnRunner e recuperação a usam.
+
+    Lê do banco, não do objeto: um Attendant pode ter assumido depois que a Conversation foi carregada.
+    """
+    return bool(db.query(Conversation.human_in_loop).filter(Conversation.id == conversation_id).scalar())
+
+
 # ---------- transições ----------
 
 

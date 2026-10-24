@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models import Conversation, Message
+from app.services import handoff_service
 from app.whatsapp import turn_state
 from app.whatsapp.turn_batcher import Entry
 from app.whatsapp.turn_runner import TurnRunner, Work
@@ -96,7 +97,7 @@ class Recovery:
         if began and turn_state.sent_since(db, conversation.id, min(turn_state.aware(m.turn_claimed_at) for m in began)):
             self._settle(db, began, turn_state.ANSWERED, turn_state.SENT_ELSEWHERE)
             live = [m for m in live if m not in began]
-        if live and db.query(Conversation.human_in_loop).filter(Conversation.id == conversation.id).scalar():
+        if live and handoff_service.in_handoff(db, conversation.id):
             self._settle(db, live, turn_state.SKIPPED, turn_state.SKIP_HANDOFF)
             return []
 

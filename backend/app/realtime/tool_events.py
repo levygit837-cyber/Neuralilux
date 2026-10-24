@@ -17,10 +17,6 @@ from app.realtime.publish import publish_event
 logger = structlog.get_logger()
 
 
-def generate_request_id() -> str:
-    return uuid4().hex
-
-
 def generate_trace_id() -> str:
     return uuid4().hex
 
@@ -126,25 +122,6 @@ class ToolEventTracker:
             )
         )
         self._pending_tasks.append(task)
-
-    def waiting(
-        self,
-        tool_name: str,
-        *,
-        input_payload: Any | None = None,
-        display_name: str | None = None,
-    ) -> str:
-        trace_id = generate_trace_id()
-        started_at = _now_iso()
-        self._schedule(
-            tool_name=tool_name,
-            phase="waiting_input",
-            trace_id=trace_id,
-            input_payload=input_payload,
-            display_name=display_name,
-            started_at=started_at,
-        )
-        return trace_id
 
     def start(
         self,

@@ -1,6 +1,4 @@
-import base64
 import hmac
-from typing import Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -31,20 +29,6 @@ def require_webhook_token(token: str = Query("")) -> str | None:
 
 
 router = APIRouter(dependencies=[Depends(require_webhook_token)])
-
-
-def _convert_bytes_to_base64(obj: Any) -> Any:
-    """
-    Recursively convert bytes objects to base64 strings for JSON serialization.
-    """
-    if isinstance(obj, bytes):
-        return base64.b64encode(obj).decode('utf-8')
-    elif isinstance(obj, dict):
-        return {key: _convert_bytes_to_base64(value) for key, value in obj.items()}
-    elif isinstance(obj, list):
-        return [_convert_bytes_to_base64(item) for item in obj]
-    else:
-        return obj
 
 
 def _normalize_event_name(event_name: str | None) -> str | None:
@@ -88,11 +72,8 @@ async def evolution_webhook(
         if final_event:
             payload["event"] = final_event
 
-        # Convert any bytes to base64 strings for JSON serialization
-        safe_payload = _convert_bytes_to_base64(payload)
-
-        # Publish webhook event to RabbitMQ for async processing
-        published = await message_queue_service.publish_webhook_event(safe_payload)
+        # Publish webhook event to RabbitMQ for async processing (bytes viram base64 uma vez, na fila)
+        published = await message_queue_service.publish_webhook_event(payload)
 
     except Exception as e:
         logger.error("Error processing webhook", error=str(e))
@@ -104,7 +85,7 @@ async def evolution_webhook(
             "Evolution webhook event lost: publish to RabbitMQ failed",
             event_type=final_event,
             instance=payload.get("instance"),
-            message_ids=webhook_message_ids(safe_payload),
+            message_ids=webhook_message_ids(payload),
         )
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Event queue unavailable")
 
