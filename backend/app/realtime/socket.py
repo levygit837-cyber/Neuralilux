@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.api.access import can_access_instance, resolve_instance
 from app.core.config import settings
 from app.core.database import SessionLocal
-from app.core.security import decode_access_token
+from app.services.user_service import get_active_user_from_token
 from app.models import Conversation, Instance, User
 from app.services import handoff_service
 from app.whatsapp.evolution_client import evolution_api
@@ -179,17 +179,9 @@ class ChatSocketService:
         if not token:
             return None
 
-        payload = decode_access_token(token)
-        if payload is None:
-            return None
-
-        email = payload.get("sub")
-        if not email:
-            return None
-
         db = SessionLocal()
         try:
-            return db.query(User).filter(User.email == email, User.is_active == True).first()
+            return get_active_user_from_token(db, token)
         finally:
             db.close()
 

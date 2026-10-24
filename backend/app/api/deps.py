@@ -4,8 +4,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
 from app.core import database
-from app.core.security import decode_access_token
-from app.services.user_service import get_user_by_email
+from app.services.user_service import get_active_user_from_token
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 optional_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
@@ -20,23 +19,14 @@ def get_db():
 
 
 def _user_from_token(token: str, db: Session):
-    """Decodifica o JWT e devolve o usuário; 401 se o token for inválido ou o usuário não existir."""
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-
-    payload = decode_access_token(token)  # None se o token é inválido ou expirou
-    if payload is None:
-        raise credentials_exception
-    email: str | None = payload.get("sub")
-    if email is None:
-        raise credentials_exception
-
-    user = get_user_by_email(db, email=email)
+    """Usuário ativo do JWT (mesma regra do handshake do Socket.IO); 401 se inválido, vencido, inexistente ou inativo."""
+    user = get_active_user_from_token(db, token)
     if user is None:
-        raise credentials_exception
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return user
 
 

@@ -317,9 +317,12 @@ def test_remote_models_404_falls_back_to_registered_models(client, auth_headers,
 
 def test_remote_models_other_errors_are_bad_gateway(client, auth_headers, mock_gateway):
     gateway_id = _create_gateway(client, auth_headers).json()["id"]
-    mock_gateway["handler"] = lambda r: httpx.Response(403, text="no")
+    mock_gateway["handler"] = lambda r: httpx.Response(403, text="corpo-do-upstream-com-segredo")
 
-    assert client.get(f"{BASE}/{gateway_id}/remote-models", headers=auth_headers).status_code == 502
+    response = client.get(f"{BASE}/{gateway_id}/remote-models", headers=auth_headers)
+
+    assert response.status_code == 502
+    assert "segredo" not in response.text  # a resposta do Gateway fica só no log
 
 
 # --- origem (scheme + netloc), nao a URL inteira, decide se a chave salva precisa ser reenviada ---- #

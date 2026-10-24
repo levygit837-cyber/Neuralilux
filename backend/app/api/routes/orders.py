@@ -186,5 +186,5 @@ async def change_order_status(
     try:
         notification = await change_status(db, order, body.status)
     except TransitionError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise HTTPException(status_code=409, detail=exc.message) from exc
     return {"order": _panel_row(order, _refund_statuses(db, [order.id])), "notification": notification}

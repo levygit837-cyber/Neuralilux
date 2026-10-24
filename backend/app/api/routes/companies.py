@@ -1,6 +1,7 @@
 """Company e o Agent dela: cada usuário vê e edita só a própria Company; o superusuário, todas."""
 from typing import List
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -22,6 +23,7 @@ from app.services.company_service import (
     update_company,
 )
 
+logger = structlog.get_logger()
 router = APIRouter()
 
 # Só o superusuário muda: o ramo escolhe o Pack do Agent e `is_active` liga/desliga a Company.
@@ -51,10 +53,11 @@ async def create_new_company(
     """Cria uma Company; só o superusuário (o dono comum só edita a que já tem)."""
     try:
         return create_company(db, company)
-    except Exception as e:
+    except Exception:
+        logger.exception("Unexpected error creating company")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error creating company: {str(e)}"
+            detail="Error creating company",
         )
 
 

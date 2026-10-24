@@ -139,6 +139,16 @@ def test_superuser_creates_a_company(client, db, world, create_body):
     assert (created.name, created.pix_key) == ("Nova Pizzaria", "pix@nova.example")
 
 
+def test_unexpected_error_creating_a_company_does_not_leak_into_detail(client, world, create_body, monkeypatch):
+    def explode(*args, **kwargs):
+        raise RuntimeError('null value in column "slug" of relation "companies" violates not-null constraint')
+
+    monkeypatch.setattr("app.api.routes.companies.create_company", explode)
+    response = client.post("/api/v1/companies/", json=create_body, headers=world["admin"])
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Error creating company"
+
+
 @pytest.mark.parametrize("who", ["owner", "stranger", "loner"])
 def test_only_a_superuser_deactivates_a_company(client, db, world, who):
     """Nem o dono desativa a própria Company: `is_active` é do superusuário."""

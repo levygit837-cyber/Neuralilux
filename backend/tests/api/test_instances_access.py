@@ -387,10 +387,12 @@ def test_owner_connect_on_an_already_connected_instance_has_no_qr(client, two_ow
 @pytest.mark.parametrize("evolution_status,expected", [(404, 404), (401, 401), (500, 502)])
 def test_evolution_errors_map_to_http_status(client, two_owners, evolution, evolution_status, expected):
     alice, _ = two_owners
-    evolution["get_instance_qrcode"].side_effect = EvolutionAPIError("falhou", status_code=evolution_status)
+    evolution["get_instance_qrcode"].side_effect = EvolutionAPIError(
+        "falhou: http://evolution:8080 apikey=segredo", status_code=evolution_status
+    )
     response = client.post("/api/v1/instances/inst-alice/connect", headers=alice)
     assert response.status_code == expected
-    assert "Evolution API error" in response.json()["detail"]
+    assert response.json()["detail"] == "Evolution API error"  # o texto do upstream fica só no log
 
 
 def test_owner_logout_disconnects_in_evolution(client, two_owners, evolution):

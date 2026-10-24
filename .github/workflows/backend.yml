@@ -50,15 +50,11 @@ jobs:
         run: python scripts/check_max_lines.py
 
       # pip-audit fica fora do requirements-dev.txt: arrasta dependências próprias que não devem
-      # entrar no ambiente de teste. As duas exceções não têm versão corrigida no PyPI:
-      # PYSEC-2026-4298 (python-jose) só é explorável com `algorithms` irrestrito ou chave pública
-      # como segredo HMAC; `app/core/security.py` fixa HS256 com SECRET_KEY simétrica.
-      # PYSEC-2026-1325 (ecdsa) é timing na assinatura ECDSA, que o app não usa (só HS256).
-      # Reavaliar quando sair uma versão corrigida.
+      # entrar no ambiente de teste.
       - name: Auditoria de dependências (pip-audit)
         run: |
           pip install pip-audit==2.10.1
-          pip-audit -r requirements.txt --ignore-vuln PYSEC-2026-4298 --ignore-vuln PYSEC-2026-1325
+          pip-audit -r requirements.txt
 
   # Migrações e queries reais em Postgres (mesma major do docker-compose.example.yml). Bloco próprio: a suíte
   # SQLite do job acima continua sem serviços.

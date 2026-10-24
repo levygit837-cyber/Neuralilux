@@ -1,5 +1,5 @@
 import bcrypt
-from jose import JWTError, jwt
+import jwt
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from app.core.config import settings
@@ -35,10 +35,9 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
-def decode_access_token(token: str) -> dict:
-    """Decode and verify JWT token"""
+def decode_access_token(token: str) -> dict | None:
+    """Decodifica e verifica o JWT; `None` se a assinatura, o formato ou a validade (`exp`) não passam."""
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        return payload
-    except JWTError:
+        return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+    except jwt.PyJWTError:
         return None

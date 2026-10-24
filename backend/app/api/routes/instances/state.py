@@ -86,10 +86,10 @@ async def list_instances(
         logger.error("Failed to fetch instances from Evolution API", error=e.message)
         raise HTTPException(
             status_code=e.status_code if e.status_code != 500 else status.HTTP_502_BAD_GATEWAY,
-            detail=f"Evolution API error: {e.message}",
+            detail="Evolution API error",
         )
-    except Exception as e:
-        logger.error("Unexpected error fetching instances", error=str(e))
+    except Exception:
+        logger.exception("Unexpected error fetching instances")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch instances",
@@ -140,10 +140,10 @@ async def get_instance_status(
         logger.error("Failed to get instance status", instance_id=instance_id, error=e.message)
         raise HTTPException(
             status_code=e.status_code if e.status_code != 500 else status.HTTP_502_BAD_GATEWAY,
-            detail=f"Evolution API error: {e.message}",
+            detail="Evolution API error",
         )
-    except Exception as e:
-        logger.error("Unexpected error getting instance status", instance_id=instance_id, error=str(e))
+    except Exception:
+        logger.exception("Unexpected error getting instance status", instance_id=instance_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get status for instance {instance_id}",
@@ -195,10 +195,10 @@ async def connect_instance(
         logger.error("Failed to connect instance", instance_id=instance_id, error=e.message)
         raise HTTPException(
             status_code=e.status_code if e.status_code != 500 else status.HTTP_502_BAD_GATEWAY,
-            detail=f"Evolution API error: {e.message}",
+            detail="Evolution API error",
         )
-    except Exception as e:
-        logger.error("Unexpected error connecting instance", instance_id=instance_id, error=str(e))
+    except Exception:
+        logger.exception("Unexpected error connecting instance", instance_id=instance_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to connect instance {instance_id}",
@@ -232,10 +232,10 @@ async def logout_instance(
         logger.error("Failed to logout instance", instance_id=instance_id, error=e.message)
         raise HTTPException(
             status_code=e.status_code if e.status_code != 500 else status.HTTP_502_BAD_GATEWAY,
-            detail=f"Evolution API error: {e.message}",
+            detail="Evolution API error",
         )
-    except Exception as e:
-        logger.error("Unexpected error logging out instance", instance_id=instance_id, error=str(e))
+    except Exception:
+        logger.exception("Unexpected error logging out instance", instance_id=instance_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to logout instance {instance_id}",

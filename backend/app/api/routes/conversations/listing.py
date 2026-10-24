@@ -245,5 +245,5 @@ async def send_conversation_message(
         )
         raise HTTPException(
             status_code=e.status_code if e.status_code != 500 else status.HTTP_502_BAD_GATEWAY,
-            detail=f"Evolution API error: {e.message}",
+            detail="Evolution API error",
         )

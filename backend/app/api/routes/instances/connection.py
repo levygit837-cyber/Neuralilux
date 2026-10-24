@@ -86,10 +86,10 @@ async def delete_instance_endpoint(
         logger.error("Failed to delete instance", instance_id=instance_id, error=e.message)
         raise HTTPException(
             status_code=e.status_code if e.status_code != 500 else status.HTTP_502_BAD_GATEWAY,
-            detail=f"Evolution API error: {e.message}",
+            detail="Evolution API error",
         )
-    except Exception as e:
-        logger.error("Unexpected error deleting instance", instance_id=instance_id, error=str(e))
+    except Exception:
+        logger.exception("Unexpected error deleting instance", instance_id=instance_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete instance {instance_id}",
@@ -174,11 +174,11 @@ async def create_or_connect_instance(
         logger.error("Failed to create instance", instance_id=instance_id, error=e.message)
         raise HTTPException(
             status_code=e.status_code if e.status_code != 500 else status.HTTP_502_BAD_GATEWAY,
-            detail=f"Evolution API error: {e.message}",
+            detail="Evolution API error",
         )
-    except Exception as e:
+    except Exception:
         db.rollback()
-        logger.error("Unexpected error creating instance", instance_id=instance_id, error=str(e))
+        logger.exception("Unexpected error creating instance", instance_id=instance_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create instance {instance_id}",
