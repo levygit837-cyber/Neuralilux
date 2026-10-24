@@ -36,7 +36,7 @@ export function MessagePane({ conversationId, onSendMessage, onRetryMessage }: M
 
   return (
     <>
-      <div className="flex-1 overflow-y-auto px-6 py-8 h-full relative">
+      <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-8 h-full relative">
         {isLoading && messages.length === 0 ? (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />

@@ -18,6 +18,16 @@ export function MobileNav() {
     dialogRef.current?.close()
   }, [pathname])
 
+  // O drawer não existe a partir de `lg`: um dialog modal aberto ali prenderia o foco atrás da Sidebar.
+  useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 1024px)')
+    const closeOnDesktop = (event: MediaQueryListEvent) => {
+      if (event.matches) dialogRef.current?.close()
+    }
+    desktop.addEventListener('change', closeOnDesktop)
+    return () => desktop.removeEventListener('change', closeOnDesktop)
+  }, [])
+
   const close = () => dialogRef.current?.close()
 
   return (

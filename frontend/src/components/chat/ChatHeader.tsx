@@ -1,5 +1,5 @@
 import { Avatar } from '@/components/ui/Avatar'
-import { Phone, VideoCamera, MagnifyingGlass, DotsThreeVertical, Robot, Check, HandPalm, ArrowUUpLeft } from '@phosphor-icons/react'
+import { ArrowLeft, Phone, VideoCamera, MagnifyingGlass, DotsThreeVertical, Robot, Check, HandPalm, ArrowUUpLeft } from '@phosphor-icons/react'
 import type { AgentListItem } from '@/types/chat'
 
 interface ChatHeaderProps {
@@ -21,6 +21,8 @@ interface ChatHeaderProps {
   onToggleAgent?: () => void
   isAgentLoading?: boolean
   isAgentBindingLoading?: boolean
+  /** Só abaixo de `lg`: volta da conversa para a lista. */
+  onBack?: () => void
 }
 
 export function ChatHeader({
@@ -41,6 +43,7 @@ export function ChatHeader({
   onToggleAgent,
   isAgentLoading = false,
   isAgentBindingLoading = false,
+  onBack,
 }: ChatHeaderProps) {
   const isButtonDisabled = isAgentLoading || agentEnabled === null
   const isSelectorDisabled = isAgentLoading || isAgentBindingLoading
@@ -52,9 +55,19 @@ export function ChatHeader({
       : availableAgents
 
   return (
-    <header className="h-20 glass-header border-b border-brand-border/50 px-6 flex items-center justify-between z-20">
+    <header className="min-h-20 glass-header border-b border-brand-border/50 px-3 sm:px-6 py-2 flex flex-wrap items-center justify-between gap-2 z-20">
       {/* Contact Info */}
-      <div className="flex items-center gap-4 cursor-pointer group">
+      <div className="flex min-w-0 items-center gap-2 sm:gap-4 cursor-pointer group">
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="Voltar para as conversas"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-content-gray hover:bg-brand-hover hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary lg:hidden"
+          >
+            <ArrowLeft weight="regular" className="text-xl" aria-hidden="true" />
+          </button>
+        )}
         <div className="relative">
           <Avatar
             src={avatar}
@@ -79,7 +92,7 @@ export function ChatHeader({
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {humanHandoff && (
           <span className="rounded-full border border-warning/30 bg-warning/10 px-3 py-1 text-xs font-semibold text-warning">
             Atendimento humano
@@ -145,18 +158,18 @@ export function ChatHeader({
           </select>
         )}
 
-        <button className="w-10 h-10 rounded-full flex items-center justify-center text-content-gray hover:text-primary hover:bg-brand-hover transition-colors">
+        <button className="hidden lg:flex w-10 h-10 rounded-full items-center justify-center text-content-gray hover:text-primary hover:bg-brand-hover transition-colors">
           <MagnifyingGlass weight="regular" className="text-xl" />
         </button>
-        <div className="w-px h-6 bg-brand-border mx-1" />
-        <button className="w-10 h-10 rounded-full flex items-center justify-center text-content-gray hover:bg-brand-hover transition-colors">
+        <div className="hidden lg:block w-px h-6 bg-brand-border mx-1" />
+        <button className="hidden lg:flex w-10 h-10 rounded-full items-center justify-center text-content-gray hover:bg-brand-hover transition-colors">
           <Phone weight="regular" className="text-xl" />
         </button>
-        <button className="w-10 h-10 rounded-full flex items-center justify-center text-content-gray hover:bg-brand-hover transition-colors">
+        <button className="hidden lg:flex w-10 h-10 rounded-full items-center justify-center text-content-gray hover:bg-brand-hover transition-colors">
           <VideoCamera weight="regular" className="text-xl" />
         </button>
-        <div className="w-px h-6 bg-brand-border mx-1" />
-        <button className="w-10 h-10 rounded-full flex items-center justify-center text-content-gray hover:text-white hover:bg-brand-hover transition-colors">
+        <div className="hidden lg:block w-px h-6 bg-brand-border mx-1" />
+        <button className="hidden lg:flex w-10 h-10 rounded-full items-center justify-center text-content-gray hover:text-white hover:bg-brand-hover transition-colors">
           <DotsThreeVertical weight="regular" className="text-xl" />
         </button>
       </div>
