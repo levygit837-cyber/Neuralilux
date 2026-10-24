@@ -14,7 +14,7 @@ export function Header({ title, showOnlineBadge = true }: HeaderProps) {
   })
 
   return (
-    <header className="h-20 border-b border-border-color/50 bg-dark/80 backdrop-blur-xl flex items-center justify-between px-8 sticky top-0 z-10">
+    <header className="h-20 border-b border-border-color/50 bg-dark/80 backdrop-blur-xl flex items-center justify-between px-4 sm:px-8 sticky top-0 z-10">
       <div>
         <h1 className="text-2xl font-semibold text-text-light tracking-tight flex items-center gap-2">
           {title || 'Dashboard'}

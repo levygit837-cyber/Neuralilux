@@ -1,157 +1,28 @@
-'use client'
-
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
-import { 
-  SquaresFour, 
-  ChatCircleDots, 
-  Package, 
-  Receipt,
-  DeviceMobile,
-  SlidersHorizontal,
-  Brain,
-  Sparkle,
-  CaretUp
-} from '@phosphor-icons/react'
-import { ROUTES } from '@/lib/constants'
-import { cn } from '@/lib/utils'
-import { useChatStore } from '@/stores/useChatStore'
-
-const NAV_ITEMS = [
-  {
-    href: ROUTES.DASHBOARD,
-    label: 'Dashboard',
-    icon: SquaresFour,
-    badge: null,
-  },
-  {
-    href: ROUTES.CHAT,
-    label: 'Chat',
-    icon: ChatCircleDots,
-    badge: null,
-  },
-  {
-    href: ROUTES.INSTANCES,
-    label: 'Instâncias',
-    icon: DeviceMobile,
-    badge: null,
-  },
-  {
-    href: ROUTES.ORDERS,
-    label: 'Pedidos',
-    icon: Receipt,
-    badge: null,
-  },
-  {
-    href: ROUTES.STOCK,
-    label: 'Estoque',
-    icon: Package,
-    badge: null,
-  },
-]
-
-const SETTINGS_ITEM = {
-  href: ROUTES.SETTINGS,
-  label: 'Configurações',
-  icon: SlidersHorizontal,
-}
+import { Brand } from './Brand'
+import { NavList } from './NavList'
 
 export function Sidebar() {
-  const pathname = usePathname()
-  // Só se conhece depois que o chat carregou; antes disso não há selo.
-  const unreadMessages = useChatStore((state) => state.counts?.unreadMessages ?? 0)
-
   return (
-    <aside className="hidden w-72 flex-col border-r border-brand-border bg-brand-card/50 lg:flex relative z-20 shadow-panel backdrop-blur-sm">
-      {/* Floating gradient glow behind sidebar */}
-      <div className="absolute top-0 left-0 w-full h-64 bg-primary/5 rounded-full blur-[80px] pointer-events-none -z-10" />
+    <aside className="relative z-20 hidden w-72 flex-col border-r border-brand-border bg-brand-card/50 shadow-panel backdrop-blur-sm lg:flex">
+      <div className="pointer-events-none absolute left-0 top-0 -z-10 h-64 w-full rounded-full bg-primary/5 blur-[80px]" />
 
-      {/* Logo Area */}
-      <div className="h-20 px-6 flex items-center border-b border-brand-border/50">
-        <div className="flex items-center gap-3">
-          <div className="relative flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-secondary shadow-glow">
-            <Brain weight="fill" className="text-white text-lg" />
-            {/* AI Sparkle absolute */}
-            <Sparkle weight="fill" className="text-accent text-[10px] absolute -top-1 -right-1" />
-          </div>
-          <span className="font-bold tracking-[0.15em] text-sm uppercase bg-clip-text text-transparent bg-gradient-to-r from-content-light to-content-gray">
-            NeuraliLux
-          </span>
-        </div>
+      <div className="flex h-20 items-center border-b border-brand-border/50 px-6">
+        <Brand />
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 px-4 py-8 space-y-2">
-        {NAV_ITEMS.map((item) => {
-          const Icon = item.icon
-          const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`)
-          const badge = item.href === ROUTES.CHAT && unreadMessages > 0 ? String(unreadMessages) : item.badge
+      <NavList />
 
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                'flex items-center gap-4 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 group relative overflow-hidden',
-                isActive
-                  ? 'text-white bg-brand-hover border border-primary/20 shadow-[inset_4px_0_0_0_#8B5CF6]'
-                  : 'text-content-muted hover:text-content-light hover:bg-brand-hover/50'
-              )}
-            >
-              <Icon 
-                weight={isActive ? 'fill' : 'regular'} 
-                className={cn(
-                  'text-xl',
-                  isActive ? 'text-primary drop-shadow-[0_0_8px_rgba(139,92,246,0.6)]' : 'group-hover:text-primary transition-colors'
-                )}
-              />
-              <span className="font-medium">{item.label}</span>
-              {badge && (
-                <span className="bg-primary text-[10px] font-bold px-2 py-0.5 rounded-full ml-auto">
-                  <span aria-hidden={item.href === ROUTES.CHAT ? 'true' : undefined}>{badge}</span>
-                  {item.href === ROUTES.CHAT && <span className="sr-only">{badge} mensagens não lidas</span>}
-                </span>
-              )}
-            </Link>
-          )
-        })}
-
-        {/* Settings separated with margin */}
-        <Link
-          href={SETTINGS_ITEM.href}
-          className={cn(
-            'flex items-center gap-4 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 group',
-            pathname === SETTINGS_ITEM.href || pathname.startsWith(`${SETTINGS_ITEM.href}/`)
-              ? 'text-white bg-brand-hover border border-primary/20 shadow-[inset_4px_0_0_0_#8B5CF6]'
-              : 'text-content-muted hover:text-content-light hover:bg-brand-hover/50'
-          )}
-        >
-          <SlidersHorizontal 
-            weight={pathname === SETTINGS_ITEM.href || pathname.startsWith(`${SETTINGS_ITEM.href}/`) ? 'fill' : 'regular'} 
-            className={cn(
-              'text-xl',
-              pathname === SETTINGS_ITEM.href || pathname.startsWith(`${SETTINGS_ITEM.href}/`)
-                ? 'text-primary drop-shadow-[0_0_8px_rgba(139,92,246,0.6)]'
-                : 'group-hover:text-primary transition-colors'
-            )}
-          />
-          <span className="font-medium">{SETTINGS_ITEM.label}</span>
-        </Link>
-      </nav>
-
-      {/* User Profile */}
-      <div className="p-6 border-t border-brand-border/50 bg-brand-card/30">
-        <div className="flex items-center gap-3 w-full p-2 rounded-xl hover:bg-brand-hover/50 transition-colors cursor-pointer border border-transparent hover:border-brand-border">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white font-bold border border-brand-border">
+      <div className="border-t border-brand-border/50 bg-brand-card/30 p-6">
+        <div className="flex w-full items-center gap-3 rounded-xl border border-transparent p-2">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full border border-brand-border bg-gradient-to-br from-primary to-secondary font-bold text-white">
             IS
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold truncate text-content-light">Isabella Silva</p>
-            <p className="text-xs text-content-muted truncate flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-status-success"></span> Workspace Pro
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-content-light">Isabella Silva</p>
+            <p className="flex items-center gap-1 truncate text-xs text-content-muted">
+              <span className="h-1.5 w-1.5 rounded-full bg-status-success"></span> Workspace Pro
             </p>
           </div>
-          <CaretUp weight="regular" className="text-content-muted" />
         </div>
       </div>
     </aside>

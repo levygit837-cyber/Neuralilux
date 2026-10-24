@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { isTokenExpired } from '@/lib/authToken'
+import { POST_LOGIN_ROUTE } from '@/lib/constants'
 
 // Protected routes that require authentication
 const PROTECTED_ROUTES = ['/dashboard', '/chat', '/instances', '/qr', '/estoque', '/pedidos', '/settings']
@@ -30,7 +31,7 @@ export function proxy(request: NextRequest) {
   const redirectToLogin = () => {
     const loginUrl = new URL('/login', request.url)
     if (pathname !== '/login') {
-      loginUrl.searchParams.set('callbackUrl', pathname)
+      loginUrl.searchParams.set('callbackUrl', `${pathname}${request.nextUrl.search}`)
     }
 
     const response = NextResponse.redirect(loginUrl)
@@ -43,7 +44,7 @@ export function proxy(request: NextRequest) {
   // Root route - redirect based on auth state
   if (pathname === '/') {
     if (isAuthenticated) {
-      return NextResponse.redirect(new URL('/instances', request.url))
+      return NextResponse.redirect(new URL(POST_LOGIN_ROUTE, request.url))
     } else {
       return redirectToLogin()
     }
@@ -58,11 +59,11 @@ export function proxy(request: NextRequest) {
     return redirectToLogin()
   }
 
-  // Redirect to dashboard if already authenticated and trying to access login
+  // Redirect to the post-login route if already authenticated and trying to access login
   const isAuthRoute = AUTH_ROUTES.some(route => pathname.startsWith(route))
   
   if (isAuthRoute && isAuthenticated) {
-    return NextResponse.redirect(new URL('/instances', request.url))
+    return NextResponse.redirect(new URL(POST_LOGIN_ROUTE, request.url))
   }
 
   return NextResponse.next()
