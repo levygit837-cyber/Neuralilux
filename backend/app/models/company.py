@@ -68,5 +68,4 @@ class Company(Base):
     users = relationship("User", back_populates="company")
     instances = relationship("Instance", back_populates="company")
     agents = relationship("Agent", back_populates="company")
-    products = relationship("Product", back_populates="company")  # DEPRECATED
     menu_catalogs = relationship("MenuCatalog", back_populates="company")
