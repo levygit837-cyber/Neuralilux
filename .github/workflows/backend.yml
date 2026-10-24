@@ -99,6 +99,8 @@ jobs:
 
       - name: Alembic upgrade head, downgrade base, upgrade head
         env:
+          # Sem ENVIRONMENT=development a app assume produção e recusa os segredos de exemplo (config.py).
+          ENVIRONMENT: development
           DATABASE_URL: postgresql+psycopg://neuralilux_ci:neuralilux_ci@localhost:5432/neuralilux_ci
         run: |
           alembic upgrade head
