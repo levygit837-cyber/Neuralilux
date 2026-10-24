@@ -1,7 +1,10 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMemo, useState } from 'react'
 
+import { useSessionReady } from '@/hooks/useSessionReady'
+import { queryKeys } from '@/lib/queryKeys'
 import { orderService } from '@/services/orderService'
 import { useAuthStore } from '@/stores/useAuthStore'
 import type { OrderListFilter, OrderTransition, PanelOrder } from '@/types/order'
@@ -13,99 +16,47 @@ export interface OrderFeedback {
   text: string
 }
 
-/** Status que tiram o Order da lista de ativos. */
-const FINISHED = ['delivered', 'cancelled']
+const messageOf = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback)
 
 export function useOrderPanel() {
-  const token = useAuthStore((state) => state.token)
-  const hasHydrated = useAuthStore((state) => state.hasHydrated)
+  const queryClient = useQueryClient()
+  const enabled = useSessionReady()
+  const isLoggedOut = useAuthStore((state) => state.hasHydrated && !state.token)
 
   const [filter, setFilter] = useState<OrderListFilter>('active')
-  const [orders, setOrders] = useState<PanelOrder[]>([])
-  const [total, setTotal] = useState(0)
-  const [isLoading, setIsLoading] = useState(true)
-  const [isLoadingMore, setIsLoadingMore] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [pendingOrderId, setPendingOrderId] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<OrderFeedback | null>(null)
-  const listGeneration = useRef(0) // sobe a cada troca de filtro; resposta de geração antiga é descartada
-  const isLoggedOut = hasHydrated && !token
-  const displayedError = isLoggedOut ? 'Faça login para acessar os pedidos.' : error
 
-  const load = useCallback(
-    (isCancelled: () => boolean = () => false): Promise<void> => {
-      if (!hasHydrated || !token) return Promise.resolve()
-      return orderService
-        .list(filter, 0, ORDER_PAGE_SIZE)
-        .then((page) => {
-          if (isCancelled()) return
-          setOrders(page.orders)
-          setTotal(page.total)
-          setError(null)
-        })
-        .catch((err: unknown) => {
-          if (isCancelled()) return
-          setError(err instanceof Error ? err.message : 'Não foi possível carregar os pedidos.')
-        })
-        .finally(() => {
-          if (!isCancelled()) setIsLoading(false)
-        })
+  // O servidor ordena por data: o que já está na tela é o começo da lista, então o próximo trecho começa após ele.
+  const query = useInfiniteQuery({
+    queryKey: queryKeys.ordersByFilter(filter),
+    queryFn: ({ pageParam }) => orderService.list(filter, pageParam, ORDER_PAGE_SIZE),
+    initialPageParam: 0,
+    getNextPageParam: (last, pages) => {
+      const loaded = pages.reduce((sum, page) => sum + page.orders.length, 0)
+      return loaded < last.total ? loaded : undefined
     },
-    [hasHydrated, token, filter]
-  )
+    enabled,
+  })
 
-  useEffect(() => {
-    let cancelled = false
-    void load(() => cancelled)
-    return () => {
-      cancelled = true
-    }
-  }, [load])
-
-  const selectFilter = (next: OrderListFilter) => {
-    if (next === filter) return
-    listGeneration.current += 1
-    setOrders([])
-    setTotal(0)
-    setIsLoading(true)
-    setIsLoadingMore(false)
-    setFeedback(null)
-    setFilter(next)
-  }
-
-  const loadMore = async () => {
-    const generation = listGeneration.current
-    setIsLoadingMore(true)
-    try {
-      // O servidor ordena por data: o que já está na tela é o começo da lista, então o próximo trecho começa após ele.
-      const page = await orderService.list(filter, orders.length, ORDER_PAGE_SIZE)
-      // O filtro mudou durante a requisição: as linhas são da lista antiga e não podem entrar na nova.
-      if (listGeneration.current !== generation) return
-      setOrders((current) => {
-        const known = new Set(current.map((row) => row.id))
-        return [...current, ...page.orders.filter((row) => !known.has(row.id))]
-      })
-      setTotal(page.total)
-    } catch (err) {
-      if (listGeneration.current !== generation) return
-      setError(err instanceof Error ? err.message : 'Não foi possível carregar mais pedidos.')
-    } finally {
-      if (listGeneration.current === generation) setIsLoadingMore(false)
-    }
-  }
-
-  const changeStatus = async (order: PanelOrder, target: OrderTransition) => {
-    setPendingOrderId(order.id)
-    setFeedback(null)
-    try {
-      const result = await orderService.changeStatus(order.id, target)
-      if (filter === 'active' && FINISHED.includes(result.order.status)) {
-        // Saiu da lista de ativos; o servidor também a encurtou, então o próximo `loadMore` continua certo.
-        setOrders((current) => current.filter((row) => row.id !== order.id))
-        setTotal((current) => Math.max(0, current - 1))
-      } else {
-        setOrders((current) => current.map((row) => (row.id === order.id ? result.order : row)))
+  const orders = useMemo(() => {
+    const seen = new Set<string>()
+    const rows: PanelOrder[] = []
+    for (const page of query.data?.pages ?? []) {
+      for (const row of page.orders) {
+        if (!seen.has(row.id)) {
+          seen.add(row.id)
+          rows.push(row)
+        }
       }
+    }
+    return rows
+  }, [query.data])
+  const total = query.data?.pages[query.data.pages.length - 1]?.total ?? 0
+
+  const mutation = useMutation({
+    mutationFn: ({ order, target }: { order: PanelOrder; target: OrderTransition }) =>
+      orderService.changeStatus(order.id, target),
+    onSuccess: (result, { order }) => {
       setFeedback(
         result.notification.sent
           ? { kind: 'success', text: `Pedido ${order.order_number} atualizado e cliente avisado no WhatsApp.` }
@@ -114,27 +65,36 @@ export function useOrderPanel() {
               text: `Pedido ${order.order_number} atualizado, mas o cliente não foi avisado: ${result.notification.error ?? 'falha no envio'}`,
             }
       )
-    } catch (err) {
-      setFeedback({ kind: 'error', text: err instanceof Error ? err.message : 'Não foi possível mudar o status.' })
-      await load()
-    } finally {
-      setPendingOrderId(null)
-    }
+    },
+    onError: (err) => setFeedback({ kind: 'error', text: messageOf(err, 'Não foi possível mudar o status.') }),
+    // Sucesso ou falha, as duas listas (ativos e finalizados) podem ter mudado.
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.orders }),
+  })
+
+  const selectFilter = (next: OrderListFilter) => {
+    if (next === filter) return
+    setFeedback(null)
+    setFilter(next)
   }
+
+  const queryError = query.isError ? messageOf(query.error, 'Não foi possível carregar os pedidos.') : null
 
   return {
     orders,
     total,
     filter,
     selectFilter,
-    hasMore: orders.length < total,
-    isLoadingMore,
-    loadMore,
-    showSkeleton: isLoading && !isLoggedOut,
-    displayedError,
-    pendingOrderId,
+    hasMore: query.hasNextPage,
+    isLoadingMore: query.isFetchingNextPage,
+    loadMore: () => query.fetchNextPage(),
+    showSkeleton: query.isPending && !isLoggedOut && enabled,
+    displayedError: isLoggedOut ? 'Faça login para acessar os pedidos.' : queryError,
+    pendingOrderId: mutation.isPending ? mutation.variables.order.id : null,
     feedback,
-    changeStatus,
-    reload: () => load(),
+    changeStatus: (order: PanelOrder, target: OrderTransition) => {
+      setFeedback(null)
+      return mutation.mutateAsync({ order, target }).catch(() => undefined)
+    },
+    reload: () => query.refetch(),
   }
 }

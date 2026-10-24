@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Smartphone, Wifi, WifiOff, Loader2 } from 'lucide-react'
 import { ROUTES } from '@/lib/constants'
-import { instanceService, type Instance, type InstanceStatus } from '@/services/instanceService'
+import { useInstances } from '@/hooks/useInstances'
+import type { InstanceStatus } from '@/services/instanceService'
 
 const STATUS_CONFIG: Record<InstanceStatus, { label: string; color: string; bgColor: string; icon: typeof Wifi }> = {
   connected: { label: 'Conectado', color: 'text-success', bgColor: 'bg-success/10', icon: Wifi },
@@ -16,24 +16,9 @@ const LINK_CLASS =
   'inline-flex items-center justify-center rounded-md border border-border-color px-4 py-2 text-sm font-semibold text-text-gray transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary'
 
 export function WhatsAppConnectionCard() {
-  const [instances, setInstances] = useState<Instance[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    async function load() {
-      try {
-        const list = await instanceService.list()
-        if (!cancelled) setInstances(list)
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Falha ao listar as instâncias')
-      }
-    }
-    void load()
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  const query = useInstances()
+  const instances = query.data ?? null
+  const error = query.isError ? (query.error instanceof Error ? query.error.message : 'Falha ao listar as instâncias') : null
 
   return (
     <div className="rounded-2xl border border-border-color bg-card p-7">

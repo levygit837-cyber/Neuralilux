@@ -1,29 +1,35 @@
 'use client'
 
 import type { FormEvent } from 'react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { normalizeCustomAttributes } from '@/components/estoque/helpers'
 import type { CategoryFormState, ItemFormState } from '@/components/estoque/types'
+import { useSessionReady } from '@/hooks/useSessionReady'
+import { queryKeys } from '@/lib/queryKeys'
 import { menuService } from '@/services/menuService'
 import { useAuthStore } from '@/stores/useAuthStore'
-import type { MenuCategory, MenuItem, MenuManagementPayload } from '@/types/menu'
+import type { MenuCategory, MenuItem } from '@/types/menu'
+
+const messageOf = (err: unknown, fallback: string) => (err instanceof Error ? err.message : fallback)
 
 export function useMenuManagement() {
+  const queryClient = useQueryClient()
   const token = useAuthStore((state) => state.token)
-  const hasHydrated = useAuthStore((state) => state.hasHydrated)
+  const enabled = useSessionReady()
+  const isLoggedOut = useAuthStore((state) => state.hasHydrated && !state.token)
 
-  const [fetchedMenu, setFetchedMenu] = useState<MenuManagementPayload | null>(null)
-  // Sem token o cardápio buscado antes não vale mais: deriva no render em vez de limpar no effect.
-  const menu = token ? fetchedMenu : null
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
-  const [isSaving, setIsSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  // Sem token não há fetch: o estado deriva de hasHydrated/token em vez de ser setado no effect.
-  const isLoggedOut = hasHydrated && !token
-  const displayedError = isLoggedOut ? 'Faça login para acessar o estoque.' : error
-  const showSkeleton = isLoading && !isLoggedOut
+  const query = useQuery({ queryKey: queryKeys.menu, queryFn: menuService.getMenu, enabled })
+  const menu = query.data ?? null
+  // Categoria escolhida pelo usuário; se sumiu do cardápio (apagada), vale a primeira.
+  const [preferredCategoryId, setSelectedCategoryId] = useState<string | null>(null)
+  const selectedCategoryId =
+    menu?.categories.find((category) => category.id === preferredCategoryId)?.id ?? menu?.categories[0]?.id ?? null
+  const [mutationError, setMutationError] = useState<string | null>(null)
+  const queryError = query.isError ? messageOf(query.error, 'Não foi possível carregar o estoque.') : null
+  const displayedError = isLoggedOut ? 'Faça login para acessar o estoque.' : (mutationError ?? queryError)
+  const showSkeleton = query.isPending && enabled
 
   const [categoryForm, setCategoryForm] = useState<CategoryFormState | null>(null)
   const [itemForm, setItemForm] = useState<ItemFormState | null>(null)
@@ -38,47 +44,23 @@ export function useMenuManagement() {
     [menu?.items, selectedCategoryId]
   )
 
-  // Única rota de carga do cardápio, usada pelo effect e pelos handlers de mutação.
-  // `isCancelled` evita aplicar resposta de um token/montagem anterior.
-  const loadMenu = useCallback(
-    (preferredCategoryId?: string | null, isCancelled: () => boolean = () => false): Promise<void> => {
-      if (!hasHydrated || !token) {
-        return Promise.resolve()
-      }
+  // Toda mutação do cardápio invalida a query e mostra o erro no banner da tela.
+  const mutation = useMutation({
+    mutationFn: (action: () => Promise<unknown>) => action(),
+    onMutate: () => setMutationError(null),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.menu }),
+  })
+  const isSaving = mutation.isPending
 
-      return menuService
-        .getMenu()
-        .then((payload) => {
-          if (isCancelled()) return
-          setFetchedMenu(payload)
-          setSelectedCategoryId((current) => {
-            const nextSelection = preferredCategoryId ?? current
-            if (nextSelection && payload.categories.some((category) => category.id === nextSelection)) {
-              return nextSelection
-            }
-            return payload.categories[0]?.id ?? null
-          })
-          setError(null)
-        })
-        .catch((err: unknown) => {
-          if (isCancelled()) return
-          setError(err instanceof Error ? err.message : 'Não foi possível carregar o estoque.')
-        })
-        .finally(() => {
-          if (!isCancelled()) setIsLoading(false)
-        })
-    },
-    [hasHydrated, token]
-  )
-
-  useEffect(() => {
-    let cancelled = false
-    void loadMenu(null, () => cancelled)
-
-    return () => {
-      cancelled = true
+  /** Roda a mutação; devolve o resultado ou `undefined` após registrar o erro. */
+  const mutate = async <T,>(action: () => Promise<T>, fallback: string): Promise<T | undefined> => {
+    try {
+      return (await mutation.mutateAsync(action)) as T
+    } catch (err) {
+      setMutationError(messageOf(err, fallback))
+      return undefined
     }
-  }, [loadMenu])
+  }
 
   const openNewCategoryModal = () => {
     setCategoryForm({
@@ -126,30 +108,14 @@ export function useMenuManagement() {
       return
     }
 
-    setIsSaving(true)
-    try {
-      if (categoryForm.id) {
-        await menuService.updateCategory(categoryForm.id, {
-          name: categoryForm.name,
-          description: categoryForm.description.trim() || null,
-        })
-      } else {
-        const createdCategory = await menuService.createCategory({
-          name: categoryForm.name,
-          description: categoryForm.description.trim() || null,
-        })
-        await loadMenu(createdCategory.id)
-        setCategoryForm(null)
-        return
-      }
-
-      await loadMenu(categoryForm.id)
-      setCategoryForm(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Não foi possível salvar a categoria.')
-    } finally {
-      setIsSaving(false)
-    }
+    const body = { name: categoryForm.name, description: categoryForm.description.trim() || null }
+    const saved = await mutate(
+      () => (categoryForm.id ? menuService.updateCategory(categoryForm.id, body) : menuService.createCategory(body)),
+      'Não foi possível salvar a categoria.'
+    )
+    if (!saved) return
+    setSelectedCategoryId((saved as MenuCategory).id)
+    setCategoryForm(null)
   }
 
   const handleItemSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -167,21 +133,13 @@ export function useMenuManagement() {
       custom_attributes: normalizeCustomAttributes(itemForm.custom_attributes),
     }
 
-    setIsSaving(true)
-    try {
-      if (itemForm.id) {
-        await menuService.updateItem(itemForm.id, payload)
-      } else {
-        await menuService.createItem(payload)
-      }
-
-      await loadMenu(itemForm.category_id)
-      setItemForm(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Não foi possível salvar o item.')
-    } finally {
-      setIsSaving(false)
-    }
+    const saved = await mutate(
+      () => (itemForm.id ? menuService.updateItem(itemForm.id, payload) : menuService.createItem(payload)),
+      'Não foi possível salvar o item.'
+    )
+    if (!saved) return
+    setSelectedCategoryId(itemForm.category_id)
+    setItemForm(null)
   }
 
   const handleDeleteCategory = async (category: MenuCategory) => {
@@ -196,15 +154,7 @@ export function useMenuManagement() {
       return
     }
 
-    setIsSaving(true)
-    try {
-      await menuService.deleteCategory(category.id)
-      await loadMenu(category.id === selectedCategoryId ? null : selectedCategoryId)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Não foi possível remover a categoria.')
-    } finally {
-      setIsSaving(false)
-    }
+    await mutate(() => menuService.deleteCategory(category.id), 'Não foi possível remover a categoria.')
   }
 
   const handleDeleteItem = async (item: MenuItem) => {
@@ -217,15 +167,7 @@ export function useMenuManagement() {
       return
     }
 
-    setIsSaving(true)
-    try {
-      await menuService.deleteItem(item.id)
-      await loadMenu(item.category_id)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Não foi possível remover o item.')
-    } finally {
-      setIsSaving(false)
-    }
+    await mutate(() => menuService.deleteItem(item.id), 'Não foi possível remover o item.')
   }
 
   return {

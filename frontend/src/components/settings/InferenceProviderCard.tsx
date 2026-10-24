@@ -1,35 +1,24 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Cpu, Network } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { useSessionReady } from '@/hooks/useSessionReady'
+import { queryKeys } from '@/lib/queryKeys'
 import { gatewayService } from '@/services/gatewayService'
 import { useSettingsStore } from '@/stores/useSettingsStore'
-import { AGENT_LABELS, AGENT_TYPES, type GatewayAssignment } from '@/types/gateway'
+import { AGENT_LABELS, AGENT_TYPES } from '@/types/gateway'
 
 export function InferenceProviderCard() {
   const setActiveTab = useSettingsStore((state) => state.setActiveTab)
-  const [assignments, setAssignments] = useState<GatewayAssignment[]>([])
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    let cancelled = false
-    gatewayService
-      .assignments()
-      .then((data) => {
-        if (!cancelled) setAssignments(data)
-      })
-      .catch((e: unknown) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Falha ao carregar atribuições')
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  const query = useQuery({
+    queryKey: queryKeys.gatewayAssignments,
+    queryFn: gatewayService.assignments,
+    enabled: useSessionReady(),
+  })
+  const assignments = query.data ?? []
+  const loading = query.isPending
+  const error = query.isError ? (query.error instanceof Error ? query.error.message : 'Falha ao carregar atribuições') : null
 
   return (
     <div className="rounded-2xl border border-border-color bg-card p-7">

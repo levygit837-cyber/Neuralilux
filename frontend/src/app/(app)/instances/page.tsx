@@ -1,11 +1,14 @@
 'use client'
 
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card'
 import { instanceService, type Instance, type InstanceStatus } from '@/services/instanceService'
+import { useInstances } from '@/hooks/useInstances'
+import { queryKeys } from '@/lib/queryKeys'
 import { useInstanceStore } from '@/stores/useInstanceStore'
 import { ROUTES } from '@/lib/constants'
 
@@ -23,30 +26,28 @@ const messageOf = (error: unknown, fallback: string) => (error instanceof Error 
 export default function InstancesPage() {
   const router = useRouter()
   const setSelectedInstance = useInstanceStore((state) => state.setSelectedInstance)
-  const [instances, setInstances] = useState<Instance[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const queryClient = useQueryClient()
+  const query = useInstances()
+  const instances = query.data ?? []
+  const isLoading = query.isPending
+  const [actionError, setActionError] = useState<string | null>(null)
+  const error = actionError ?? (query.isError ? messageOf(query.error, 'Falha ao listar as instâncias') : null)
   const [newName, setNewName] = useState('')
-  const [isCreating, setIsCreating] = useState(false)
   const [busyName, setBusyName] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
-    try {
-      setInstances(await instanceService.list())
-      setError(null)
-    } catch (e) {
-      setError(messageOf(e, 'Falha ao listar as instâncias'))
-    } finally {
-      setIsLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    const loadOnMount = async () => {
-      await load()
-    }
-    void loadOnMount()
-  }, [load])
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: queryKeys.instances })
+  const createMutation = useMutation({
+    mutationFn: async (name: string) => {
+      await instanceService.create(name)
+      return (await instanceService.list()).find((item) => item.name === name)
+    },
+    onSettled: invalidate,
+  })
+  const deleteMutation = useMutation({
+    mutationFn: (name: string) => instanceService.remove(name),
+    onSettled: invalidate,
+  })
+  const isCreating = createMutation.isPending
 
   const open = (instance: Instance, route: string) => {
     setSelectedInstance({ id: instance.id, name: instance.name, status: instance.status })
@@ -57,35 +58,29 @@ export default function InstancesPage() {
     event.preventDefault()
     const name = newName.trim()
     if (!NAME_PATTERN.test(name)) {
-      setError('Use de 3 a 60 caracteres: letras, números, "-" ou "_".')
+      setActionError('Use de 3 a 60 caracteres: letras, números, "-" ou "_".')
       return
     }
 
-    setIsCreating(true)
-    setError(null)
+    setActionError(null)
     try {
-      await instanceService.create(name)
-      const created = (await instanceService.list()).find((item) => item.name === name)
+      const created = await createMutation.mutateAsync(name)
       setNewName('')
       if (created) open(created, ROUTES.QR)
-      else await load()
     } catch (e) {
-      setError(messageOf(e, 'Falha ao criar a instância'))
-    } finally {
-      setIsCreating(false)
+      setActionError(messageOf(e, 'Falha ao criar a instância'))
     }
   }
 
   const handleDelete = async (instance: Instance) => {
     if (!window.confirm(`Apagar a instância "${instance.name}"? Isso desconecta o número e não pode ser desfeito.`)) return
     setBusyName(instance.name)
-    setError(null)
+    setActionError(null)
     try {
-      await instanceService.remove(instance.name)
+      await deleteMutation.mutateAsync(instance.name)
       if (useInstanceStore.getState().selectedInstance?.id === instance.id) setSelectedInstance(null)
-      await load()
     } catch (e) {
-      setError(messageOf(e, 'Falha ao apagar a instância'))
+      setActionError(messageOf(e, 'Falha ao apagar a instância'))
     } finally {
       setBusyName(null)
     }
