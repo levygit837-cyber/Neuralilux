@@ -4,8 +4,8 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from app.agent import executor
 from app.models import Contact, Conversation, CustomerOrder
+from app.whatsapp import consumer as consumer_module
 from app.whatsapp.consumer import WhatsAppMessageConsumer
 from consumer_helpers import JID, messages, process, upsert
 
@@ -137,7 +137,7 @@ class PackWithoutHook:
 async def test_pack_without_the_session_hook_still_gets_the_message_saved_and_the_turn_run(
     db, world, consumer, monkeypatch
 ):
-    monkeypatch.setattr(executor, "packs_for", lambda company: [PackWithoutHook()])
+    monkeypatch.setattr(consumer_module, "packs_for", lambda company: [PackWithoutHook()])
     t0 = datetime.now(timezone.utc) - timedelta(hours=8)
     await process(consumer, upsert(message_id="m1", ts=_ts(t0)))
     _replied_at(db, t0)

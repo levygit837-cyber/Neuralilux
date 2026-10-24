@@ -12,9 +12,12 @@ from collections.abc import Awaitable, Callable
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Literal, NotRequired, Protocol, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict, runtime_checkable
 
 from sqlalchemy.orm import Session
+
+if TYPE_CHECKING:
+    from app.models import Conversation
 
 
 class TextBlock(TypedDict):
@@ -83,7 +86,7 @@ class ToolContext:
     remote_jid: str
     # O executor cria um ToolContext por Turn. `turn_id` distingue um Turn do seguinte; `trigger_at` é quando
     # chegou a Message do Contact que disparou o Turn (None: não informado); `turn_state` é rascunho do Turn,
-    # livre para cada Pack, que o indexa pelo próprio nome (`turn_state["catalog_orders"]`) e some com o Turn.
+    # livre para cada Pack, que o indexa pelo próprio nome (`turn_state["<nome do Pack>"]`) e some com o Turn.
     turn_id: str = field(default_factory=lambda: uuid.uuid4().hex)
     trigger_at: datetime | None = None
     turn_state: dict[str, Any] = field(default_factory=dict)
@@ -115,13 +118,10 @@ class Pack(Protocol):
     Turns (a note about something left unfinished, the Company's open/closed state) goes in `turn_context` instead, which the executor puts
     in the delimited block at the start of the last `user` message (`app.agent.turn_context`). Return "" for none.
 
-    A Pack MAY also define `on_session_start(db, conversation) -> None` (ADR 0007), called inside the
-    transaction that stores the Message that opened a new Session (no commit). It is optional and
-    deliberately not part of this Protocol: `app.agent.sessions.roll_session` looks it up with `getattr`.
-
-    A Pack MAY also define `on_reply_delivered(db, conversation, turn_id, at) -> None`, called after the reply of
-    the Turn `turn_id` was actually sent to the Contact (`app.agent.delivery`). Same rules: optional, no commit
-    required beyond what the hook needs, looked up with `getattr`.
+    A Pack MAY also implement the optional hooks `SessionStartHook` and `ReplyDeliveredHook` below. They are
+    separate Protocols so a Pack without a hook stays a valid `Pack`; the core narrows with `isinstance`
+    (`app.agent.sessions.roll_session`, `app.agent.delivery`). Hook names are closed: `app.agent.pack_hooks`
+    rejects any other `on_*` attribute when the Pack is registered, so a typo never turns into a silent no-op.
     """
 
     name: str
@@ -131,3 +131,23 @@ class Pack(Protocol):
     def system_prompt_section(self, ctx: ToolContext) -> str: ...
 
     def turn_context(self, ctx: ToolContext) -> str: ...
+
+
+@runtime_checkable
+class SessionStartHook(Protocol):
+    """Optional Pack hook (ADR 0007): called inside the transaction that stores the Message that opened a new
+    Session, with no commit."""
+
+    def on_session_start(self, db: Session, conversation: Conversation) -> None: ...
+
+
+@runtime_checkable
+class ReplyDeliveredHook(Protocol):
+    """Optional Pack hook: called after the reply of the Turn `turn_id` was actually sent to the Contact
+    (`app.agent.delivery`). No commit required beyond what the hook needs."""
+
+    def on_reply_delivered(self, db: Session, conversation: Conversation, turn_id: str, at: datetime) -> None: ...
+
+
+# Closed set of hook names a Pack may define; `app.agent.pack_hooks` enforces it at registration.
+PACK_HOOK_NAMES: frozenset[str] = frozenset({"on_session_start", "on_reply_delivered"})

@@ -73,7 +73,7 @@ def time_context(
 def opening_notice(company: Company, now: datetime) -> str:
     """Estado aberto/fechado da Company para o bloco do Turn; vazio se não há horários cadastrados.
 
-    Usa as mesmas funções de `finalizar` e `info_empresa` (`is_open_at`, `next_opening`). Fechada, diz também se a
+    Usa as mesmas funções de `info_empresa` e das Tools dos Packs (`is_open_at`, `next_opening`). Fechada, diz também se a
     abertura cai antes de a Session atual acabar por inatividade (ADR 0007): o ramo decide o que isso significa.
     """
     local_now = as_utc(now).astimezone(company_zone(company))

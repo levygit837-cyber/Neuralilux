@@ -9,16 +9,15 @@ WhatsApp e nova leitura do Handoff antes de devolver a resposta. Quem chama envi
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import datetime
 
 import structlog
 from sqlalchemy.orm import Session
 
 from app.agent.clock import opening_notice, time_context, utc_now
-from app.agent.contracts import DEFAULT_MAX_TOKENS, ChatMessage, Pack, Tool, ToolContext
+from app.agent.contracts import DEFAULT_MAX_TOKENS, ChatMessage, Pack, ToolContext
 from app.agent.delivery import notify_reply_delivered
-from app.agent.core_tools import core_tools
 from app.agent.events import TurnEvents
 from app.agent.formatting import to_whatsapp
 from app.agent.loop import TurnResult, run_turn
@@ -30,32 +29,11 @@ from app.agent.turn_context import attach_turn_context, build_turn_context
 from app.core import database
 from app.llm.registry import resolve as resolve_gateway
 from app.models import Agent, Company, Contact, Conversation, Instance
-from app.packs.registry import pack_for_company
 
 logger = structlog.get_logger()
 
 AGENT_TYPE = "whatsapp_agent"
 FALLBACK_REPLY = "Desculpe, tive um problema para responder agora. Pode mandar sua mensagem de novo em instantes?"
-
-
-class CorePack:
-    """As Tools do núcleo, que todo Agent tem independentemente do Business Type."""
-
-    name = "core"
-
-    def tools(self) -> list[Tool]:
-        return core_tools()
-
-    def system_prompt_section(self, ctx: ToolContext) -> str:
-        return ""
-
-    def turn_context(self, ctx: ToolContext) -> str:
-        return ""
-
-
-def packs_for(company: Company) -> list[Pack]:
-    pack = pack_for_company(company)
-    return [CorePack(), pack] if pack else [CorePack()]
 
 
 def _in_handoff(db: Session, conversation_id: str) -> bool:
@@ -75,6 +53,7 @@ async def handle_incoming(
     deferred_ids: Sequence[str] = (),
     *,
     agent: Agent | None,
+    packs: Sequence[Pack],
 ) -> TurnResult:
     """Um Turn para `text`, as Messages do Contact já gravadas em `message_ids` (juntas, uma por linha).
 
@@ -82,6 +61,7 @@ async def handle_incoming(
     `deferred_ids` são Messages já gravadas que ficam para o Turn seguinte: este Turn não as vê.
     `agent` é o Agent já resolvido para a Instance (`agent_service.resolve_turn_agent`): dele vêm as instruções da
     Company, `max_tokens` e `temperature`. O executor não escolhe Agent; `None` roda com os padrões.
+    `packs` são os Packs do Turn (núcleo + ramo da Company), escolhidos por quem chama: o executor não conhece ramos.
     """
     log = logger.bind(conversation_id=conversation.id, instance_id=instance.id)
     if _in_handoff(db, conversation.id):
@@ -113,7 +93,6 @@ async def handle_incoming(
         summary, history = build_context(db, conversation, exclude_ids=[*message_ids, *deferred_ids])
         await events.thinking_start()
         history = _with_incoming(history, text)
-        packs = packs_for(company)
         client, model, effort = resolve_gateway(AGENT_TYPE)
         now = utc_now()
         when = time_context(company, now, previous_message_at(db, conversation.id, message_ids, deferred_ids), conversation.session_started_at)
@@ -161,15 +140,14 @@ async def handle_incoming(
     return TurnResult(reply_text=reply or None, tool_calls=result.tool_calls, steps=result.steps, turn_id=turn_id)
 
 
-def reply_delivered(db: Session, instance: Instance, conversation: Conversation, turn_id: str | None, at: datetime) -> None:
+def reply_delivered(
+    db: Session, conversation: Conversation, packs: Iterable[Pack], turn_id: str | None, at: datetime
+) -> None:
     """Avisa os Packs que a resposta do Turn `turn_id` foi enviada ao Contact. Chamar só depois do envio."""
     if turn_id is None:
         return
-    company = db.get(Company, instance.company_id) if instance.company_id else None
-    if company is None:
-        return
     try:
-        notify_reply_delivered(db, conversation, packs_for(company), turn_id, at)
+        notify_reply_delivered(db, conversation, packs, turn_id, at)
     except Exception:
         # A resposta já saiu; sem a marca de entrega o Pack só pede a confirmação de novo (falha segura).
         db.rollback()

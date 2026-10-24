@@ -32,7 +32,7 @@ def world(db, monkeypatch):
     calls = {"turns": [], "sent": [], "summaries": []}
     sent_ids = iter(f"out-{n}" for n in range(1, 100))
 
-    async def fake_handle_incoming(db, conversation, contact, instance, text, received_at=None, message_ids=(), deferred_ids=(), agent=None):
+    async def fake_handle_incoming(db, conversation, contact, instance, text, received_at=None, message_ids=(), deferred_ids=(), agent=None, packs=()):
         calls["turns"].append(text)
         return TurnResult(reply_text="Resposta")
 

@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.agent.contracts import Tool, ToolContext
 from app.packs.catalog_orders.catalog import buscar_cardapio_tool
+from app.packs.catalog_orders.conditions import condicoes_pedido_tool
 from app.models import Conversation
 from app.packs.catalog_orders import recap, session_orders
 from app.packs.catalog_orders.orders import gerenciar_pedido_tool, status_pedido_tool
@@ -39,13 +40,13 @@ Regras:
 - Empresa fechada segundo o contexto: avise com gentileza na saudação ou na primeira resposta sobre pedido, diga quando abre e pergunte se ele quer deixar o pedido montado para quando abrir. Avise uma vez, não a cada mensagem.
 - Só prometa "o pedido fica salvo até lá" se o contexto diz que a abertura cai ANTES do fim do atendimento; se cai depois, avise que será preciso chamar de novo quando a empresa abrir. Vale também quando `finalizar` for recusado por a empresa estar fechada.
 - Depois do `finalizar` o pedido está fechado: não pergunte "quer mais algo?". Outra coisa é um pedido novo, só se ele pedir.
-- O total vem de `gerenciar_pedido`. Taxa de entrega e pedido mínimo estão em `info_empresa`; se não bater o mínimo, diga quanto falta.
+- O total vem de `gerenciar_pedido`. Taxa de entrega, pedido mínimo, bairros atendidos e formas de pagamento estão em `condicoes_pedido`; se não bater o mínimo, diga quanto falta.
 - Cancelar ou alterar um pedido já confirmado ("quero cancelar", "coloca uma coca") NÃO é caso de atendente enquanto está "recebido, aguardando preparo":
   - Cancelar: `cancelar_pedido` (com `motivo`, se ele disse) e confirme. Se havia Pix, a empresa cuida do estorno: diga isso, sem prazo.
   - Alterar: `alterar_pedido`, aplique a mudança, `recapitular` e peça confirmação do novo total. Com Pix, o código antigo deixa de valer: envie só o novo.
   - Com um pedido em montagem e outro confirmado, pergunte qual cancelar e passe `numero`. Pedido de atendimento anterior também é recusado.
   - Em preparo, a caminho ou entregue a Tool recusa: explique, ofereça um atendente e só então chame `transferir_atendente`, com o motivo.
-- "Cadê meu pedido" ou "já saiu?": `status_pedido`. Horário, endereço, taxas e pagamentos: `info_empresa`. "O de ontem": `buscar_historico`.
+- "Cadê meu pedido" ou "já saiu?": `status_pedido`. Taxas, bairros atendidos, pedido mínimo e pagamentos: `condicoes_pedido`. Horário, endereço e telefone: `info_empresa`. "O de ontem": `buscar_historico`.
 - `transferir_atendente` quando ele pedir uma pessoa, reclamar de verdade ou relatar problema num pedido já feito. Depois disso você não responde mais.
 """
 
@@ -54,7 +55,7 @@ class CatalogOrdersPack:
     name = "catalog_orders"
 
     def tools(self) -> list[Tool]:
-        return [buscar_cardapio_tool(), gerenciar_pedido_tool(), status_pedido_tool()]
+        return [buscar_cardapio_tool(), gerenciar_pedido_tool(), status_pedido_tool(), condicoes_pedido_tool()]
 
     def system_prompt_section(self, ctx: ToolContext) -> str:
         return PROMPT_SECTION

@@ -19,7 +19,7 @@ def brl(value: Decimal | float) -> str:
     return f"R$ {Decimal(str(value)):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def _active_zones(ctx: ToolContext) -> list[DeliveryZone]:
+def active_zones(ctx: ToolContext) -> list[DeliveryZone]:
     return (
         ctx.db.query(DeliveryZone)
         .filter(DeliveryZone.company_id == ctx.company_id, DeliveryZone.is_active.is_(True))
@@ -27,7 +27,7 @@ def _active_zones(ctx: ToolContext) -> list[DeliveryZone]:
     )
 
 
-def _neighborhood_names(zone: DeliveryZone) -> list[str]:
+def neighborhood_names(zone: DeliveryZone) -> list[str]:
     names = []
     for entry in zone.neighborhoods or []:
         text = entry.get("name") if isinstance(entry, dict) else entry
@@ -40,8 +40,8 @@ def find_zone(ctx: ToolContext, address: str) -> DeliveryZone | None:
     """Zona ativa da Company cujo bairro aparece (palavras inteiras) no endereço; vence o bairro mais longo."""
     address_words = words(address)
     best: tuple[int, DeliveryZone] | None = None
-    for zone in _active_zones(ctx):
-        for name in _neighborhood_names(zone):
+    for zone in active_zones(ctx):
+        for name in neighborhood_names(zone):
             target = words(name)
             if not target:
                 continue
@@ -56,10 +56,10 @@ def require_zone(ctx: ToolContext, address: str) -> DeliveryZone:
     zone = find_zone(ctx, address)
     if zone:
         return zone
-    active = _active_zones(ctx)
+    active = active_zones(ctx)
     if not active:
         raise OrderError("Entrega indisponível: não há bairro com zona de entrega cadastrado. Ofereça retirada.")
-    neighborhoods = ", ".join(n for z in active for n in _neighborhood_names(z))
+    neighborhoods = ", ".join(n for z in active for n in neighborhood_names(z))
     raise OrderError(
         f"Não entregamos nesse bairro. Bairros atendidos: {neighborhoods}. Ofereça outro endereço ou retirada."
     )

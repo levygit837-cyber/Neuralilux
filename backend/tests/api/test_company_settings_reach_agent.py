@@ -1,4 +1,4 @@
-"""O que o painel salva é o que o Agent usa: `info_empresa` e o fechamento do pedido leem a Company do banco."""
+"""O que o painel salva é o que o Agent usa: `info_empresa`, `condicoes_pedido` e o fechamento do pedido leem a Company do banco."""
 
 from datetime import datetime, timezone
 
@@ -20,7 +20,9 @@ async def test_info_empresa_returns_what_the_panel_saved(client, db, monkeypatch
     # Terça 01:00 em Fortaleza (UTC-3): ainda é a noite de segunda, que cruza a meia-noite.
     monkeypatch.setattr(clock, "utc_now", lambda: datetime(2026, 10, 20, 4, 0, tzinfo=timezone.utc))
 
-    before = payload(await call(tool_named(core_tools(), "info_empresa"), world.ctx))
+    info = tool_named(core_tools(), "info_empresa")
+    conditions = tool_named(CatalogOrdersPack().tools(), "condicoes_pedido")
+    before = payload(await call(conditions, world.ctx))
     assert before["chave_pix"] is None and "pix" not in before["formas_pagamento"]
 
     response = client.put(
@@ -36,13 +38,14 @@ async def test_info_empresa_returns_what_the_panel_saved(client, db, monkeypatch
     )
     assert response.status_code == 200, response.text
 
-    after = payload(await call(tool_named(core_tools(), "info_empresa"), world.ctx))
+    after = payload(await call(info, world.ctx))
     assert after["telefone"] == "(85) 98888-1111"
-    assert after["chave_pix"] == "pagamentos@macedos.example"
-    assert "pix" in after["formas_pagamento"]
-    assert after["pedido_minimo"] == 42.0
     assert after["horarios"]["segunda"] == "19:00-02:00"
     assert after["aberto_agora"] is True
+    saved = payload(await call(conditions, world.ctx))
+    assert saved["chave_pix"] == "pagamentos@macedos.example"
+    assert "pix" in saved["formas_pagamento"]
+    assert saved["pedido_minimo"] == 42.0
 
 
 async def test_pix_is_accepted_at_closing_once_the_panel_saves_a_key(client, db, monkeypatch):

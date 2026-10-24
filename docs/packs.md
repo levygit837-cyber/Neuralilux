@@ -40,9 +40,12 @@ class Pack(Protocol):
     def system_prompt_section(self, ctx: ToolContext) -> str: ...  # estável por Company, vai no system
     def turn_context(self, ctx: ToolContext) -> str: ...            # muda por Turn, vai no bloco do Turn ("" se não há)
 
-# Opcional, fora do Protocol: define-se só se o ramo tem pendência ao trocar de Session.
-#     def on_session_start(self, db: Session, conversation: Conversation) -> None: ...
-#     def on_reply_delivered(self, db: Session, conversation: Conversation, turn_id: str, at: datetime) -> None: ...
+# Opcionais, fora do Protocol `Pack`: Protocols próprios, implementados só se o ramo tem o que fazer.
+class SessionStartHook(Protocol):
+    def on_session_start(self, db: Session, conversation: Conversation) -> None: ...
+
+class ReplyDeliveredHook(Protocol):
+    def on_reply_delivered(self, db: Session, conversation: Conversation, turn_id: str, at: datetime) -> None: ...
 ```
 
 Regras que o `ToolRegistry` (`app/agent/tools.py`) impõe:
@@ -58,8 +61,9 @@ Regras que o `ToolRegistry` (`app/agent/tools.py`) impõe:
 - Escopo sempre pelo `ToolContext`: filtre dados da Company por `ctx.company_id`, dados do Contact por `ctx.contact_id` (e `ctx.instance_id`), estado da Conversation por `ctx.conversation_id`. Nunca confie num id que o modelo informou no input para escolher a Company.
 - Devolva JSON (`json.dumps(..., ensure_ascii=False)`) com chaves legíveis; o modelo lê o texto.
 - Uma Tool que grava só grava depois de validar tudo; falhou, nada muda (veja `catalog_orders/orders.py`).
-- `on_session_start` é **opcional**: o núcleo só o chama se o Pack o definir (`getattr`). Roda quando uma Session nova substitui a anterior ([ADR 0007](adr/0007-session-de-atendimento.md)), na transação que grava a Message, sem `commit`. Use para tratar o que ficou pendente do ramo; o Pack de pedidos marca o Order aberto como `abandoned`. Sem pendência, não defina o método.
-- `on_reply_delivered` também é **opcional**. Roda depois de a resposta do Turn `turn_id` ter sido enviada ao Contact, nunca antes, e não roda se o Turn falhou, ficou sem resposta, teve a resposta descartada ou o envio falhou. Use quando o ramo precisa saber que o Contact viu algo; o Pack de pedidos só dá a Recap por apresentada aqui.
+- `on_session_start` é **opcional**: implemente o Protocol `SessionStartHook` (`app/agent/contracts.py`) e o núcleo o chama (`app/agent/pack_hooks.py`); sem o método, o Pack continua válido. Roda quando uma Session nova substitui a anterior ([ADR 0007](adr/0007-session-de-atendimento.md)), na transação que grava a Message, sem `commit`. Use para tratar o que ficou pendente do ramo; o Pack de pedidos marca o Order aberto como `abandoned`. Sem pendência, não defina o método.
+- `on_reply_delivered` também é **opcional** (Protocol `ReplyDeliveredHook`). Roda depois de a resposta do Turn `turn_id` ter sido enviada ao Contact, nunca antes, e não roda se o Turn falhou, ficou sem resposta, teve a resposta descartada ou o envio falhou. Use quando o ramo precisa saber que o Contact viu algo; o Pack de pedidos só dá a Recap por apresentada aqui.
+- Os nomes dos ganchos são um conjunto fechado (`PACK_HOOK_NAMES`). `register_pack` (`app/packs/registry.py`) chama `validate_pack_hooks` e levanta `InvalidPackHookError` se o Pack tem qualquer `on_*` fora dele (ex.: `on_reply_deliverd`), em vez de o gancho nunca disparar sem avisar.
 - `turn_state` é rascunho por Turn: cada Pack guarda o que precisar sob a chave do próprio nome (`ctx.turn_state["catalog_orders"]`), sem colidir com outro Pack e sem o núcleo conhecer o conteúdo (ADR 0004). O `turn_id` e o `turn_state` são recriados a cada Turn; o que precisa sobreviver a ele vai para o banco.
 - A `system_prompt_section` descreve o fluxo e as regras do ramo, citando as Tools pelo nome, na mesma estrutura do núcleo (objetivo → fluxo → regras). Ela é anexada ao prompt base; não repita o que o prompt base já diz (papel, tom, formato, regras fixas) nem o que a Tool já garante. Vocabulário do ramo (pedido, cardápio, entrega) mora aqui, nunca no núcleo. Tem de ser **estável**: o mesmo texto, byte a byte, entre Turns da mesma Company, senão o prefix cache do servidor de inferência não vale. Divisão completa em [agent.md](agent.md#estrutura-do-prompt).
 - O que muda de um Turn para o outro (nota de pedido abandonado, estado do dia) vai em `turn_context(ctx)`, que o executor põe no bloco `<contexto_do_atendimento>` da última mensagem `user` ([Turn Context](agent.md#turn-context)). Devolva `""` quando não há nada. O Pack de pedidos devolve ali a nota do pedido abandonado.
@@ -150,7 +154,7 @@ class GymPack:
 
 3. Garanta que existe um Business Type com `slug="gym"` e que a Company aponta para ele (`Company.business_type_id`). O seed (`scripts/seed_data.py`, `create_business_types`) só cria `restaurant`, `clinic`, `store` e `services`; adicione o novo `slug` lá ou insira a linha em `business_types`.
 
-`executor.packs_for(company)` devolve `[CorePack(), pack]`: o núcleo sempre vale, e uma Company cujo Business Type não tem Pack fica só com as 3 Tools do núcleo. A seleção é por `Business Type.slug`, em `pack_for_company`.
+`app.packs.registry.packs_for(company)` devolve `[CorePack(), pack]`: o núcleo sempre vale, e uma Company cujo Business Type não tem Pack fica só com as 3 Tools do núcleo. A seleção é por `Business Type.slug`, em `pack_for_company`. Quem monta o Turn (`app/whatsapp/agent_turn.py`, `consumer.py`) chama `packs_for` e entrega a lista ao executor (`handle_incoming(..., packs=)`, `reply_delivered`) e a `roll_session`: o núcleo (`app/agent`) não importa `app.packs`. Um teste (`tests/agent/test_core_is_pack_agnostic.py`) falha se importar, ou se citar models ou termos de catálogo e pedidos.
 
 ### Testar um Pack
 
