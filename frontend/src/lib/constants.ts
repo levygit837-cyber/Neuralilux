@@ -6,6 +6,8 @@ export const WS_URL = process.env.NEXT_PUBLIC_WS_URL || API_BASE_URL.replace(/^h
 export const AUTH_COOKIE_NAME = 'nlx_auth'
 // O proxy do Next valida a sessão no backend a partir do servidor; em Docker/rede interna a URL pode ser outra que a do navegador.
 export const API_INTERNAL_URL = process.env.API_INTERNAL_URL || API_BASE_URL
+// Mesmo `AUTH_COOKIE_DOMAIN` do backend: o proxy só apaga um cookie de domínio pai se informar o mesmo domínio.
+export const AUTH_COOKIE_DOMAIN = process.env.AUTH_COOKIE_DOMAIN || undefined
 
 export const ROUTES = {
   HOME: '/',

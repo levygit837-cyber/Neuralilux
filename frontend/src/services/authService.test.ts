@@ -72,4 +72,14 @@ describe('sessão por cookie', () => {
     expect(String(url)).toMatch(/\/api\/v1\/auth\/logout$/)
     expect(init).toMatchObject({ method: 'POST', credentials: 'include' })
   })
+
+  it('logout recusado pelo backend (403 por CORS_ORIGINS) vira erro: o cookie segue valendo', async () => {
+    stubFetch(new Response('{"detail":"Origin not allowed"}', { status: 403 }))
+    await expect(authService.logout()).rejects.toThrow('Origin not allowed')
+  })
+
+  it('logout com erro 5xx também vira erro', async () => {
+    stubFetch(new Response('', { status: 502 }))
+    await expect(authService.logout()).rejects.toThrow('Erro ao encerrar a sessão')
+  })
 })

@@ -6,7 +6,7 @@ import { Zap, Eye, EyeOff, Mail, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { useAuthStore } from '@/stores/useAuthStore'
-import { authService } from '@/services/authService'
+import { authService, toSessionUser } from '@/services/authService'
 
 interface LoginFormProps {
   callbackUrl: string
@@ -32,11 +32,7 @@ export function LoginForm({ callbackUrl }: LoginFormProps) {
       await authService.login({ email, password })
       const userData = await authService.getCurrentUser()
 
-      login({
-        id: userData.id,
-        name: userData.full_name || userData.email,
-        email: userData.email,
-      })
+      login(toSessionUser(userData))
 
       router.push(callbackUrl)
     } catch (err) {

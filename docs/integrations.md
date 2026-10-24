@@ -21,6 +21,8 @@ Toda rota de dados exige `Authorization: Bearer <JWT>`. (O painel no navegador u
 curl -s -X POST http://localhost:8000/api/v1/auth/login \
   -d 'username=integracao@empresa.com' -d 'password=...'
 # {"access_token": "...", "token_type": "bearer"}
+# O corpo só traz o token quando a requisição não tem o cabeçalho Origin (curl, scripts, integrações). Com Origin
+# (navegador) a resposta traz só o cookie de sessão e {"token_type": "bearer"}.
 ```
 
 - O token expira em `ACCESS_TOKEN_EXPIRE_MINUTES` (padrão 30). Uma integração de servidor tem de refazer o login ao receber 401.

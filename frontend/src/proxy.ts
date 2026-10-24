@@ -1,41 +1,20 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { buildCsp } from '@/lib/csp'
-import { API_BASE_URL, API_INTERNAL_URL, AUTH_COOKIE_NAME, POST_LOGIN_ROUTE, ROUTES, WS_URL } from '@/lib/constants'
-
-const SESSION_CHECK_TIMEOUT_MS = 3000
-
-/** `valid`: o backend aceitou o cookie. `invalid`: recusou (forjado, vencido, usuário inativo). `unavailable`: sem resposta. */
-type SessionState = 'none' | 'valid' | 'invalid' | 'unavailable'
-
-/**
- * A sessão só vale se o backend a aceitar: o proxy não lê nem decodifica o JWT, entrega o cookie ao `/auth/me`,
- * que verifica assinatura, prazo e se o usuário segue ativo. Cookie forjado, vencido ou de usuário desativado não passa.
- */
-async function sessionState(request: NextRequest): Promise<SessionState> {
-  const cookie = request.cookies.get(AUTH_COOKIE_NAME)?.value
-  if (!cookie) return 'none'
-  try {
-    const response = await fetch(`${API_INTERNAL_URL}/api/v1/auth/me`, {
-      headers: { Cookie: `${AUTH_COOKIE_NAME}=${cookie}` },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(SESSION_CHECK_TIMEOUT_MS),
-    })
-    if (response.ok) return 'valid'
-    return response.status === 401 ? 'invalid' : 'unavailable'
-  } catch {
-    return 'unavailable'
-  }
-}
+import { AUTH_COOKIE_DOMAIN, AUTH_COOKIE_NAME, API_BASE_URL, POST_LOGIN_ROUTE, ROUTES, WS_URL } from '@/lib/constants'
+import { checkSession } from '@/lib/session'
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
-  const session = await sessionState(request)
+  const session = await checkSession(request.cookies.get(AUTH_COOKIE_NAME)?.value)
   const isAuthenticated = session === 'valid'
 
   // Cookie que o backend recusou não serve para mais nada: sai do navegador. Backend fora do ar não apaga nada.
+  // O cookie só é apagado com o mesmo `domain` e `path` com que foi gravado (`AUTH_COOKIE_DOMAIN` no backend).
   const finish = (response: NextResponse) => {
-    if (session === 'invalid') response.cookies.delete(AUTH_COOKIE_NAME)
+    if (session === 'invalid') {
+      response.cookies.delete({ name: AUTH_COOKIE_NAME, path: '/', ...(AUTH_COOKIE_DOMAIN && { domain: AUTH_COOKIE_DOMAIN }) })
+    }
     return response
   }
 
@@ -71,5 +50,6 @@ export async function proxy(request: NextRequest) {
 export const config = {
   // Só os arquivos do próprio Next (JS/CSS com hash e o otimizador de imagem) e o ícone ficam fora. Qualquer outro
   // caminho passa pelo proxy, também os com ponto: `.*\..*` deixava `/dashboard.json` chegar ao layout sem sessão.
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  // O matcher casa por prefixo: sem `(?:/|$)` e `$`, `/_next/staticfoo` e `/favicon.ico.json` escapariam do proxy.
+  matcher: ['/((?!(?:_next/static|_next/image)(?:/|$)|favicon\\.ico$).*)'],
 }

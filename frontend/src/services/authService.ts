@@ -1,5 +1,6 @@
 import { API_BASE_URL as API_URL } from '@/lib/constants'
 import { apiRequest, clearServerSession, errorFromResponse } from '@/services/http'
+import type { User as SessionUser } from '@/types/auth'
 
 export interface LoginCredentials {
   email: string
@@ -30,10 +31,15 @@ export async function loginErrorMessage(response: Response): Promise<string> {
   return (await errorFromResponse(response, 'Erro ao fazer login')).message
 }
 
+/** Usuário do store (nome e e-mail para a interface) a partir do `/auth/me`. */
+export function toSessionUser(user: User): SessionUser {
+  return { id: user.id, name: user.full_name || user.email, email: user.email }
+}
+
 export const authService = {
   /**
-   * O backend grava o JWT num cookie `httpOnly` (`credentials: 'include'` deixa o navegador guardá-lo). O corpo
-   * também traz o token, para scripts que não são navegador; o frontend não o lê nem o guarda.
+   * O backend grava o JWT num cookie `httpOnly` (`credentials: 'include'` deixa o navegador guardá-lo). Com `Origin`
+   * (navegador) o corpo não traz o token; só scripts, sem `Origin`, o recebem. O frontend nunca o lê nem o guarda.
    */
   async login(credentials: LoginCredentials): Promise<void> {
     const formData = new URLSearchParams()
@@ -59,9 +65,13 @@ export const authService = {
     return apiRequest<User>('/auth/me', {}, 'Erro ao obter dados do usuário')
   },
 
-  /** Apaga o cookie de sessão no backend. Só ele pode: o cookie é `httpOnly`. */
+  /**
+   * Apaga o cookie de sessão no backend. Só ele pode: o cookie é `httpOnly`. Recusa (403 por `CORS_ORIGINS`, 5xx)
+   * vira erro: o cookie continua valendo, então quem chama não pode dar a sessão por encerrada.
+   */
   async logout(): Promise<void> {
-    await clearServerSession()
+    const response = await clearServerSession()
+    if (!response.ok) throw await errorFromResponse(response, 'Erro ao encerrar a sessão')
   },
 
   async register(data: {

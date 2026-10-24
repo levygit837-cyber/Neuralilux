@@ -4,7 +4,8 @@ O JWT do painel vive num cookie `httpOnly` que o **backend** grava no login (`nl
 
 - **Por que**: com o token em `document.cookie` e `localStorage`, qualquer XSS (uma dependência, uma resposta mal escapada) o roubava e o usava de fora do navegador, até o JWT vencer. O `proxy.ts` também só fazia `JSON.parse` no cookie e conferia o `exp`: um cookie forjado à mão passava.
 - **Quem emite**: só o backend. O frontend não consegue apagar um cookie `httpOnly`, então o logout é `POST /auth/logout`, que devolve `Set-Cookie` com `Max-Age=0` e os mesmos atributos do cookie original (senão o navegador não o reconhece como o mesmo). O logout é público: sair com o cookie vencido tem de funcionar.
-- **Quem lê**: `get_current_user` e `get_optional_user` usam `Authorization: Bearer` se vier e, sem ele, o cookie. O Bearer **vence** o cookie e continua valendo para scripts e e2e; o corpo do login ainda devolve `access_token` por isso, e o frontend não o lê. Cookie e Bearer passam pela mesma regra de usuário ativo (`get_active_user_from_token`), a mesma do Socket.IO.
+- **Quem lê**: `get_current_user` e `get_optional_user` usam `Authorization: Bearer` se vier e, sem ele, o cookie. O Bearer **vence** o cookie e continua valendo para scripts e e2e. Cookie e Bearer passam pela mesma regra de usuário ativo (`get_active_user_from_token`), a mesma do Socket.IO.
+- **O corpo do login depende do `Origin`**: requisição com `Origin` (navegador) recebe só o `Set-Cookie`; `access_token` não vai no corpo, então nem um XSS que chame o login lê o token. Requisição sem `Origin` (scripts, integrações, testes) recebe também `access_token` no corpo, que é como pegam o Bearer. No schema `Token`, `access_token` é opcional por isso.
 - **Socket.IO**: o handshake do navegador envia o cookie (`withCredentials`); o `connect` lê `HTTP_COOKIE` do `environ`. `auth.token` segue aceito para clientes que não são navegador.
 
 ## CSRF: `SameSite=Lax` mais checagem de `Origin`

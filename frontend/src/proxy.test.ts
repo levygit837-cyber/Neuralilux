@@ -117,6 +117,33 @@ describe('proxy: sessão validada no backend', () => {
   })
 })
 
+describe('proxy: cookie recusado com AUTH_COOKIE_DOMAIN', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.resetModules()
+  })
+
+  it('apaga o cookie com o mesmo domain com que o backend o gravou', async () => {
+    vi.stubEnv('AUTH_COOKIE_DOMAIN', '.exemplo.com')
+    vi.resetModules()
+    const { proxy: proxyWithDomain } = await import('@/proxy')
+    backendAnswers(401)
+
+    const response = await proxyWithDomain(request('/dashboard', 'jwt-forjado'))
+
+    const header = response.headers.get('set-cookie') ?? ''
+    expect(header).toMatch(new RegExp(`${AUTH_COOKIE_NAME}=;`))
+    expect(header.toLowerCase()).toContain('domain=.exemplo.com')
+  })
+
+  it('sem AUTH_COOKIE_DOMAIN apaga o cookie sem domain', async () => {
+    backendAnswers(401)
+    const response = await proxy(request('/dashboard', 'jwt-forjado'))
+
+    expect((response.headers.get('set-cookie') ?? '').toLowerCase()).not.toContain('domain=')
+  })
+})
+
 describe('proxy: o matcher só deixa de fora arquivos do Next', () => {
   const [source] = config.matcher
   const matches = (path: string) => new RegExp(`^${source}$`).test(path)
@@ -125,10 +152,21 @@ describe('proxy: o matcher só deixa de fora arquivos do Next', () => {
     expect(matches(path)).toBe(false)
   })
 
-  it.each(['/dashboard', '/dashboard.json', '/chat/a.b', '/login', '/', '/api/qualquer', '/robots.txt', '/_nextfoo'])(
-    '%s passa pelo proxy',
-    (path) => {
-      expect(matches(path)).toBe(true)
-    }
-  )
+  it.each([
+    '/dashboard',
+    '/dashboard.json',
+    '/chat/a.b',
+    '/login',
+    '/',
+    '/api/qualquer',
+    '/robots.txt',
+    '/_nextfoo',
+    '/favicon.ico.json',
+    '/favicon.ico/x',
+    '/faviconXico',
+    '/_next/staticfoo',
+    '/_next/image.json',
+  ])('%s passa pelo proxy', (path) => {
+    expect(matches(path)).toBe(true)
+  })
 })

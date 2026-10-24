@@ -53,13 +53,15 @@ async def register(
         )
 
 
-@router.post("/login", response_model=Token, dependencies=[Depends(limit_login)])
+@router.post("/login", response_model=Token, response_model_exclude_none=True, dependencies=[Depends(limit_login)])
 async def login(
+    request: Request,
     response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
-    """Login: grava o JWT no cookie `httpOnly` (navegador) e também o devolve no corpo (scripts, e2e com Bearer).
+    """Login: grava o JWT no cookie `httpOnly`. Navegador (requisição com `Origin`) só recebe o cookie, o JS nunca vê o
+    token; clientes sem `Origin` (scripts, e2e com Bearer) recebem também `access_token` no corpo.
 
     Rate limit por IP (429 com Retry-After; 503 se o Redis falha)."""
     user = authenticate_user(db, form_data.username, form_data.password)
@@ -82,6 +84,8 @@ async def login(
     )
 
     set_auth_cookie(response, access_token)
+    if request.headers.get("origin") is not None:
+        return {"token_type": "bearer"}
     return {"access_token": access_token, "token_type": "bearer"}
 
 

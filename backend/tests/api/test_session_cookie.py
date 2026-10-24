@@ -2,11 +2,13 @@
 from datetime import timedelta
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy.orm import sessionmaker
 
 from app.core.auth_cookie import AUTH_COOKIE_NAME
 from app.core.config import settings
 from app.realtime import socket as socket_module
+from app.main import socket_app
 from tests.access_helpers import make_user
 from tests.api.test_auth_tokens import _bad_tokens, _token
 
@@ -35,7 +37,19 @@ def test_login_sets_an_httponly_lax_cookie_with_the_jwt_lifetime(client, owner):
     assert "httponly" in header and "samesite=lax" in header and "path=/" in header
     assert f"max-age={settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60}" in header
     assert "secure" not in header  # development
-    assert response.json()["access_token"]  # o corpo segue valendo para clientes que não são navegador
+    assert response.json()["access_token"]  # sem Origin (script, e2e): o corpo também traz o token
+
+
+def test_browser_login_gets_only_the_cookie_and_the_body_has_no_token(client, owner):
+    response = client.post(
+        "/api/v1/auth/login",
+        data={"username": EMAIL, "password": "testpass123"},
+        headers={"Origin": ALLOWED_ORIGIN},
+    )
+    assert response.status_code == 200
+    assert "access_token" not in response.json()
+    assert client.cookies.get(AUTH_COOKIE_NAME)
+    assert client.get("/api/v1/auth/me").status_code == 200  # a sessão vive no cookie
 
 
 def test_cookie_is_secure_outside_development(client, owner, monkeypatch):
@@ -162,3 +176,16 @@ async def test_socket_refuses_without_cookie_or_token(client, db, owner, monkeyp
 async def test_socket_still_accepts_auth_token_for_non_browser_clients(client, db, owner, monkeypatch):
     session = await _handshake(None, {"token": _token()}, monkeypatch, db)
     assert session["email"] == EMAIL
+
+
+def _engineio_handshake(origin: str):
+    """GET de abertura do Engine.IO (polling), como o navegador faz antes de subir o WebSocket."""
+    return TestClient(socket_app).get("/realtime/socket.io/?EIO=4&transport=polling", headers={"Origin": origin})
+
+
+def test_socket_refuses_handshake_from_a_disallowed_origin():
+    assert _engineio_handshake(EVIL_ORIGIN).status_code == 400
+
+
+def test_socket_accepts_handshake_from_an_allowed_origin():
+    assert _engineio_handshake(ALLOWED_ORIGIN).status_code == 200
