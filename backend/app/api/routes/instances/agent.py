@@ -51,7 +51,7 @@ class AgentBindingUpdate(BaseModel):
 
 
 @router.get("/{instance_id}/agent-status")
-async def get_agent_status(
+def get_agent_status(
     instance_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -78,7 +78,7 @@ async def get_agent_status(
 
 
 @router.patch("/{instance_id}/agent-status")
-async def update_agent_status(
+def update_agent_status(
     instance_id: str,
     status_update: AgentStatusUpdate,
     db: Session = Depends(get_db),
@@ -126,7 +126,7 @@ async def update_agent_status(
 
 
 @router.patch("/{instance_id}/agent-binding")
-async def update_agent_binding(
+def update_agent_binding(
     instance_id: str,
     binding_update: AgentBindingUpdate,
     db: Session = Depends(get_db),

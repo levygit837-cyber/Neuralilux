@@ -24,7 +24,7 @@ class AgentListResponse(BaseModel):
 
 
 @router.get("/", response_model=AgentListResponse)
-async def list_agents(
+def list_agents(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):

@@ -10,6 +10,7 @@ alcançam Instances do usuário (superusuário: todas), via `app.api.access`.
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 import structlog
 
 from app.api.access import get_instance_for_user, instance_ids_for_user
@@ -32,6 +33,15 @@ def _evolution_instance_name(inst: dict) -> str:
     return inst.get("name") or inst.get("instanceName") or nested.get("instanceName") or ""
 
 
+def _active_instances(db: Session, user: User) -> list[Instance]:
+    """Instances ativas do usuário (bloqueante: roda em thread), na ordem de criação."""
+    query = db.query(Instance).filter(Instance.is_active == True)  # noqa: E712
+    user_instance_ids = instance_ids_for_user(db, user)
+    if user_instance_ids is not None:
+        query = query.filter(Instance.id.in_(user_instance_ids))
+    return query.order_by(Instance.created_at, Instance.id).all()
+
+
 @router.get("/")
 async def list_instances(
     db: Session = Depends(get_db),
@@ -44,11 +54,7 @@ async def list_instances(
     nunca é devolvido.
     """
     try:
-        query = db.query(Instance).filter(Instance.is_active == True)  # noqa: E712
-        user_instance_ids = instance_ids_for_user(db, current_user)
-        if user_instance_ids is not None:
-            query = query.filter(Instance.id.in_(user_instance_ids))
-        local_instances = query.order_by(Instance.created_at, Instance.id).all()
+        local_instances = await run_in_threadpool(_active_instances, db, current_user)
 
         evolution_by_name: dict[str, dict] = {}
         if local_instances:
@@ -108,7 +114,7 @@ async def get_instance_status(
     - **instance_id**: The instance id, Evolution instance name or name.
     - Returns the current connection state (open, close, connecting, etc.).
     """
-    instance = get_instance_for_user(db, instance_id, current_user)
+    instance = await run_in_threadpool(get_instance_for_user, db, instance_id, current_user)
     try:
         result = await evolution_api.get_instance_status(evolution_name(instance))
 
@@ -162,7 +168,7 @@ async def connect_instance(
     - **instance_id**: The instance id, Evolution instance name or name.
     - Returns QR code (base64) for scanning with WhatsApp mobile app.
     """
-    instance = get_instance_for_user(db, instance_id, current_user)
+    instance = await run_in_threadpool(get_instance_for_user, db, instance_id, current_user)
     name_in_evolution = evolution_name(instance)
     try:
         result = await evolution_api.get_instance_qrcode(name_in_evolution)
@@ -217,7 +223,7 @@ async def logout_instance(
     - **instance_id**: The instance id, Evolution instance name or name.
     - Logs out the WhatsApp session.
     """
-    instance = get_instance_for_user(db, instance_id, current_user)
+    instance = await run_in_threadpool(get_instance_for_user, db, instance_id, current_user)
     try:
         result = await evolution_api.disconnect_instance(evolution_name(instance))
 

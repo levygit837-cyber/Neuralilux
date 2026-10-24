@@ -45,7 +45,7 @@ def _agent_settings(agent: Agent) -> AgentSettings:
 
 
 @router.post("/", response_model=CompanyResponse, status_code=status.HTTP_201_CREATED)
-async def create_new_company(
+def create_new_company(
     company: CompanyCreate,
     db: Session = Depends(get_db),
     _: User = Depends(require_superuser),
@@ -62,7 +62,7 @@ async def create_new_company(
 
 
 @router.get("/", response_model=List[CompanyResponse])
-async def read_companies(
+def read_companies(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
@@ -77,7 +77,7 @@ async def read_companies(
 
 
 @router.get("/{company_id}", response_model=CompanyResponse)
-async def read_company(
+def read_company(
     company_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -87,7 +87,7 @@ async def read_company(
 
 
 @router.put("/{company_id}", response_model=CompanyResponse)
-async def update_existing_company(
+def update_existing_company(
     company_id: str,
     company_update: CompanyUpdate,
     db: Session = Depends(get_db),
@@ -101,7 +101,7 @@ async def update_existing_company(
 
 
 @router.delete("/{company_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_existing_company(
+def delete_existing_company(
     company_id: str,
     db: Session = Depends(get_db),
     _: User = Depends(require_superuser),
@@ -113,7 +113,7 @@ async def delete_existing_company(
 
 
 @router.get("/{company_id}/agent", response_model=AgentSettings)
-async def read_company_agent(
+def read_company_agent(
     company_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -123,7 +123,7 @@ async def read_company_agent(
 
 
 @router.put("/{company_id}/agent", response_model=AgentSettings)
-async def update_company_agent(
+def update_company_agent(
     company_id: str,
     update: AgentSettingsUpdate,
     db: Session = Depends(get_db),

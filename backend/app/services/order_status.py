@@ -10,6 +10,7 @@ não desfaz a mudança de status: é registrada em log e devolvida em `notificat
 """
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import structlog
@@ -66,17 +67,22 @@ def _contact_message(order: CustomerOrder, target: str, refunds: list) -> str:
 
 
 async def _notify(db: Session, order: CustomerOrder, text: str) -> dict[str, Any]:
+    order_id, order_status = order.id, order.status  # antes do rollback, que expira o Order
     try:
         await send_and_persist(db, order.instance, order.conversation, order.contact, text, sent_by="system")
     except Exception:
-        db.rollback()  # o status já foi gravado; só descarta o que o envio deixou pela metade
-        logger.exception("Failed to notify the Contact about the Order status", order_id=order.id, status=order.status)
+        await asyncio.to_thread(db.rollback)  # o status já foi gravado; só descarta o que o envio deixou pela metade
+        logger.exception("Failed to notify the Contact about the Order status", order_id=order_id, status=order_status)
         return {"sent": False, "error": NOTIFICATION_FAILED}
     return {"sent": True, "error": None}
 
 
-async def change_status(db: Session, order: CustomerOrder, target: str) -> dict[str, Any]:
-    """Move o Order para `target` e avisa o Contact; devolve o resultado do aviso. `TransitionError` se não for permitida."""
+def _transition(db: Session, order: CustomerOrder, target: str) -> str:
+    """Valida e grava a mudança de status (bloqueante: roda em thread) e devolve o texto do aviso ao Contact.
+
+    Depois do commit, carrega `instance`, `conversation` e `contact` do Order: o envio do aviso lê esses
+    atributos de dentro do event loop e não pode ir ao banco para isso.
+    """
     if is_reopened(order):
         raise TransitionError(
             f"O pedido {order.order_number} está em alteração pelo cliente: só dá para mudar o status depois "
@@ -97,5 +103,16 @@ async def change_status(db: Session, order: CustomerOrder, target: str) -> dict[
     except OrderChanged as exc:
         db.rollback()  # perdeu a corrida: nada foi gravado e o Contact não é avisado
         raise TransitionError(exc.args[0]) from exc
-    return await _notify(db, order, _contact_message(order, target, refunds))
+    text = _contact_message(order, target, refunds)
+    db.refresh(order)
+    order.instance, order.conversation, order.contact  # noqa: B018 - carrega os relacionamentos em thread
+    return text
+
+
+async def change_status(db: Session, order: CustomerOrder, target: str) -> dict[str, Any]:
+    """Move o Order para `target` e avisa o Contact; devolve o resultado do aviso. `TransitionError` se não for permitida.
+
+    O banco roda em thread; só o envio do aviso (Evolution) fica no event loop."""
+    text = await asyncio.to_thread(_transition, db, order, target)
+    return await _notify(db, order, text)
 
