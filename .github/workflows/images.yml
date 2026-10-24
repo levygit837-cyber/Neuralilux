@@ -1,0 +1,71 @@
+name: Images
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: images-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # Sem push: o job só prova que as duas imagens buildam e que nenhuma roda como root.
+      - name: Build da imagem do backend
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: backend
+          push: false
+          load: true
+          tags: neuralilux/backend:ci
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,scope=backend,mode=max
+
+      - name: Build da imagem do frontend
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: frontend
+          push: false
+          load: true
+          tags: neuralilux/frontend:ci
+          build-args: |
+            NEXT_PUBLIC_API_URL=http://localhost:8000
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,scope=frontend,mode=max
+
+      - name: Backend não roda como root
+        run: |
+          uid=$(docker run --rm neuralilux/backend:ci id -u)
+          echo "uid=$uid"
+          test "$uid" != "0"
+
+      - name: Frontend não roda como root
+        run: |
+          uid=$(docker run --rm neuralilux/frontend:ci id -u)
+          echo "uid=$uid"
+          test "$uid" != "0"
+
+      # O compose de exemplo tem de continuar válido, com todas as variáveis obrigatórias presentes.
+      - name: Compose de exemplo válido
+        run: |
+          cat > "$RUNNER_TEMP/ci.env" <<'EOF'
+          POSTGRES_PASSWORD=ci_postgres
+          REDIS_PASSWORD=ci_redis
+          RABBITMQ_PASSWORD=ci_rabbit
+          EVOLUTION_DB_PASSWORD=ci_evolution
+          EVOLUTION_API_KEY=ci-evolution-key
+          EVOLUTION_WEBHOOK_TOKEN=ci-webhook-token
+          SECRET_KEY=ci-secret-key-ci-secret-key-ci-secret-key
+          GATEWAY_ENCRYPTION_KEY=ci-gateway-key-ci-gateway-key-ci-gateway
+          EOF
+          docker compose -f docker-compose.example.yml --env-file "$RUNNER_TEMP/ci.env" --profile app config -q
