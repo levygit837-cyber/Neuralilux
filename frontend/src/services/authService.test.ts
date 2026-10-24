@@ -64,6 +64,27 @@ describe('sessão por cookie', () => {
     await expect(authService.login({ email: 'a@x.com', password: 'x' })).rejects.toThrow('Incorrect email or password')
   })
 
+  it('login com 422 mostra a mensagem do campo (detail[0].msg), não [object Object]', async () => {
+    stubFetch(
+      response(422, {
+        detail: [{ type: 'string_too_short', loc: ['body', 'password'], msg: 'Field required', input: null }],
+      })
+    )
+    const error = await authService.login({ email: 'a@x.com', password: '' }).catch((e: unknown) => e)
+
+    expect(error).toBeInstanceOf(Error)
+    expect((error as Error).message).toBe('Field required')
+  })
+
+  it('login com 401 não derruba a sessão: é senha errada, não cookie vencido', async () => {
+    const fetchMock = stubFetch(response(401, { detail: 'Incorrect email or password' }))
+
+    await expect(authService.login({ email: 'a@x.com', password: 'x' })).rejects.toThrow('Incorrect email or password')
+    // `apiRequest` chamaria `endSession()` num 401, que faz um segundo fetch (logout no backend).
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(String(fetchMock.mock.calls[0][0])).toMatch(/\/api\/v1\/auth\/login$/)
+  })
+
   it('logout pede ao backend para apagar o cookie', async () => {
     const fetchMock = stubFetch(new Response(null, { status: 204 }))
     await authService.logout()
