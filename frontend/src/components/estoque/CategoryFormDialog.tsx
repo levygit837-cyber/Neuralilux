@@ -28,6 +28,7 @@ export function CategoryFormDialog({
           <label htmlFor="category-name" className="text-sm font-medium text-text-light">Nome da categoria</label>
           <Input
             id="category-name"
+            data-autofocus
             value={categoryForm.name}
             onChange={(event) =>
               setCategoryForm((current) =>

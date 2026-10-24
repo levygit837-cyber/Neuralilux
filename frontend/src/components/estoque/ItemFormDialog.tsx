@@ -30,6 +30,7 @@ export function ItemFormDialog({
             <label htmlFor="item-name" className="text-sm font-medium text-text-light">Nome do item</label>
             <Input
               id="item-name"
+              data-autofocus
               value={itemForm.name}
               onChange={(event) =>
                 setItemForm((current) =>
