@@ -1,30 +1,24 @@
-export interface Metric {
-  label: string
-  value: string | number
-  change: string
-  trend: 'up' | 'down'
-  icon?: string
+export type DashboardPeriod = '7d' | '30d' | '90d'
+
+/** Número do período atual e o mesmo número no período anterior (de igual tamanho). */
+export interface CountMetric {
+  current: number
+  previous: number
 }
 
-export interface Activity {
-  id: string
-  title: string
-  description: string
-  timestamp: string
-  icon?: string
-  type?: 'message' | 'appointment' | 'sale'
+export interface ResponseRateMetric {
+  current: number | null
+  previous: number | null
+  received: number
+  answered: number
 }
 
-export interface BusinessMetric {
-  id: string
-  name: string
-  metrics: {
-    label: string
-    value: string | number
-  }[]
+export interface DashboardOverview {
+  conversations: CountMetric
+  messages: CountMetric
+  handoffs: CountMetric
+  response_rate: ResponseRateMetric
 }
-
-// --- Chart data types ---
 
 export interface ConversationTimeSeriesPoint {
   date: string
@@ -32,30 +26,23 @@ export interface ConversationTimeSeriesPoint {
 }
 
 export interface ConversationTimeSeriesResponse {
+  timezone: string
   data: ConversationTimeSeriesPoint[]
-  period: '7d' | '30d' | '90d'
 }
 
-export interface ChannelData {
+export interface InstanceMessages {
+  instance_id: string
   name: string
   count: number
 }
 
-export interface ChannelMetricsResponse {
-  channels: ChannelData[]
+export interface MessagesByInstanceResponse {
+  instances: InstanceMessages[]
 }
 
-export interface ResolutionMetrics {
-  resolved: number
-  pending: number
-  escalated: number
-}
-
-export interface SatisfactionMetrics {
-  current_score: number
-  target_score: number
-  history: Array<{
-    month: string
-    score: number
-  }>
+export interface HandoffsByStatus {
+  open: number
+  in_progress: number
+  closed: number
+  expired: number
 }

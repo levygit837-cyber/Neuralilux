@@ -63,6 +63,7 @@ Conectar o WhatsApp por QR code, ligar a Instance à Company e conferir a primei
 | [docs/packs.md](docs/packs.md) | Criar um Pack para farmácia, loja ou academia: contrato e exemplo. |
 | [docs/integrations.md](docs/integrations.md) | Integrar um sistema de gestão por API REST e por Tools de Pack. |
 | [docs/operations.md](docs/operations.md) | Handoff (início, devolução, timeout), cancelamento, alteração e estorno de Pix, painel de Pedidos e troubleshooting. |
+| [docs/dashboard.md](docs/dashboard.md) | Definição de cada número do dashboard (escopo, período, tendência) e o que ele não mostra. |
 | [CONTEXT.md](CONTEXT.md) | Glossário do domínio. |
 | [docs/adr/](docs/adr/) | Decisões de arquitetura. |
 | [backend/README.md](backend/README.md) · [frontend/README.md](frontend/README.md) | Notas de cada parte. |

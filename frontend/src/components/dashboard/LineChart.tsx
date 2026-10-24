@@ -1,220 +1,157 @@
 'use client'
 
 import { Card } from '@/components/ui/Card'
-import type { ConversationTimeSeriesPoint } from '@/types/dashboard'
+import { WidgetError } from '@/components/dashboard/WidgetError'
+import type { ConversationTimeSeriesPoint, DashboardPeriod } from '@/types/dashboard'
 
 interface LineChartProps {
-  data: ConversationTimeSeriesPoint[]
-  period: '7d' | '30d' | '90d'
-  onPeriodChange: (period: '7d' | '30d' | '90d') => void
-  isLoading?: boolean
-  className?: string
+  /** Um ponto por dia local do período, com os dias sem Conversation em zero. `undefined` enquanto carrega. */
+  data?: ConversationTimeSeriesPoint[]
+  period: DashboardPeriod
+  error?: string | null
+  onRetry: () => void
 }
 
 const VIEWPORT_WIDTH = 600
 const VIEWPORT_HEIGHT = 180
 const PADDING_TOP = 10
 
-function buildSvgPath(points: ConversationTimeSeriesPoint[]): { line: string; area: string } {
-  if (points.length === 0) return { line: '', area: '' }
-  if (points.length === 1) {
-    const y = VIEWPORT_HEIGHT / 2
-    return {
-      line: `M0,${y} L${VIEWPORT_WIDTH},${y}`,
-      area: `M0,${y} L${VIEWPORT_WIDTH},${y} L${VIEWPORT_WIDTH},${VIEWPORT_HEIGHT + PADDING_TOP} L0,${VIEWPORT_HEIGHT + PADDING_TOP} Z`,
-    }
-  }
+/** `YYYY-MM-DD` é um dia do calendário: ao meio-dia local nenhum fuso do browser o empurra para o dia vizinho. */
+function parseDay(day: string): Date {
+  return new Date(`${day}T12:00:00`)
+}
 
-  const maxCount = Math.max(...points.map((p) => p.count), 1)
-  const minCount = Math.min(...points.map((p) => p.count), 0)
-  const range = maxCount - minCount || 1
+function pointY(count: number, maxCount: number): number {
+  return PADDING_TOP + (1 - count / maxCount) * (VIEWPORT_HEIGHT - PADDING_TOP)
+}
 
-  const normalized = points.map((p, i) => ({
-    x: (i / (points.length - 1)) * VIEWPORT_WIDTH,
-    y: PADDING_TOP + (1 - (p.count - minCount) / range) * (VIEWPORT_HEIGHT - PADDING_TOP),
+function buildSvgPath(points: ConversationTimeSeriesPoint[], maxCount: number): { line: string; area: string } {
+  const coords = points.map((p, i) => ({
+    x: points.length > 1 ? (i / (points.length - 1)) * VIEWPORT_WIDTH : VIEWPORT_WIDTH / 2,
+    y: pointY(p.count, maxCount),
   }))
-
-  // Smooth cubic bezier path
-  let line = `M${normalized[0].x},${normalized[0].y}`
-  for (let i = 1; i < normalized.length; i++) {
-    const prev = normalized[i - 1]
-    const curr = normalized[i]
+  let line = `M${coords[0].x},${coords[0].y}`
+  for (let i = 1; i < coords.length; i++) {
+    const prev = coords[i - 1]
+    const curr = coords[i]
     const cpx = (prev.x + curr.x) / 2
     line += ` C${cpx},${prev.y} ${cpx},${curr.y} ${curr.x},${curr.y}`
   }
-
-  const last = normalized[normalized.length - 1]
-  const area = `${line} L${last.x},${VIEWPORT_HEIGHT + PADDING_TOP} L0,${VIEWPORT_HEIGHT + PADDING_TOP} Z`
-
-  return { line, area }
+  const last = coords[coords.length - 1]
+  const bottom = VIEWPORT_HEIGHT + PADDING_TOP
+  return { line, area: `${line} L${last.x},${bottom} L${coords[0].x},${bottom} Z` }
 }
 
-function formatAxisDate(dateStr: string, period: '7d' | '30d' | '90d'): string {
-  const d = new Date(dateStr)
-  if (period === '7d') {
-    return d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '')
-  }
-  if (period === '30d') {
-    return d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }).replace('.', '')
-  }
-  return d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '')
+function formatAxisDate(day: string, period: DashboardPeriod): string {
+  const date = parseDay(day)
+  if (period === '7d') return date.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', '')
+  return date.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }).replace('.', '')
 }
 
-export function LineChart({ data, period, onPeriodChange, isLoading, className }: LineChartProps) {
-  const timePeriods = [
-    { value: '7d' as const, label: '7 dias' },
-    { value: '30d' as const, label: '30 dias' },
-    { value: '90d' as const, label: '90 dias' },
-  ]
+export function LineChart({ data, period, error, onRetry }: LineChartProps) {
+  const header = (
+    <div className="mb-6">
+      <h3 className="font-medium text-content-light">Conversas novas por dia</h3>
+      <p className="mt-1 text-xs text-content-muted">Conversations criadas em cada dia do período</p>
+    </div>
+  )
 
-  const { line, area } = buildSvgPath(data)
+  if (error) {
+    return (
+      <Card className="flex h-[380px] flex-col">
+        {header}
+        <div className="flex flex-1 flex-col">
+          <WidgetError message={error} onRetry={onRetry} />
+        </div>
+      </Card>
+    )
+  }
 
-  // Pick ~7 evenly spaced labels for the x-axis
-  const axisLabels = (() => {
-    if (data.length === 0) return []
-    const step = Math.max(1, Math.floor(data.length / 6))
-    const indices: number[] = []
-    for (let i = 0; i < data.length; i += step) indices.push(i)
-    if (indices[indices.length - 1] !== data.length - 1) {
-      indices.push(data.length - 1)
-    }
-    return indices.map((i) => formatAxisDate(data[i].date, period))
-  })()
+  if (!data) {
+    return (
+      <Card className="flex h-[380px] flex-col" aria-busy="true">
+        {header}
+        <div className="flex flex-1 items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        </div>
+      </Card>
+    )
+  }
 
-  const lastPoint = data[data.length - 1]
+  const total = data.reduce((sum, p) => sum + p.count, 0)
+  const maxCount = Math.max(...data.map((p) => p.count), 1)
+  const { line, area } = data.length > 0 ? buildSvgPath(data, maxCount) : { line: '', area: '' }
 
-  // Compute tooltip position for the last data point
-  const lastNormX = data.length > 1 ? VIEWPORT_WIDTH : VIEWPORT_WIDTH / 2
-  const maxCount = data.length > 0 ? Math.max(...data.map((p) => p.count), 1) : 1
-  const minCount = data.length > 0 ? Math.min(...data.map((p) => p.count), 0) : 0
-  const range = maxCount - minCount || 1
-  const lastNormYPct = lastPoint
-    ? ((1 - (lastPoint.count - minCount) / range) * 100).toFixed(0)
-    : '50'
+  const step = Math.max(1, Math.floor(data.length / 6))
+  const axisIndices: number[] = []
+  for (let i = 0; i < data.length; i += step) axisIndices.push(i)
+  if (data.length > 0 && axisIndices[axisIndices.length - 1] !== data.length - 1) axisIndices.push(data.length - 1)
 
   return (
-    <Card className={`flex flex-col h-[380px] animate-slide-up delay-400 ${className}`}>
-      <div className="flex justify-between items-start mb-6">
-        <div>
-          <h3 className="font-medium text-content-light">Conversas ao Longo do Tempo</h3>
-          <p className="text-xs text-content-muted mt-1">Volume diário de interações via IA</p>
-        </div>
-        <div className="flex bg-brand-base rounded-md p-1 border border-brand-border">
-          {timePeriods.map((p) => (
-            <button
-              key={p.value}
-              type="button"
-              aria-pressed={period === p.value}
-              onClick={() => onPeriodChange(p.value)}
-              className={`px-3 py-1 text-xs font-medium rounded transition ${
-                period === p.value
-                  ? 'bg-brand-card border border-brand-border text-content-light shadow-sm'
-                  : 'text-content-muted hover:text-content-light transition'
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="flex-1 relative w-full mt-4">
-        {/* Background Grid Lines */}
-        <div className="absolute inset-0 flex flex-col justify-between z-0 pb-6 opacity-20 pointer-events-none">
-          <div className="border-b border-brand-border w-full flex-1" />
-          <div className="border-b border-brand-border w-full flex-1" />
-          <div className="border-b border-brand-border w-full flex-1" />
-          <div className="border-b border-brand-border w-full flex-1" />
-          <div className="w-full flex-1" />
-        </div>
-
-        {isLoading || data.length === 0 ? (
+    <Card className="flex h-[380px] animate-slide-up flex-col delay-400">
+      {header}
+      <div className="relative mt-4 w-full flex-1">
+        {total === 0 ? (
           <div className="absolute inset-0 flex items-center justify-center pb-6">
-            {isLoading ? (
-              <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-            ) : (
-              <p className="text-xs text-content-muted">Sem dados para o período selecionado</p>
-            )}
+            <p className="text-xs text-content-muted">Nenhuma Conversation nova no período</p>
           </div>
         ) : (
-          <>
-            {/* SVG Line + Area Chart */}
-            <svg
-              viewBox={`0 0 ${VIEWPORT_WIDTH} ${VIEWPORT_HEIGHT + PADDING_TOP}`}
-              className="w-full h-full z-10 relative overflow-visible"
-            >
-              <defs>
-                <linearGradient id="purpleGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                  <stop offset="0%" stopColor="rgb(var(--color-primary))" />
-                  <stop offset="100%" stopColor="rgb(var(--color-secondary))" />
-                </linearGradient>
-                <linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="rgb(var(--color-primary))" stopOpacity="0.5" />
-                  <stop offset="100%" stopColor="rgb(var(--color-primary))" stopOpacity="0.0" />
-                </linearGradient>
-              </defs>
-
-              {/* Area Fill */}
-              <path d={area} fill="url(#areaGradient)" className="opacity-80" />
-
-              {/* Main Line */}
-              <path
-                d={line}
-                fill="none"
-                stroke="url(#purpleGradient)"
-                strokeWidth="4"
-                strokeLinecap="round"
-                className="chart-path filter drop-shadow-[0_4px_6px_rgb(var(--color-primary)/0.5)]"
-              />
-
-              {/* Last point highlight */}
-              {(() => {
-                const pts = data.length
-                const lx = VIEWPORT_WIDTH
-                const ly =
-                  PADDING_TOP +
-                  (1 - (lastPoint.count - minCount) / range) * (VIEWPORT_HEIGHT - PADDING_TOP)
-                return (
-                  <circle
-                    cx={lx}
-                    cy={ly}
-                    r="4"
-                    fill="rgb(var(--color-primary))"
-                    stroke="rgb(var(--color-brand-base))"
-                    strokeWidth="2"
-                    className="animate-pulse"
-                  />
-                )
-              })()}
-            </svg>
-
-            {/* Tooltip on last node */}
-            <div
-              className="absolute right-0 -mt-10 -mr-4 glass-tooltip px-3 py-2 rounded-lg pointer-events-none z-20 shadow-xl"
-              style={{ top: `${lastNormYPct}%` }}
-            >
-              <div className="text-[0.65rem] text-content-muted uppercase mb-1">
-                {new Date(lastPoint.date).toLocaleDateString('pt-BR', {
-                  weekday: 'short',
-                  day: '2-digit',
-                  month: 'short',
-                })}
-              </div>
-              <div className="text-sm font-bold text-content-light flex items-center gap-1">
-                <span className="w-2 h-2 rounded-full bg-primary" />
-                {lastPoint.count} Conversas
-              </div>
-            </div>
-          </>
+          <svg
+            viewBox={`0 0 ${VIEWPORT_WIDTH} ${VIEWPORT_HEIGHT + PADDING_TOP}`}
+            className="relative z-10 h-[85%] w-full overflow-visible"
+            role="img"
+            aria-label={`${total} Conversations novas no período`}
+          >
+            <defs>
+              <linearGradient id="lineStroke" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stopColor="rgb(var(--color-primary))" />
+                <stop offset="100%" stopColor="rgb(var(--color-secondary))" />
+              </linearGradient>
+              <linearGradient id="lineArea" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="rgb(var(--color-primary))" stopOpacity="0.5" />
+                <stop offset="100%" stopColor="rgb(var(--color-primary))" stopOpacity="0.0" />
+              </linearGradient>
+            </defs>
+            <path d={area} fill="url(#lineArea)" className="opacity-80" />
+            <path d={line} fill="none" stroke="url(#lineStroke)" strokeWidth="4" strokeLinecap="round" className="chart-path" />
+            {data.map((p, i) => (
+              <circle
+                key={p.date}
+                cx={data.length > 1 ? (i / (data.length - 1)) * VIEWPORT_WIDTH : VIEWPORT_WIDTH / 2}
+                cy={pointY(p.count, maxCount)}
+                r="3"
+                fill="rgb(var(--color-primary))"
+                stroke="rgb(var(--color-brand-base))"
+                strokeWidth="2"
+              >
+                <title>{`${parseDay(p.date).toLocaleDateString('pt-BR')}: ${p.count}`}</title>
+              </circle>
+            ))}
+          </svg>
         )}
 
-        {/* X Axis Labels */}
-        <div className="absolute bottom-0 w-full flex justify-between text-[0.65rem] text-content-muted font-medium pt-2">
-          {axisLabels.length > 0
-            ? axisLabels.map((label, i) => <span key={i}>{label}</span>)
-            : ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'].map((d) => (
-                <span key={d}>{d}</span>
-              ))}
+        <table className="sr-only">
+          <caption>Conversations novas por dia</caption>
+          <thead>
+            <tr>
+              <th scope="col">Dia</th>
+              <th scope="col">Conversations novas</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((p) => (
+              <tr key={p.date}>
+                <th scope="row">{parseDay(p.date).toLocaleDateString('pt-BR')}</th>
+                <td>{p.count}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        <div className="absolute bottom-0 flex w-full justify-between pt-2 text-[0.65rem] font-medium text-content-muted">
+          {axisIndices.map((i) => (
+            <span key={data[i].date}>{formatAxisDate(data[i].date, period)}</span>
+          ))}
         </div>
       </div>
     </Card>

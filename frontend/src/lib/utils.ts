@@ -5,6 +5,11 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+/** Contagem curta para cartões e barras: 1.234 vira "1.2k". */
+export function formatCompactNumber(value: number): string {
+  return value >= 1000 ? `${(value / 1000).toFixed(1)}k` : value.toString()
+}
+
 export function formatTimestamp(date: Date | string): string {
   const d = new Date(date)
   const now = new Date()
