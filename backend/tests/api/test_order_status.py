@@ -288,3 +288,23 @@ def test_company_cancelling_a_pix_order_flags_the_refund_like_the_contacts_cance
     assert "estorno" in stored_messages(world, order)[-1].content
     row = next(o for o in client.get("/api/v1/orders?status=all", headers=world["alice"]).json()["orders"] if o["order_number"] == "A-10")
     assert row["refund_status"] == refund
+
+
+def test_session_is_out_of_transaction_while_the_contact_is_notified(client, world):
+    from app.whatsapp.evolution_client import evolution_api
+
+    seen: list[bool] = []
+
+    async def send(**_kwargs):
+        seen.append(world["db"].in_transaction())
+        return {"key": {"id": "wamid-aviso"}}
+
+    original = evolution_api.send_text_message
+    evolution_api.send_text_message = send
+    try:
+        response = move(client, world, world["received"], "in_production")
+    finally:
+        evolution_api.send_text_message = original
+
+    assert response.status_code == 200
+    assert seen == [False]

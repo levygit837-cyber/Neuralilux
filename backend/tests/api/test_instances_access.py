@@ -277,7 +277,7 @@ def test_concurrent_create_returns_409_and_rolls_back(client, db, evolution, mon
 
 
 def _race_on_commit(monkeypatch):
-    def racing_upsert(session, name, user):
+    def racing_upsert(session, name, user, existing):
         for _ in range(2):
             instance = Instance(name=name, evolution_instance_id=name, owner_id=user.id, is_active=True)
             session.add(instance)

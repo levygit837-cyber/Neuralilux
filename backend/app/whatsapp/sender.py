@@ -42,6 +42,17 @@ class Recipient:
             remote_jid=conversation.remote_jid,
         )
 
+    @classmethod
+    def from_conversation(cls, instance: Instance, conversation: Conversation) -> "Recipient":
+        """Como `of`, para quem só tem a Conversation: o Contact é o `contact_id` dela (sem carregar a linha)."""
+        return cls(
+            instance_id=instance.id,
+            instance_name=instance.evolution_instance_id or instance.name,
+            conversation_id=conversation.id,
+            contact_id=conversation.contact_id,
+            remote_jid=conversation.remote_jid,
+        )
+
 
 @dataclass(frozen=True)
 class Sent:

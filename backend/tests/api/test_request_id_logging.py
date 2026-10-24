@@ -34,6 +34,12 @@ def test_each_request_without_id_gets_its_own(anon):
     assert anon.get("/health").headers[HEADER] != anon.get("/health").headers[HEADER]
 
 
+def test_cors_exposes_the_request_id_to_the_browser(anon):
+    response = anon.get("/health", headers={"Origin": "http://localhost:3000"})
+
+    assert HEADER in response.headers["access-control-expose-headers"]
+
+
 def test_the_origin_guard_rejection_carries_the_id(anon):
     response = anon.post("/api/v1/auth/login", headers={"Origin": "https://evil.example"})
 

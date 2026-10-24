@@ -26,7 +26,7 @@ Uma só função decide: `agent_service.resolve_turn_agent(db, instance)` (`back
 - Senão, o Agent ativo mais antigo da Company (`company_service.company_agent`).
 - Sem Company ou sem Agent: `None`, e o consumer loga o erro e não responde.
 
-A resolução só lê: não altera a Instance nem faz `commit`. Criar o Agent padrão da Company e ligá-lo à Instance acontece só em caminhos explícitos: `POST /instances/{nome}` (`upsert_instance_for_user`) e `scripts/seed_data.py`.
+A resolução só lê: não altera a Instance nem faz `commit`. Criar o Agent padrão da Company e ligá-lo à Instance acontece só em caminhos explícitos: `POST /instances/{nome}` (`instance_service.upsert_instance_for_user`) e `scripts/seed_data.py`.
 
 ## Quem acessa um Agent
 

@@ -14,12 +14,12 @@ from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 import structlog
 
-from app.api.access import check_create_access, get_instance_for_user, upsert_instance_for_user
+from app.api.access import check_create_access, get_instance_for_user
 from app.api.deps import get_current_user, get_db
 from app.api.routes.instances.state import evolution_name
 from app.models import User
 from app.schemas.instance import InstanceCreateResponse, InstanceDisconnectResponse
-from app.services.instance_service import deactivate
+from app.services.instance_service import deactivate, upsert_instance_for_user
 from app.whatsapp.evolution_client import evolution_api, EvolutionAPIError
 
 logger = structlog.get_logger()
@@ -111,9 +111,9 @@ async def delete_instance_endpoint(
 
 
 def _save_instance(db: Session, instance_id: str, user: User) -> str:
-    """Grava a linha local da Instance (bloqueante: roda em thread) e devolve o id. O upsert comita; `IntegrityError`
-    (criação concorrente do mesmo nome) sobe depois do rollback dele."""
-    return upsert_instance_for_user(db, instance_id, user).id
+    """Grava a linha local da Instance (bloqueante: roda em thread) e devolve o id. Reconfere o acesso (a Evolution
+    levou tempo) e o upsert comita; `IntegrityError` (criação concorrente do mesmo nome) sobe depois do rollback dele."""
+    return upsert_instance_for_user(db, instance_id, user, check_create_access(db, instance_id, user)).id
 
 
 @router.post("/{instance_id}", response_model=InstanceCreateResponse)

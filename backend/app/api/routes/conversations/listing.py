@@ -173,13 +173,7 @@ def _prepare_send(db: Session, conversation_id: str, user: User, request: Conver
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Only text messages are supported.",
         )
-    to = Recipient(
-        instance_id=instance.id,
-        instance_name=instance.evolution_instance_id or instance.name,
-        conversation_id=conversation.id,
-        contact_id=conversation.contact_id,
-        remote_jid=conversation.remote_jid,
-    )
+    to = Recipient.from_conversation(instance, conversation)
     db.rollback()  # leitura só: devolve a conexão ao pool antes de falar com a Evolution, sem expulsar objetos da Session
     return to
 

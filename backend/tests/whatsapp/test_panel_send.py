@@ -110,3 +110,13 @@ async def test_echo_adopts_the_row_saved_without_an_evolution_id(client, db, wor
 
     [adopted] = _stored(db)
     assert adopted.id == saved.id and adopted.message_id == "out-9"
+
+
+async def test_user_without_access_gets_403_and_nothing_is_sent(client, db, world, panel):
+    _, conversation = panel
+    stranger = make_user(client, db, "estranho@example.com")  # a Instance não tem dono: só o superusuário acessa
+
+    response = await _send(client, stranger, conversation)
+
+    assert response.status_code == 403
+    assert world["sent"] == [] and _stored(db) == []

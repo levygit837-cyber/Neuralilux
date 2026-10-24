@@ -9,11 +9,9 @@ Regras:
 - Rotas que listam dados de Instances filtram por `instance_ids_for_user`.
 """
 from fastapi import HTTPException, status
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import Company, Instance, User
-from app.services.company_service import company_agent
 
 
 def resolve_instance(db: Session, instance_ref: str, *, only_active: bool = True) -> Instance | None:
@@ -101,60 +99,3 @@ def check_create_access(db: Session, name: str, user: User) -> Instance | None:
             detail="Not enough permissions to access this instance",
         )
     return existing
-
-
-def upsert_instance_for_user(db: Session, name: str, user: User) -> Instance:
-    """Cria ou assume a Instance local do usuário e comita (uma operação, um commit).
-
-    `IntegrityError` (criação concorrente do mesmo nome) faz `rollback` e sobe. A Instance volta carregada (`refresh`).
-
-    Só `POST /instances/{name}` chama isto, depois de a Evolution criar a Instance (ou, para o
-    superusuário, de ela já existir lá).
-    - Nova, ou sem dono (só superusuário chega aqui): dono e Company vêm do usuário.
-    - Do próprio usuário sem Company: ganha a Company do usuário.
-    - De outro dono (superusuário importando): dono e Company não mudam.
-    - Liga o Agent ativo da Company (e `agent_enabled=True`) quando a Instance não tem Agent e acabou de
-      ser criada, assumida ou ganhou Company. Fora disso o vínculo não é refeito, para não desfazer um
-      desvínculo feito pelo usuário.
-    """
-    instance = check_create_access(db, name, user)
-    rebind = False
-
-    if instance is None:
-        instance = Instance(
-            name=name,
-            evolution_instance_id=name,
-            status="disconnected",
-            is_active=True,
-            owner_id=user.id,
-            company_id=user.company_id,
-            agent_enabled=False,
-        )
-        db.add(instance)
-        rebind = True
-    else:
-        if instance.owner_id is None:
-            instance.owner_id = user.id
-            instance.company_id = instance.company_id or user.company_id
-            rebind = True
-        elif instance.owner_id == user.id and instance.company_id is None and user.company_id:
-            instance.company_id = user.company_id
-            rebind = True
-        if not instance.is_active:
-            instance.is_active = True
-        if not instance.name:
-            instance.name = name
-
-    if rebind and not instance.agent_id:
-        agent = company_agent(db, instance.company_id)
-        if agent:
-            instance.agent_id = agent.id
-            instance.agent_enabled = True
-
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise
-    db.refresh(instance)
-    return instance

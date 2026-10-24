@@ -82,14 +82,13 @@ class WhatsAppMessageConsumer:
     async def process_webhook_event(self, message: Dict[str, Any]) -> Dict[str, Any]:
         """Process an Evolution API webhook event"""
         db: Session = SessionLocal()
-        event = message.get("event") or message.get("data", {}).get("event")
-        data = message.get("data", {})
         # Contexto do evento: todo log dele (e das tasks que ele cria) leva estes campos; `message_id`, `conversation_id`
         # e `instance_id` entram quando a Message é resolvida. Limpo no `finally`.
         structlog.contextvars.clear_contextvars()
-        structlog.contextvars.bind_contextvars(webhook_event=event)
         try:
-            
+            event = message.get("event") or message.get("data", {}).get("event")
+            data = message.get("data", {})
+            structlog.contextvars.bind_contextvars(webhook_event=event)
             logger.info(
                 "Processing webhook event",
                 webhook_event=event,

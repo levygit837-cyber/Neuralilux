@@ -126,7 +126,7 @@ A API e o worker rodam num event loop que só espera rede nos caminhos cobertos 
 Uma convenção só, para a API e o worker:
 
 - **Quem escreve comita.** Uma operação de negócio é um commit. O serviço (`app/services/`, `app/whatsapp/`) comita; rota e helper de acesso (`app/api/access.py`, `get_*_for_user`) só leem e nunca comitam. Rota que muda estado chama um serviço (`instance_service`, `conversation_service`, `refund_service`, `company_service.update_agent_settings`).
-- **Erro no commit.** Quem comitou faz `db.rollback()` e relança, ou traduz para o status HTTP (corrida de unicidade vira 409, ex.: `upsert_instance_for_user`). Nunca deixa a Session suja para o próximo uso.
+- **Erro no commit.** Todo serviço comita por `commit_or_rollback(db)` (`app/core/database.py`): se o commit falha, faz `db.rollback()` e relança, e a Session segue utilizável (o Socket.IO e o worker não a fecham por request). A rota traduz o erro para o status HTTP (corrida de unicidade em `instance_service.upsert_instance_for_user` vira 409).
 - **Nada de commit pela metade.** O que não pode sair junto não entra na mesma transação (o envio à Evolution fica fora dela: ADR 0009).
 
 Exceções, cada uma com o motivo:

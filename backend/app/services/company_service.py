@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from app.core.database import commit_or_rollback
 from app.models import Agent, Company
 from app.schemas.company import CompanyCreate, CompanyUpdate
 
@@ -65,13 +66,9 @@ def company_agent(db: Session, company_id: Optional[str]) -> Optional[Agent]:
 
 
 def update_agent_settings(db: Session, agent: Agent, fields: dict) -> Agent:
-    """Grava os ajustes do Agent e comita (uma operação, um commit); em erro desfaz e relança."""
-    try:
-        for name, value in fields.items():
-            setattr(agent, name, value)
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise
+    """Grava os ajustes do Agent e comita (uma operação, um commit); em erro de commit desfaz e relança."""
+    for name, value in fields.items():
+        setattr(agent, name, value)
+    commit_or_rollback(db)
     db.refresh(agent)
     return agent

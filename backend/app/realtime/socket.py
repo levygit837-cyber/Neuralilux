@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.api.access import can_access_instance
 from app.core.auth_cookie import auth_cookie_from_header
 from app.core.config import settings
+from app.core.conversation_lock import LockBusy
 from app.core.database import SessionLocal
 from app.models import Conversation, Instance, User
 from app.realtime.events import EVENTS, conversation_room, instance_room
@@ -124,6 +125,9 @@ class ChatSocketService:
             db = SessionLocal()
             try:
                 sent = await send_from_panel(db, target, content)
+            except LockBusy:
+                logger.warning("Conversation busy, socket message not sent", instance_id=instance_id, conversation_id=conversation_id)
+                return {"ok": False}
             except Exception:
                 logger.exception("Socket send_message failed", instance_id=instance_id, conversation_id=conversation_id)
                 return {"ok": False}
@@ -188,13 +192,7 @@ class ChatSocketService:
                     instance_id=instance_id,
                 )
                 return None
-            return Recipient(
-                instance_id=instance.id,
-                instance_name=instance.evolution_instance_id or instance.name,
-                conversation_id=conversation.id,
-                contact_id=conversation.contact_id,
-                remote_jid=conversation.remote_jid,
-            )
+            return Recipient.from_conversation(instance, conversation)
         finally:
             db.close()
 
