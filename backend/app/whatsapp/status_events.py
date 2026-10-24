@@ -9,7 +9,14 @@ import structlog
 from sqlalchemy.orm import Session
 
 from app.models import Contact, Conversation, Instance, Message
-from app.realtime.event_bus import realtime_event_bus
+from app.realtime.events import (
+    ConnectionStatusUpdate,
+    ConversationUpdated,
+    MessageStatusUpdate,
+    NewMessage,
+    QrCodeUpdate,
+)
+from app.realtime.publish import publish_event
 from app.whatsapp.webhook_parser import (
     MESSAGE_STATUS_RANK,
     normalize_connection_status,
@@ -29,48 +36,42 @@ def touch_conversation(conversation: Conversation, content: str, timestamp: date
 
 
 async def publish_message(
-    instance_name: str,
-    remote_jid: str,
-    contact: Contact,
     conversation: Conversation,
+    contact: Contact,
     message_id: Optional[str],
     content: str,
     timestamp: datetime,
     from_me: bool,
     sender_name: Optional[str] = None,
 ) -> None:
+    """Avisa a UI de uma Message nova (`conversation_updated` + `new_message`). Falha de realtime só loga."""
     name = contact.name or contact.phone_number
-    event = (
-        {
-            "type": "incoming_message",
-            "instance_name": instance_name,
-            "conversation_id": remote_jid,
-            "payload": {
-                "conversation": {
-                    "id": remote_jid,
-                    "name": name,
-                    "lastMessage": content,
-                    "timestamp": timestamp.isoformat(),
-                    "unreadCount": conversation.unread_count or 0,
-                    "isOnline": False,
-                    "avatar": contact.profile_pic_url,
-                },
-                "message": {
-                    "id": message_id,
-                    "conversationId": remote_jid,
-                    "content": content,
-                    "timestamp": timestamp.isoformat(),
-                    "isOutgoing": from_me,
-                    "status": "sent",
-                    "sender": None if from_me else {"name": sender_name or name},
-                },
-            },
-        }
-    )
     try:
-        await realtime_event_bus.publish(event)
+        await publish_event(
+            ConversationUpdated(
+                instance_id=conversation.instance_id,
+                conversation_id=conversation.id,
+                contact_name=name,
+                last_message=content,
+                timestamp=timestamp,
+                unread_count=conversation.unread_count or 0,
+                avatar=contact.profile_pic_url,
+            )
+        )
+        await publish_event(
+            NewMessage(
+                instance_id=conversation.instance_id,
+                conversation_id=conversation.id,
+                message_id=message_id,
+                content=content,
+                timestamp=timestamp,
+                is_outgoing=from_me,
+                status="sent",
+                sender_name=None if from_me else (sender_name or name),
+            )
+        )
     except Exception:
-        # Realtime é só a UI ao vivo: uma falha no Redis não pode impedir o Agent nem a resposta.
+        # Realtime é só a UI ao vivo: uma falha na montagem do evento não pode impedir o Agent nem a resposta.
         logger.exception("Failed to publish message to realtime", message_id=message_id)
 
 
@@ -91,7 +92,6 @@ async def update_message_status(db: Session, data: Dict[str, Any]) -> None:
         message_payload = unwrap_event_payload(data)
         message_id = message_payload.get("keyId")
         status = normalize_message_status(message_payload.get("status"))
-        instance_name = data.get("instance")
 
         if not message_id or not status:
             logger.debug("Message status update ignored", message_id=message_id, evolution_status=message_payload.get("status"))
@@ -110,17 +110,15 @@ async def update_message_status(db: Session, data: Dict[str, Any]) -> None:
         message.status = status
         db.commit()
         logger.info("Message status updated", message_id=message_id, status=status)
-        await realtime_event_bus.publish(
-            {
-                "type": "message_status",
-                "instance_name": instance_name,
-                "conversation_id": message.remote_jid,
-                "payload": {
-                    "messageId": message_id,
-                    "status": status,
-                },
-            }
-        )
+        if message.conversation_id:
+            await publish_event(
+                MessageStatusUpdate(
+                    instance_id=message.instance_id,
+                    conversation_id=message.conversation_id,
+                    message_id=message_id,
+                    status=status,
+                )
+            )
     except Exception as e:
         logger.error("Error updating message status", error=str(e))
         db.rollback()
@@ -170,15 +168,8 @@ async def update_connection_status(db: Session, data: Dict[str, Any]) -> bool:
             instance.updated_at = datetime.now(timezone.utc)
             db.commit()
             logger.info("Connection status updated", instance=instance_name, status=state)
-            await realtime_event_bus.publish(
-                {
-                    "type": "connection_status",
-                    "instance_name": instance_name,
-                    "payload": {
-                        "status": instance.status,
-                        "evolutionState": state,
-                    },
-                }
+            await publish_event(
+                ConnectionStatusUpdate(instance_id=instance.id, status=instance.status, evolution_state=state)
             )
             return True
     except Exception as e:
@@ -187,18 +178,13 @@ async def update_connection_status(db: Session, data: Dict[str, Any]) -> bool:
     return False
 
 
-async def publish_qr_code_update(data: Dict[str, Any]) -> None:
+async def publish_qr_code_update(db: Session, data: Dict[str, Any]) -> None:
     payload = unwrap_event_payload(data)
     qrcode = payload.get("qrcode") or payload.get("qr") or payload.get("base64")
     if not qrcode:
         return
-
-    await realtime_event_bus.publish(
-        {
-            "type": "qr_code",
-            "instance_name": data.get("instance"),
-            "payload": {
-                "qrcode": qrcode,
-            },
-        }
-    )
+    instance = find_instance(db, data.get("instance") or "")
+    if instance is None:
+        logger.warning("QR code for unknown instance discarded", instance_name=data.get("instance"))
+        return
+    await publish_event(QrCodeUpdate(instance_id=instance.id, qrcode=qrcode))

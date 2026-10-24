@@ -9,10 +9,10 @@ import pytest
 from agent_fakes import FakeMessagesClient, reply, text, tool_use, without_turn_context
 from consumer_helpers import JID, messages, upsert
 
-from app.agent import core_tools, executor
+from app.agent import executor
 from app.core.config import settings
 from app.models import Agent, Contact, Conversation, CustomerOrder, Ticket
-from app.services import handoff_service
+from app.realtime.event_bus import realtime_event_bus
 from app.whatsapp import consumer as consumer_module
 from app.whatsapp.consumer import MEDIA_REPLY, WhatsAppMessageConsumer
 from app.whatsapp.evolution_client import evolution_api
@@ -132,10 +132,10 @@ async def test_follower_stored_when_the_window_closes_joins_the_group_and_is_ans
     follower_may_publish = asyncio.Event()
     real_publish = consumer_module.publish_message
 
-    async def publish(instance_name, remote_jid, contact, conversation, message_id, *args):
+    async def publish(conversation, contact, message_id, *args):
         if message_id == "in-2":
             await follower_may_publish.wait()  # já commitada; ainda não chegou ao batcher
-        return await real_publish(instance_name, remote_jid, contact, conversation, message_id, *args)
+        return await real_publish(conversation, contact, message_id, *args)
 
     monkeypatch.setattr(consumer_module, "publish_message", publish)
     leader = deliver(consumer, text="oi", message_id="in-1")
@@ -168,8 +168,7 @@ def handoff_events(monkeypatch):
     async def capture(event):
         published.append(event)
 
-    monkeypatch.setattr(core_tools, "publish_event", capture)
-    monkeypatch.setattr(handoff_service, "publish_event", capture)
+    monkeypatch.setattr(realtime_event_bus, "publish", capture)
     return published
 
 
@@ -210,7 +209,9 @@ async def test_transfer_requested_in_a_burst_transfers_once_and_later_messages_d
         {"role": "user", "content": "quero falar com um atendente\npor favor"}
     ]
     assert db.query(Ticket).count() == 1
-    assert [e["type"] for e in handoff_events] == ["human_handoff_requested"]
+    handoff_requests = [e for e in handoff_events if e["type"] == "human_handoff_requested"]
+    assert len(handoff_requests) == 1
+    assert handoff_requests[0]["payload"]["conversation_id"] == db.query(Conversation).one().id
     assert len(world["sent"]) == 1  # só a frase da transferência
     assert db.query(Conversation).one().human_in_loop is True
 

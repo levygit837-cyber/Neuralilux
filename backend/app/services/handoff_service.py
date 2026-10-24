@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.agent import clock
 from app.core import database
 from app.models import Company, Conversation, Instance, Message, Ticket, User
+from app.realtime.events import HandoffUpdated
 from app.realtime.publish import publish_event
 
 logger = structlog.get_logger()
@@ -230,20 +231,15 @@ async def announce(instance: Instance | None, conversation: Conversation, change
     if instance is None:
         return
     await publish_event(  # o estado já está gravado: falha de notificação só loga (`publish_event`)
-        {
-            "instance_name": instance.name,
-            "type": "handoff_updated",
-            "payload": {
-                "conversation_id": conversation.id,
-                "remote_jid": conversation.remote_jid,
-                "instance_id": conversation.instance_id,
-                "ticket_id": ticket.id if ticket else None,
-                "change": change,
-                "human_in_loop": bool(conversation.human_in_loop),
-                "assigned_to": ticket.assigned_to if ticket and conversation.human_in_loop else None,
-                "timestamp": clock.utc_now().isoformat(),
-            },
-        }
+        HandoffUpdated(
+            instance_id=conversation.instance_id,
+            conversation_id=conversation.id,
+            change=change,
+            human_in_loop=bool(conversation.human_in_loop),
+            assigned_to=ticket.assigned_to if ticket and conversation.human_in_loop else None,
+            ticket_id=ticket.id if ticket else None,
+            timestamp=clock.utc_now(),
+        )
     )
 
 

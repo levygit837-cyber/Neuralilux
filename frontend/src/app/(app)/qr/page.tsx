@@ -38,7 +38,7 @@ export default function QrPage() {
   const { clearInstance } = useInstanceStore()
   const { resolvedInstance, isResolvingInstance } = useResolvedInstance()
   const { status, qrCode, isLoading, error, connect: handleConnect, disconnect: handleDisconnect } =
-    useInstanceConnection(resolvedInstance?.name)
+    useInstanceConnection(resolvedInstance?.name, resolvedInstance?.id)
 
   const handleBack = () => {
     clearInstance()

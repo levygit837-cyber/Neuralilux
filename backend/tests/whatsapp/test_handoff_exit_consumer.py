@@ -7,6 +7,7 @@ from app.agent import executor
 from app.agent.loop import TurnResult
 from app.models import Conversation, Ticket
 from app.whatsapp.evolution_client import evolution_api
+from app.realtime.event_bus import realtime_event_bus
 from app.services import handoff_service
 from app.whatsapp.consumer import WhatsAppMessageConsumer
 from consumer_helpers import process, upsert
@@ -34,7 +35,7 @@ def realtime(monkeypatch):
     async def capture(event):
         published.append(event)
 
-    monkeypatch.setattr(handoff_service, "publish_event", capture)
+    monkeypatch.setattr(realtime_event_bus, "publish", capture)
     return published
 
 
@@ -72,7 +73,8 @@ async def test_overdue_handoff_expires_on_the_next_message_and_agent_answers(db,
     assert db.get(Ticket, ticket.id).status == "expired"
     assert db.get(Conversation, conversation.id).human_in_loop is False
     assert world["turns"] == ["ninguém me atendeu"]
-    assert realtime[-1]["payload"]["change"] == "expired"
+    handoff_updates = [e for e in realtime if e["type"] == "handoff_updated"]
+    assert handoff_updates[-1]["payload"]["change"] == "expired"
 
 
 async def test_attendant_message_from_the_phone_postpones_the_timeout(db, world):

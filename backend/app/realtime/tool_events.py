@@ -5,13 +5,14 @@ import asyncio
 import json
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from uuid import uuid4
 
 import structlog
 
 from app.core.config import settings
-from app.realtime.event_bus import realtime_event_bus
+from app.realtime.events import ToolEvent
+from app.realtime.publish import publish_event
 
 logger = structlog.get_logger()
 
@@ -57,12 +58,11 @@ async def emit_tool_event(
     *,
     source: str,
     tool_name: str,
-    phase: str,
-    instance_name: str,
+    phase: Literal["waiting_input", "started", "completed", "failed"],
+    instance_id: str,
     conversation_id: str,
     request_id: str,
     trace_id: str,
-    session_id: str | None = None,
     input_payload: Any | None = None,
     output_payload: Any | None = None,
     error: str | None = None,
@@ -70,32 +70,25 @@ async def emit_tool_event(
     started_at: str | None = None,
     finished_at: str | None = None,
 ) -> None:
-    payload: dict[str, Any] = {
-        "source": source,
-        "conversation_id": conversation_id,
-        "session_id": session_id,
-        "trace_id": trace_id,
-        "request_id": request_id,
-        "tool_name": tool_name,
-        "phase": phase,
-        "display_name": display_name,
-        "input_preview": build_tool_preview(input_payload),
-        "output_preview": build_tool_preview(output_payload),
-        "error": error,
-        "started_at": started_at,
-        "finished_at": finished_at,
-    }
-
-    if settings.TOOL_EVENT_INCLUDE_RAW_PAYLOADS:
-        payload["input_payload"] = make_json_safe(input_payload)
-        payload["output_payload"] = make_json_safe(output_payload)
-
-    await realtime_event_bus.publish(
-        {
-            "instance_name": instance_name,
-            "type": "tool_event",
-            "payload": payload,
-        }
+    raw = settings.TOOL_EVENT_INCLUDE_RAW_PAYLOADS
+    await publish_event(
+        ToolEvent(
+            instance_id=instance_id,
+            conversation_id=conversation_id,
+            source=source,
+            trace_id=trace_id,
+            request_id=request_id,
+            tool_name=tool_name,
+            phase=phase,
+            display_name=display_name,
+            input_preview=build_tool_preview(input_payload),
+            output_preview=build_tool_preview(output_payload),
+            input_payload=make_json_safe(input_payload) if raw else None,
+            output_payload=make_json_safe(output_payload) if raw else None,
+            error=error,
+            started_at=started_at,
+            finished_at=finished_at,
+        )
     )
 
 
@@ -111,10 +104,9 @@ class TrackedToolCall:
 @dataclass(slots=True)
 class ToolEventTracker:
     source: str
-    instance_name: str
+    instance_id: str
     conversation_id: str
     request_id: str
-    session_id: str | None = None
     _pending_tasks: list[asyncio.Task[Any]] = field(default_factory=list)
 
     def _schedule(self, **kwargs: Any) -> None:
@@ -127,10 +119,9 @@ class ToolEventTracker:
         task = loop.create_task(
             emit_tool_event(
                 source=self.source,
-                instance_name=self.instance_name,
+                instance_id=self.instance_id,
                 conversation_id=self.conversation_id,
                 request_id=self.request_id,
-                session_id=self.session_id,
                 **kwargs,
             )
         )

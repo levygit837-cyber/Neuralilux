@@ -17,7 +17,8 @@ from app.agent import clock
 from app.agent.clock import DEFAULT_TIMEZONE, company_zone
 from app.agent.contracts import Tool, ToolContext, ToolResult
 from app.agent.memory import search_history
-from app.models import Company, Conversation, Instance
+from app.models import Company, Conversation
+from app.realtime.events import HumanHandoffRequested
 from app.realtime.publish import publish_event
 from app.services.handoff_service import open_handoff
 
@@ -96,20 +97,14 @@ async def _transferir_atendente(ctx: ToolContext, args: dict[str, Any]) -> ToolR
     ticket = open_handoff(ctx.db, conversation, reason)
     if ticket is None:  # outra requisição abriu o Handoff no meio: o Turn termina do mesmo jeito
         return ToolResult(content=farewell, ends_turn=True)
-    instance = ctx.db.get(Instance, conversation.instance_id)
     await publish_event(  # o Handoff já está gravado; falha de notificação só loga (`publish_event`)
-        {
-            "instance_name": instance.name if instance else None,
-            "type": "human_handoff_requested",
-            "payload": {
-                "conversation_id": conversation.id,
-                "instance_id": conversation.instance_id,
-                "contact_id": conversation.contact_id,
-                "ticket_id": ticket.id,
-                "reason": reason,
-                "timestamp": clock.utc_now().isoformat(),
-            },
-        }
+        HumanHandoffRequested(
+            instance_id=conversation.instance_id,
+            conversation_id=conversation.id,
+            ticket_id=ticket.id,
+            reason=reason,
+            timestamp=clock.utc_now(),
+        )
     )
 
     return ToolResult(content=farewell, ends_turn=True)

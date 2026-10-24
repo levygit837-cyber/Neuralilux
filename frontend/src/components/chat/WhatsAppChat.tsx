@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef } from 'react'
 import { selectActiveConversation, useChatStore } from '@/stores/useChatStore'
-import { useSessionReady } from '@/hooks/useSessionReady'
 import { useResolvedInstance } from '@/hooks/useResolvedInstance'
 import { useAgentControl } from '@/hooks/useAgentControl'
 import { useChatRealtime } from '@/hooks/useChatRealtime'
@@ -23,13 +22,11 @@ function Banner({ text, tone }: { text: string; tone: 'warning' | 'error' }) {
 }
 
 export function WhatsAppChat() {
-  const sessionReady = useSessionReady()
   const conversations = useChatStore((state) => state.conversations)
   const activeConversationId = useChatStore((state) => state.activeConversationId)
   const isLoadingConversations = useChatStore((state) => state.isLoadingConversations)
   const isTyping = useChatStore((state) => state.typingIndicators[state.activeConversationId ?? ''] ?? false)
   const error = useChatStore((state) => state.error)
-  const openConversationJid = useChatStore((state) => selectActiveConversation(state)?.remoteJid)
   const setActiveConversation = useChatStore((state) => state.setActiveConversation)
   const isActiveExplicit = useChatStore((state) => state.isActiveExplicit)
   const category = useChatStore((state) => state.category)
@@ -42,14 +39,12 @@ export function WhatsAppChat() {
   const isLoadingMore = useChatStore((state) => state.isLoadingMore)
 
   const { resolvedInstance, isResolvingInstance, resolveError } = useResolvedInstance()
-  const instanceName = resolvedInstance?.name
-  const agent = useAgentControl(instanceName)
+  const agent = useAgentControl(resolvedInstance?.name)
   const handoff = useHandoffControl(activeConversationId)
 
   const { isConnected } = useChatRealtime({
-    enabled: sessionReady,
-    instanceName,
-    openConversationJid,
+    instanceId: resolvedInstance?.id,
+    openConversationId: activeConversationId ?? undefined,
   })
   const { activeConversation, sendMessage, retryMessage, syncHistory, loadMoreConversations } = useChatData(
     resolvedInstance?.id,
@@ -146,15 +141,6 @@ export function WhatsAppChat() {
           )}
         </div>
       </div>
-      {!isConnected && (
-        <div
-          role="status"
-          className="fixed bottom-4 right-4 rounded-lg bg-brand-card/90 border border-brand-border px-4 py-2 text-sm text-content-muted backdrop-blur-sm"
-        >
-          <span aria-hidden="true" className="inline-block w-2 h-2 rounded-full bg-status-warning mr-2 animate-pulse" />
-          Conectando ao servidor...
-        </div>
-      )}
     </div>
   )
 }

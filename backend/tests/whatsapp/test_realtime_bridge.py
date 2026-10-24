@@ -96,7 +96,7 @@ async def test_save_message_to_database_handles_evolution_event_shape_and_publis
     contact = db.query(Contact).one()
     conversation = db.query(Conversation).one()
     message = db.query(Message).one()
-    expected_timestamp = "2024-03-09T16:00:00+00:00"
+    expected_timestamp = "2024-03-09T16:00:00Z"
 
     assert contact.remote_jid == "5511999999999@s.whatsapp.net"
     assert contact.name == "Contato Teste"
@@ -106,32 +106,30 @@ async def test_save_message_to_database_handles_evolution_event_shape_and_publis
     assert message.content == "Mensagem em tempo real"
     assert published_events == [
         {
-            "type": "incoming_message",
-            "instance_name": "evo-realtime-1",
-            "conversation_id": "5511999999999@s.whatsapp.net",
+            "type": "conversation_updated",
             "payload": {
-                "conversation": {
-                        "id": "5511999999999@s.whatsapp.net",
-                        "name": "Contato Teste",
-                        "lastMessage": "Mensagem em tempo real",
-                        "timestamp": expected_timestamp,
-                        "unreadCount": 1,
-                        "isOnline": False,
-                        "avatar": None,
-                    },
-                    "message": {
-                        "id": "msg-rt-1",
-                        "conversationId": "5511999999999@s.whatsapp.net",
-                        "content": "Mensagem em tempo real",
-                        "timestamp": expected_timestamp,
-                        "isOutgoing": False,
-                        "status": "sent",
-                    "sender": {
-                        "name": "Contato Teste",
-                    },
-                },
+                "instance_id": owned_instance.id,
+                "conversation_id": conversation.id,
+                "contact_name": "Contato Teste",
+                "last_message": "Mensagem em tempo real",
+                "timestamp": expected_timestamp,
+                "unread_count": 1,
+                "avatar": None,
             },
-        }
+        },
+        {
+            "type": "new_message",
+            "payload": {
+                "instance_id": owned_instance.id,
+                "conversation_id": conversation.id,
+                "message_id": "msg-rt-1",
+                "content": "Mensagem em tempo real",
+                "timestamp": expected_timestamp,
+                "is_outgoing": False,
+                "status": "sent",
+                "sender_name": "Contato Teste",
+            },
+        },
     ]
 
 
@@ -205,11 +203,11 @@ async def test_update_message_status_normalizes_and_publishes_realtime_event(
     assert message.status == "read"
     assert published_events == [
         {
-            "type": "message_status",
-            "instance_name": "evo-realtime-1",
-            "conversation_id": "5511999999999@s.whatsapp.net",
+            "type": "message_status_update",
             "payload": {
-                "messageId": "msg-status-1",
+                "instance_id": owned_instance.id,
+                "conversation_id": conversation.id,
+                "message_id": "msg-status-1",
                 "status": "read",
             },
         }
@@ -244,11 +242,11 @@ async def test_connection_update_normalizes_state_and_publishes_realtime_event(
     assert owned_instance.status == "connected"
     assert published_events == [
         {
-            "type": "connection_status",
-            "instance_name": "evo-realtime-1",
+            "type": "connection_status_update",
             "payload": {
+                "instance_id": owned_instance.id,
                 "status": "connected",
-                "evolutionState": "open",
+                "evolution_state": "open",
             },
         }
     ]

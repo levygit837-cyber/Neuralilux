@@ -63,7 +63,7 @@ export function clearServerSession(): Promise<Response> {
  * Sessão recusada (cookie vencido ou inválido): encerra pelo mesmo caminho do logout e leva para o login. O cookie
  * também é apagado; senão o proxy o aceitaria de novo e devolveria ao painel um usuário que o store já deslogou.
  */
-function endSession(): void {
+export function endSession(): void {
   void clearServerSession().catch(() => undefined)
   useAuthStore.getState().logout()
   if (typeof window !== 'undefined' && window.location.pathname !== ROUTES.LOGIN) {

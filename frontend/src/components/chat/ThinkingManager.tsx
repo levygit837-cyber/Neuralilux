@@ -1,5 +1,6 @@
 'use client'
 
+import { cancelThinkingClear } from '@/lib/thinkingTimers'
 import { useChatStore } from '@/stores/useChatStore'
 import { ThinkingIndicator } from './ThinkingIndicator'
 import { ThinkingBubble } from './ThinkingBubble'
@@ -13,7 +14,6 @@ export function ThinkingManager({ conversationId }: ThinkingManagerProps) {
   const thinkingEvent = useChatStore((state) => state.thinkingEvents[conversationId])
   const collapseThinking = useChatStore((state) => state.collapseThinking)
   const setThinkingState = useChatStore((state) => state.setThinkingState)
-  const cancelClearTimer = useChatStore((state) => state.cancelClearTimer)
 
   if (!thinkingEvent || thinkingEvent.state === 'idle') {
     return null
@@ -25,7 +25,7 @@ export function ThinkingManager({ conversationId }: ThinkingManagerProps) {
 
   const handleExpand = () => {
     setThinkingState(conversationId, 'streaming', thinkingEvent.summary)
-    cancelClearTimer(conversationId)
+    cancelThinkingClear(conversationId)
   }
 
   switch (thinkingEvent.state) {

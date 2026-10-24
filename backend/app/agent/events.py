@@ -1,18 +1,16 @@
-"""Eventos realtime de um Turn, no formato que o frontend já consome.
+"""Eventos realtime de um Turn: `thinking_event` (`thinking_start`/`thinking_end`) e `tool_event`.
 
-`thinking` (`thinking_start`/`thinking_end`) e `tool_event` vão para a sala da
-Conversation via `app.realtime.publish.publish_event`, sempre com um único dict
-(o bus não aceita kwargs). Falha ao publicar só loga: evento de UI nunca derruba
-um Turn.
+Vão para a sala da Conversation (UUID) pelos schemas de `app.realtime.events`, via
+`app.realtime.publish.publish_event`. Falha ao publicar só loga: evento de UI nunca derruba um Turn.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any
+from typing import Literal
 
 from app.agent.contracts import ToolUseBlock
 from app.agent.tools import ToolCall
+from app.realtime.events import ThinkingEvent
 from app.realtime.publish import publish_event
 from app.realtime.tool_events import ToolEventTracker, TrackedToolCall
 
@@ -22,23 +20,19 @@ EVENT_SOURCE = "whatsapp_agent"
 class TurnEvents:
     """Emite os eventos de um Turn; implementa o `TurnObserver` do loop."""
 
-    def __init__(self, *, instance_name: str, conversation_id: str, request_id: str) -> None:
-        self.instance_name = instance_name
+    def __init__(self, *, instance_id: str, conversation_id: str, request_id: str) -> None:
+        self.instance_id = instance_id
         self.conversation_id = conversation_id
         self._tracker = ToolEventTracker(
             source=EVENT_SOURCE,
-            instance_name=instance_name,
+            instance_id=instance_id,
             conversation_id=conversation_id,
             request_id=request_id,
         )
 
-    async def _thinking(self, event: str, data: dict[str, Any]) -> None:
+    async def _thinking(self, event: Literal["thinking_start", "thinking_end"], data: dict[str, str]) -> None:
         await publish_event(
-            {
-                "instance_name": self.instance_name,
-                "type": "thinking",
-                "payload": {"conversation_id": self.conversation_id, "event": event, "data": data},
-            }
+            ThinkingEvent(instance_id=self.instance_id, conversation_id=self.conversation_id, event=event, data=data)
         )
 
     async def thinking_start(self) -> None:
@@ -60,26 +54,3 @@ class TurnEvents:
     async def flush(self) -> None:
         await self._tracker.flush()
 
-
-async def publish_handoff_requested(
-    *,
-    instance_name: str,
-    conversation_id: str,
-    remote_jid: str,
-    ticket_id: str | None,
-    reason: str,
-) -> None:
-    """Avisa a UI que a Conversation entrou em Handoff."""
-    await publish_event(
-        {
-            "instance_name": instance_name,
-            "type": "human_handoff_requested",
-            "payload": {
-                "conversation_id": conversation_id,
-                "remote_jid": remote_jid,
-                "ticket_id": ticket_id,
-                "reason": reason,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            },
-        }
-    )

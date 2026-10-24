@@ -1,10 +1,10 @@
-"""Eventos realtime de um Turn: thinking, tool_event e Handoff, no formato que o frontend já consome."""
+"""Eventos realtime de um Turn: thinking_event e tool_event, publicados no bus com o payload canônico."""
 
 from unittest.mock import AsyncMock
 
 import pytest
 
-from app.agent.events import TurnEvents, publish_handoff_requested
+from app.agent.events import TurnEvents
 from app.agent.tools import ToolCall
 from app.realtime.event_bus import realtime_event_bus
 
@@ -24,7 +24,7 @@ def published(monkeypatch):
 
 
 def _events():
-    return TurnEvents(instance_name="loja", conversation_id="conv-1", request_id="req-1")
+    return TurnEvents(instance_id="inst-1", conversation_id="conv-1", request_id="req-1")
 
 
 @pytest.mark.asyncio
@@ -36,14 +36,22 @@ async def test_thinking_start_e_end_na_sala_da_conversa(published):
 
     assert published() == [
         {
-            "instance_name": "loja",
-            "type": "thinking",
-            "payload": {"conversation_id": "conv-1", "event": "thinking_start", "data": {}},
+            "type": "thinking_event",
+            "payload": {
+                "instance_id": "inst-1",
+                "conversation_id": "conv-1",
+                "event": "thinking_start",
+                "data": {},
+            },
         },
         {
-            "instance_name": "loja",
-            "type": "thinking",
-            "payload": {"conversation_id": "conv-1", "event": "thinking_end", "data": {"summary": ""}},
+            "type": "thinking_event",
+            "payload": {
+                "instance_id": "inst-1",
+                "conversation_id": "conv-1",
+                "event": "thinking_end",
+                "data": {"summary": ""},
+            },
         },
     ]
 
@@ -64,7 +72,7 @@ async def test_tool_concluida_emite_started_e_completed_com_o_mesmo_trace(publis
 
     started, completed = published()
     assert started["type"] == completed["type"] == "tool_event"
-    assert started["instance_name"] == "loja"
+    assert started["payload"]["instance_id"] == "inst-1"
     assert started["payload"]["phase"] == "started"
     assert started["payload"]["source"] == "whatsapp_agent"
     assert started["payload"]["conversation_id"] == "conv-1"
@@ -102,20 +110,3 @@ async def test_falha_do_bus_nao_derruba_o_turn(monkeypatch):
     events.tool_started({"type": "tool_use", "id": "t", "name": "info_empresa", "input": {}})
     await events.flush()
 
-
-@pytest.mark.asyncio
-async def test_handoff_publica_um_dict(published):
-    await publish_handoff_requested(
-        instance_name="loja",
-        conversation_id="conv-1",
-        remote_jid="5511999999999@s.whatsapp.net",
-        ticket_id="ticket-1",
-        reason="reclamação",
-    )
-
-    [event] = published()
-    assert event["type"] == "human_handoff_requested"
-    assert event["instance_name"] == "loja"
-    assert event["payload"]["conversation_id"] == "conv-1"
-    assert event["payload"]["ticket_id"] == "ticket-1"
-    assert event["payload"]["reason"] == "reclamação"

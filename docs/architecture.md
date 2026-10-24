@@ -9,7 +9,7 @@ O backend roda em dois processos que compartilham Postgres, Redis e RabbitMQ:
 - **API** (`app.main:socket_app`): REST sob `/api/v1`, webhook da Evolution e Socket.IO (`/realtime/socket.io`). Só enfileira o webhook; não roda o Agent.
 - **Worker** (`backend/scripts/run_worker.py`): consome a fila `webhooks.evolution`, grava Messages e roda o Turn do Agent.
 
-O worker não tem Socket.IO. Os eventos de UI que ele gera (`thinking`, `tool_event`, `human_handoff_requested`) vão para o canal Redis `neuralilux:realtime:events`; a API assina esse canal e os entrega às salas do Socket.IO.
+O worker não tem Socket.IO. Os eventos de UI que ele gera (`thinking`, `tool_event`, `human_handoff_requested`) vão para o canal Redis `neuralilux:realtime:events`; a API assina esse canal, revalida cada payload contra o schema de `app/realtime/events.py` e o entrega à sala certa do Socket.IO: `instance:{instance_id}` ou `conversation:{conversation_id}`. No painel, um único socket pertence ao `RealtimeProvider` do layout `(app)` e reconecta sem limite de tentativas ([agent.md](agent.md#eventos-em-tempo-real)).
 
 ## Fluxo de uma Message
 
@@ -60,7 +60,7 @@ Detalhes do loop, da memória e dos eventos estão em [agent.md](agent.md).
 | `app/packs/` | Um Pack por Business Type. Hoje só `catalog_orders`; `registry.py` liga `Business Type.slug` → Pack. |
 | `app/llm/` | Cliente do protocolo Anthropic Messages e registry de Gateways ([ADR 0002](adr/0002-anthropic-messages-via-gateways.md)). |
 | `app/whatsapp/` | Cliente da Evolution, consumer RabbitMQ, parser de webhook e `sender`. |
-| `app/realtime/` | Event bus Redis, Socket.IO e rastreio de eventos de Tool. |
+| `app/realtime/` | Event bus Redis, schemas dos eventos (`events.py`), Socket.IO e rastreio de eventos de Tool. |
 | `app/api/` | `deps.py` (`get_db`, `get_current_user`) e `routes/`, uma rota por assunto. |
 | `app/models/`, `app/schemas/` | SQLAlchemy e Pydantic, um módulo por agregado. |
 | `app/services/` | Serviços de domínio (companies, menu, pedidos). |

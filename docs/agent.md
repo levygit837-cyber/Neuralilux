@@ -215,16 +215,25 @@ Enquanto o Turn roda, o Contact vê "digitando…" no WhatsApp: `agent_turn.typi
 
 ## Eventos em tempo real
 
-O Turn publica eventos no event bus Redis (`app/realtime/event_bus.py`, canal `neuralilux:realtime:events`); a API os entrega pelo Socket.IO. Falha ao publicar só gera `warning`: evento de UI nunca derruba um Turn.
+O contrato é `app/realtime/events.py`: um schema Pydantic por evento, todo em snake_case, sem campo extra (`extra="forbid"`). Quem publica monta o schema e chama `publish_event` (`app/realtime/publish.py`), que coloca `{type, payload}` no event bus Redis (`app/realtime/event_bus.py`, canal `neuralilux:realtime:events`). A API revalida o payload no `emit_realtime_event` (`app/realtime/socket.py`) e só então emite: payload que não bate com o schema é descartado com `warning`. Falha ao publicar também só gera `warning`: evento de UI nunca derruba um Turn.
 
-| Evento Socket.IO | Quando | Campos principais |
-|---|---|---|
-| `thinking_event` | início e fim do Turn | `conversation_id`, `event` (`thinking_start` ou `thinking_end`), `data` |
-| `tool_event` | ciclo de cada Tool | `tool_name`, `phase` (`started`, `completed`, `failed`; também `waiting_input`), `input_preview`, `output_preview`, `error`, `started_at`, `finished_at`, `request_id`, `trace_id` |
-| `human_handoff_requested` | a Tool `transferir_atendente` abriu o Handoff | `conversation_id`, `ticket_id`, `reason`, `contact_id`, `instance_id`, `timestamp` |
-| `handoff_updated` | um Attendant assumiu ou devolveu, ou o timeout devolveu ao Agent | `conversation_id`, `ticket_id`, `change` (`assumed`, `released`, `expired`), `human_in_loop`, `assigned_to`, `timestamp` |
+Todo evento leva `instance_id` e, quando fala de uma Conversation, `conversation_id`. Os dois são UUIDs. O `remote_jid` e o nome da Instance nunca viajam como identidade, então duas Instances com o mesmo nome em Companies diferentes não se cruzam.
 
-- Os previews são cortados em `TOOL_EVENT_PREVIEW_LIMIT` (240). Os payloads brutos (`input_payload`, `output_payload`) só saem com `TOOL_EVENT_INCLUDE_RAW_PAYLOADS=true`; deixe `false` fora de debug, pois podem conter dados do Contact.
-- Os eventos vão para duas salas: `conversation:{instance}:{conversation_id}` (depois de `join_conversation`) e `instance:{instance}` (depois de `subscribe_instance`). A conexão exige o JWT em `auth.token`.
-- O `conversation_id` **não é o mesmo em todos os eventos**: em `thinking_event` e `tool_event` ele é o `remote_jid` da Conversation (por exemplo `5511999999999@s.whatsapp.net`); em `human_handoff_requested` e `handoff_updated` é o UUID da Conversation. Quem assina a sala por Conversation precisa tratar os dois formatos.
-- Os eventos que já existiam continuam: `new_message`, `conversation_updated`, `message_status_update`, `connection_status_update` e `qr_code_update`. A tradução de evento do bus para evento Socket.IO está em `app/realtime/socket.py` (`emit_realtime_event`).
+| Evento Socket.IO | Sala | Quando | Campos (além de `instance_id`) |
+|---|---|---|---|
+| `new_message` | `instance:{instance_id}` | Message nova, recebida ou enviada | `conversation_id`, `message_id`, `content`, `timestamp`, `is_outgoing`, `status`, `sender_name` |
+| `conversation_updated` | `instance:{instance_id}` | a Conversation mudou na lista | `conversation_id`, `contact_name`, `last_message`, `timestamp`, `unread_count`, `avatar` |
+| `message_status_update` | `instance:{instance_id}` | entrega ou leitura | `conversation_id`, `message_id`, `status` |
+| `connection_status_update` | `instance:{instance_id}` | a Instance conectou ou caiu | `status`, `evolution_state` |
+| `qr_code_update` | `instance:{instance_id}` | a Evolution gerou um QR code | `qrcode` (texto ou objeto `{base64, code}`) |
+| `handoff_updated` | `instance:{instance_id}` | um Attendant assumiu ou devolveu, ou o timeout devolveu ao Agent | `conversation_id`, `ticket_id`, `change` (`assumed`, `released`, `expired`), `human_in_loop`, `assigned_to`, `timestamp` |
+| `human_handoff_requested` | `instance:{instance_id}` | a Tool `transferir_atendente` abriu o Handoff | `conversation_id`, `ticket_id`, `reason`, `timestamp` |
+| `thinking_event` | `conversation:{conversation_id}` | início e fim do Turn | `conversation_id`, `event` (`thinking_start` ou `thinking_end`), `data` |
+| `tool_event` | `conversation:{conversation_id}` | ciclo de cada Tool | `conversation_id`, `source`, `request_id`, `trace_id`, `tool_name`, `phase` (`waiting_input`, `started`, `completed`, `failed`), `display_name`, `input_preview`, `output_preview`, `error`, `started_at`, `finished_at` e, só com `TOOL_EVENT_INCLUDE_RAW_PAYLOADS=true`, `input_payload` e `output_payload` |
+
+- **Uma sala por evento.** Os eventos de lista, conexão, QR e Handoff vão só para a sala da Instance; `thinking_event` e `tool_event` vão só para a sala da Conversation. Cada evento tem um formato só: `human_handoff_requested` não tem mais uma variante paralela.
+- **Entrar nas salas.** `subscribe_instance` recebe `{instanceId}` e `join_conversation` recebe `{instanceId, conversationId}`, os dois UUIDs. O backend resolve a Instance pelo `id` com a regra de acesso vigente (dono, Company, superusuário) e recusa com `{ok: false}` o que o usuário não alcança. Resolver por nome ou por `evolution_instance_id` não existe mais no socket. `leave_instance`, `leave_conversation` e `send_message` seguem o mesmo formato.
+- **Autenticação.** O handshake lê o cookie de sessão e confere o `Origin`. Sessão inválida recusa a conexão com `connect_error` de mensagem `unauthorized`; é o que o cliente usa para separar sessão vencida de backend fora do ar.
+- **Cliente.** Um socket só, dono do `RealtimeProvider` no layout `(app)` do frontend; nenhuma tela liga ou desliga. A reconexão não tem limite de tentativas, com intervalo crescente até 10 s. `unauthorized` encerra a sessão (`endSession`); qualquer outro erro mostra o aviso "Sem conexão em tempo real" e segue tentando. A cada `connect` o cliente refaz o `subscribe_instance` e o `join_conversation` (as salas somem na queda) e, numa reconexão, invalida as queries de Instances e do dashboard e recarrega a lista, os contadores e as Messages da Conversation aberta.
+- **Thinking.** O timer que apaga o Thinking depois do `thinking_end` (5 s) fica fora do store, um por Conversation. Uma rodada nova (`thinking_start`) cancela o timer da anterior.
+- Os previews são cortados em `TOOL_EVENT_PREVIEW_LIMIT` (240). Os payloads brutos só saem com `TOOL_EVENT_INCLUDE_RAW_PAYLOADS=true`; deixe `false` fora de debug, pois podem conter dados do Contact.

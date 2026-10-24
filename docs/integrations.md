@@ -69,7 +69,7 @@ Item com horário próprio (ex.: pizza só à noite) não some fora da janela. O
 
 Não há webhook de saída do Neuralilux. O que existe:
 
-- **Socket.IO** (`/realtime/socket.io`, JWT em `auth.token`): `new_message`, `conversation_updated`, `tool_event`, `human_handoff_requested` e outros, descritos em [agent.md](agent.md#eventos-em-tempo-real).
+- **Socket.IO** (`/realtime/socket.io`, autenticado pelo cookie de sessão no handshake; salas por `instance_id` e `conversation_id`): `new_message`, `conversation_updated`, `tool_event`, `human_handoff_requested` e outros, descritos em [agent.md](agent.md#eventos-em-tempo-real).
 - **Polling** de `GET /tickets?status=open` para reagir a Handoffs.
 
 O endpoint `/webhooks/evolution` é exclusivo da Evolution ([ADR 0006](adr/0006-webhook-token-auth.md)); não o use como entrada de sistemas externos.

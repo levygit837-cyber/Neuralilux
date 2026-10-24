@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { THINKING_CLEAR_DELAY_MS, scheduleThinkingClear } from '@/lib/thinkingTimers'
 import { useChatStore } from '@/stores/useChatStore'
 import type { Conversation, Message } from '@/types/chat'
 
@@ -17,9 +18,6 @@ const message = (id: string, conversationId = 'c1', over: Partial<Message> = {})
 })
 
 const store = () => useChatStore.getState()
-
-/** `setTimeout` do DOM devolve number; o store guarda o tipo do Node. */
-const schedule = (fn: () => void) => setTimeout(fn, 1000) as unknown as ReturnType<typeof setTimeout>
 
 describe('useChatStore', () => {
   beforeEach(() => {
@@ -142,34 +140,20 @@ describe('useChatStore', () => {
       expect(store().thinkingEvents.c1.summary).toBe('resumo dado')
     })
 
-    it('clearThinking remove o evento e o timer da Conversation, sem tocar nas outras', () => {
+    it('clearThinking remove o evento da Conversation, sem tocar nas outras', () => {
       store().setThinkingState('c1', 'indicator')
       store().setThinkingState('c2', 'indicator')
-      useChatStore.setState({ thinkingClearTimers: { c1: schedule(() => undefined), c2: null } })
       store().clearThinking('c1')
       expect(store().thinkingEvents.c1).toBeUndefined()
       expect(store().thinkingEvents.c2).toBeDefined()
-      expect(Object.keys(store().thinkingClearTimers)).toEqual(['c2'])
     })
 
-    it('cancelClearTimer impede o disparo do timer agendado', () => {
-      const fired = vi.fn()
-      useChatStore.setState({ thinkingClearTimers: { c1: schedule(fired) } })
-      store().cancelClearTimer('c1')
-      vi.advanceTimersByTime(2000)
-      expect(fired).not.toHaveBeenCalled()
-      expect(store().thinkingClearTimers.c1).toBeUndefined()
-    })
-
-    it('reset cancela todos os timers pendentes', () => {
-      const fired = vi.fn()
-      useChatStore.setState({
-        thinkingClearTimers: { c1: schedule(fired), c2: schedule(fired) },
-      })
+    it('reset cancela os timers de Thinking pendentes', () => {
+      const clear = vi.fn()
+      scheduleThinkingClear('c1', clear)
       store().reset()
-      vi.advanceTimersByTime(2000)
-      expect(fired).not.toHaveBeenCalled()
-      expect(store().thinkingClearTimers).toEqual({})
+      vi.advanceTimersByTime(THINKING_CLEAR_DELAY_MS)
+      expect(clear).not.toHaveBeenCalled()
     })
   })
 })

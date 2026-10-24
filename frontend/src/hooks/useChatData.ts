@@ -165,7 +165,12 @@ export function useChatData(instanceId: string | undefined, isConnected: boolean
     () =>
       socketService.subscribe((notice) => {
         // Primeira mensagem de um Contact novo: o evento chega antes de a Conversation estar na lista.
-        if (notice.type === 'unknown_conversation') {
+        if (notice.type === 'reconnected') {
+          // O que chegou durante a queda se perdeu: refaz lista, contadores e as Messages da Conversation aberta.
+          void loadConversations(true)
+          void loadCounts()
+          setSyncTick((tick) => tick + 1)
+        } else if (notice.type === 'unknown_conversation') {
           void loadConversations(true)
           scheduleRefresh()
         } else if (notice.type === 'conversation_activity') {
@@ -175,7 +180,7 @@ export function useChatData(instanceId: string | undefined, isConnected: boolean
           else scheduleRefresh()
         }
       }),
-    [loadConversations, scheduleRefresh, markOpenRead, store]
+    [loadConversations, loadCounts, scheduleRefresh, markOpenRead, store]
   )
 
   useEffect(() => {

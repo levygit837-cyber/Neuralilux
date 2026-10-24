@@ -71,7 +71,7 @@ describe('mapMessage', () => {
 describe('mapRealtimeMessage', () => {
   it('gera id estável quando o evento não traz id', () => {
     const message = mapRealtimeMessage(
-      { content: 'oi', timestamp: '2026-10-24T10:00:00', isOutgoing: false } as never,
+      { conversation_id: 'c1', content: 'oi', timestamp: '2026-10-24T10:00:00', is_outgoing: false } as never,
       'c1'
     )
     expect(message.id).toBe('rt_c1_2026-10-24T10:00:00')
