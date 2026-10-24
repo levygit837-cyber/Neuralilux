@@ -4,48 +4,33 @@ import { useQuery } from '@tanstack/react-query'
 import { useSessionReady } from '@/hooks/useSessionReady'
 import { queryKeys } from '@/lib/queryKeys'
 import { dashboardService } from '@/services/dashboardService'
+import type { DashboardPeriod } from '@/types/dashboard'
 
-export type DashboardPeriod = '7d' | '30d' | '90d'
-
-/** Cada bloco do dashboard é uma query própria: o período só refaz a série temporal. */
+/**
+ * Cada widget é uma query própria: um que falha mostra o erro sozinho e os outros seguem na tela.
+ * O período entra na chave, então trocar de período refaz todos.
+ */
 export function useDashboardData(period: DashboardPeriod) {
   const enabled = useSessionReady()
-  const stats = useQuery({ queryKey: queryKeys.dashboardPart('stats'), queryFn: dashboardService.getStats, enabled })
-  const metrics = useQuery({ queryKey: queryKeys.dashboardPart('metrics'), queryFn: dashboardService.getMetrics, enabled })
+  const overview = useQuery({
+    queryKey: queryKeys.dashboardPart('overview', period),
+    queryFn: () => dashboardService.getOverview(period),
+    enabled,
+  })
   const series = useQuery({
     queryKey: queryKeys.dashboardPart('conversations-over-time', period),
     queryFn: () => dashboardService.getConversationsOverTime(period),
     enabled,
-    placeholderData: (previous) => previous,
   })
-  const channels = useQuery({
-    queryKey: queryKeys.dashboardPart('channels'),
-    queryFn: dashboardService.getChannelMetrics,
+  const instances = useQuery({
+    queryKey: queryKeys.dashboardPart('messages-by-instance', period),
+    queryFn: () => dashboardService.getMessagesByInstance(period),
     enabled,
   })
-  const resolution = useQuery({
-    queryKey: queryKeys.dashboardPart('resolution'),
-    queryFn: dashboardService.getResolutionMetrics,
+  const handoffs = useQuery({
+    queryKey: queryKeys.dashboardPart('handoffs', period),
+    queryFn: () => dashboardService.getHandoffs(period),
     enabled,
   })
-  const satisfaction = useQuery({
-    queryKey: queryKeys.dashboardPart('satisfaction'),
-    queryFn: dashboardService.getSatisfactionMetrics,
-    enabled,
-  })
-
-  const all = [stats, metrics, series, channels, resolution, satisfaction]
-  const failed = all.find((query) => query.isError)
-  return {
-    stats: stats.data,
-    metrics: metrics.data,
-    series: series.data?.data ?? [],
-    channels: channels.data?.channels ?? [],
-    resolution: resolution.data,
-    satisfaction: satisfaction.data,
-    isLoading: all.some((query) => query.isPending),
-    isSeriesFetching: series.isFetching,
-    error: failed?.error instanceof Error ? failed.error.message : failed ? 'Falha ao carregar o dashboard' : null,
-    refetch: () => Promise.all(all.map((query) => query.refetch())),
-  }
+  return { overview, series, instances, handoffs }
 }

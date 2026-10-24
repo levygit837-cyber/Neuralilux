@@ -1,36 +1,21 @@
 import { apiRequest } from '@/services/http'
 import type {
-  ChannelMetricsResponse,
   ConversationTimeSeriesResponse,
-  ResolutionMetrics,
-  SatisfactionMetrics,
+  DashboardOverview,
+  DashboardPeriod,
+  HandoffsByStatus,
+  MessagesByInstanceResponse,
 } from '@/types/dashboard'
 
-export interface DashboardStats {
-  total_conversations: number
-  total_messages: number
-  active_instances: number
-  total_contacts: number
-}
-
-export interface DashboardMetrics {
-  messages_today: number
-  messages_this_week: number
-  response_rate: number
-  avg_response_time: number | null
-}
-
+/** Cada rota é um widget do dashboard; as definições dos números estão em `docs/dashboard.md`. */
 export const dashboardService = {
-  getStats: () => apiRequest<DashboardStats>('/dashboard/stats'),
+  getOverview: (period: DashboardPeriod) => apiRequest<DashboardOverview>(`/dashboard/overview?period=${period}`),
 
-  getMetrics: () => apiRequest<DashboardMetrics>('/dashboard/metrics'),
-
-  getConversationsOverTime: (period: '7d' | '30d' | '90d' = '7d') =>
+  getConversationsOverTime: (period: DashboardPeriod) =>
     apiRequest<ConversationTimeSeriesResponse>(`/dashboard/conversations-over-time?period=${period}`),
 
-  getChannelMetrics: () => apiRequest<ChannelMetricsResponse>('/dashboard/channel-metrics'),
+  getMessagesByInstance: (period: DashboardPeriod) =>
+    apiRequest<MessagesByInstanceResponse>(`/dashboard/messages-by-instance?period=${period}`),
 
-  getResolutionMetrics: () => apiRequest<ResolutionMetrics>('/dashboard/resolution-metrics'),
-
-  getSatisfactionMetrics: () => apiRequest<SatisfactionMetrics>('/dashboard/satisfaction-metrics'),
+  getHandoffs: (period: DashboardPeriod) => apiRequest<HandoffsByStatus>(`/dashboard/handoffs?period=${period}`),
 }
