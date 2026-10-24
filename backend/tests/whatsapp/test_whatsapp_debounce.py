@@ -119,6 +119,7 @@ async def test_different_conversations_group_independently_and_run_in_parallel(d
 
     await clock.advance(3)
     await asyncio.gather(a1, b1, a2)
+    await consumer.drain()  # o Turn roda depois do ack; a gravação da resposta (em thread) termina antes do teardown do banco
 
     assert sorted(world["turns"]) == ["a1\na2", "b1"]
     assert {sent["remote_jid"] for sent in world["sent"]} == {upsert()["data"]["data"]["key"]["remoteJid"], OTHER_JID}
