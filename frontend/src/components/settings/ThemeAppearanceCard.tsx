@@ -39,13 +39,16 @@ export function ThemeAppearanceCard() {
       </div>
 
       {/* Theme Selector */}
-      <div className="mb-6 space-y-2">
-        <label className="text-sm font-medium text-text-light">Tema</label>
+      <div role="radiogroup" aria-labelledby="theme-label" className="mb-6 space-y-2">
+        <span id="theme-label" className="block text-sm font-medium text-text-light">Tema</span>
         <div className="grid grid-cols-2 gap-4">
           {/* Dark Theme */}
           <button
+            type="button"
+            role="radio"
+            aria-checked={formData.theme === 'dark'}
             onClick={() => handleChange('theme', 'dark')}
-            className={`flex items-center gap-3 rounded-xl border p-4 transition-colors ${
+            className={`flex items-center gap-3 rounded-xl border p-4 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary ${
               formData.theme === 'dark'
                 ? 'border-primary bg-primary/5'
                 : 'border-border-color bg-input hover:border-border'
@@ -70,8 +73,11 @@ export function ThemeAppearanceCard() {
 
           {/* Light Theme */}
           <button
+            type="button"
+            role="radio"
+            aria-checked={formData.theme === 'light'}
             onClick={() => handleChange('theme', 'light')}
-            className={`flex items-center gap-3 rounded-xl border p-4 transition-colors ${
+            className={`flex items-center gap-3 rounded-xl border p-4 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary ${
               formData.theme === 'light'
                 ? 'border-primary bg-primary/5'
                 : 'border-border-color bg-input hover:border-border'
@@ -100,10 +106,11 @@ export function ThemeAppearanceCard() {
       <div className="grid grid-cols-1 gap-4">
         <div className="space-y-1.5">
           <div className="flex items-center gap-1.5">
-            <Globe className="h-3.5 w-3.5 text-text-gray" />
-            <label className="text-sm font-medium text-text-light">Idioma</label>
+            <Globe className="h-3.5 w-3.5 text-text-gray" aria-hidden="true" />
+            <label htmlFor="app-language" className="text-sm font-medium text-text-light">Idioma</label>
           </div>
           <Input
+            id="app-language"
             value={formData.language}
             onChange={(e) => handleChange('language', e.target.value)}
             placeholder="Português (BR)"
@@ -114,7 +121,7 @@ export function ThemeAppearanceCard() {
       {/* Save Button */}
       <div className="mt-6 flex justify-end">
         <Button onClick={handleSave} disabled={isSaving}>
-          <Save className="mr-2 h-4 w-4" />
+          <Save className="mr-2 h-4 w-4" aria-hidden="true" />
           {isSaving ? 'Salvando...' : 'Salvar alterações'}
         </Button>
       </div>

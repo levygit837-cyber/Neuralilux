@@ -18,10 +18,11 @@ export function SettingsHeader() {
       {/* Header Row */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-text-light">Configurações</h1>
-        <div className="flex h-10 w-80 items-center gap-2 rounded-xl border border-border-color bg-card px-3.5">
-          <Search className="h-4 w-4 text-text-gray" />
+        <div className="flex h-10 w-80 items-center gap-2 rounded-xl border border-border-color bg-card px-3.5 focus-within:ring-2 focus-within:ring-primary">
+          <Search className="h-4 w-4 text-text-gray" aria-hidden="true" />
           <input
             type="text"
+            aria-label="Buscar configurações"
             placeholder="Buscar configurações..."
             className="flex-1 bg-transparent text-sm text-text-light placeholder:text-text-gray outline-none"
           />
@@ -34,6 +35,8 @@ export function SettingsHeader() {
           {TABS.map((tab) => (
             <button
               key={tab.id}
+              type="button"
+              aria-pressed={activeTab === tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`relative pb-3 text-sm font-medium transition-colors ${
                 activeTab === tab.id

@@ -43,6 +43,8 @@ export function MobileNav() {
       </button>
       <Brand />
 
+      {/* Clique no backdrop é atalho para mouse/toque; teclado fecha com Esc ou pelo botão "Fechar menu". */}
+      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions */}
       <dialog
         ref={dialogRef}
         aria-label="Menu de navegação"

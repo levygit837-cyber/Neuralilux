@@ -153,8 +153,8 @@ export default function DashboardPage() {
               Visão detalhada do desempenho da automação e fluxo de dados.
             </p>
           </div>
-          <button className="text-sm flex items-center gap-2 bg-card border border-border-color px-4 py-2 rounded-md hover:bg-hover hover:text-text-light transition">
-            <Export weight="regular" /> Exportar Relatório
+          <button type="button" className="text-sm flex items-center gap-2 bg-card border border-border-color px-4 py-2 rounded-md hover:bg-hover hover:text-text-light transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
+            <Export weight="regular" aria-hidden="true" /> Exportar Relatório
           </button>
         </div>
 
