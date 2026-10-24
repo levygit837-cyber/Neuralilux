@@ -49,7 +49,17 @@ Sem o perfil `app`, o compose sobe só a infra e você roda API e worker no host
 
 O PostgreSQL cria o banco `neuralilux` e, pelo script [`scripts/init-multiple-databases.sh`](../scripts/init-multiple-databases.sh), o banco e o usuário da Evolution. O script só roda na **primeira** criação do volume `postgres_data`.
 
-A Evolution usa uma camada fina sobre a imagem oficial ([`docker/evolution/Dockerfile`](../docker/evolution/Dockerfile)), construída no primeiro `up`: a imagem oficial roda como root, e a camada a troca para o usuário `node` (uid 1000). Ao atualizar a Evolution, troque a tag no Dockerfile e no compose.
+A Evolution usa uma camada fina sobre a imagem oficial ([`docker/evolution/Dockerfile`](../docker/evolution/Dockerfile)), construída no primeiro `up`: a imagem oficial roda como root, e a camada a troca para o usuário `node` (uid 1000). A versão vive numa variável só, `EVOLUTION_VERSION` (padrão `v2.3.7`, usada no `build.args` e na tag da imagem). Para atualizar, defina-a no `backend/.env` e rode `up -d --build evolution-api`. A imagem não leva digest de propósito: com `tag@sha256` o Docker ignora a tag e reconstruiria a versão antiga sem aviso. Antes de subir de versão, confira se a nova ainda reescreve `prisma/` e `node_modules/.prisma` no start; se mudar, ajuste o `chown` do Dockerfile.
+
+**Migrando de um compose antigo (volumes da Evolution com dono root).** Quem já subiu a Evolution pelo compose anterior tem os volumes `evolution_instances` e `evolution_store` com dono root, e o uid 1000 recebe `Permission denied` ao gravar. Passo único, antes do primeiro `up` com este compose (reinstalação limpa não precisa):
+
+```bash
+docker compose --env-file backend/.env stop evolution-api
+docker compose --env-file backend/.env run --rm --no-deps --build --user root --entrypoint chown evolution-api -R node:node /evolution/instances /evolution/store
+docker compose --env-file backend/.env up -d
+```
+
+O `chown` só troca o dono; as instâncias e as sessões do WhatsApp ficam intactas. Os caminhos são os dois volumes montados no serviço `evolution-api` do compose.
 
 Com Colima (ou qualquer Docker em VM), o repositório precisa estar num caminho que a VM enxerga, como dentro do seu `$HOME`. Num clone em `/tmp`, o arquivo é montado como diretório vazio, o script não roda e a Evolution reinicia em loop com `P1000 Authentication failed`. Veja o [troubleshooting](operations.md#a-evolution-reinicia-em-loop).
 
@@ -85,7 +95,7 @@ A cadeia de migrações está fixa em [agents/migrations.md](agents/migrations.m
 
 Até aqui as chaves de API dos Gateways eram criptografadas com uma chave derivada da `SECRET_KEY` (SHA-256 ou HKDF). Agora usam a `GATEWAY_ENCRYPTION_KEY`. Passo único e obrigatório ao atualizar um banco existente, antes de subir a app:
 
-1. Faça backup da tabela: `pg_dump -t inference_gateways "$DATABASE_URL" > inference_gateways.sql` (use a URL `postgresql://…` do banco, sem o `+psycopg`). O script regrava os tokens e não tem volta.
+1. Faça backup da tabela, **fora do repositório** (o dump contém os tokens): `mkdir -p ~/backups && pg_dump -t inference_gateways "$DATABASE_URL" > ~/backups/inference_gateways.sql` (use a URL `postgresql://…` do banco, sem o `+psycopg`). O script regrava os tokens e não tem volta. O `.gitignore` ignora `*.sql` na raiz e `backup*.sql`/`dump*.sql`, mas não confie nisso: grave fora.
 2. Acrescente `GATEWAY_ENCRYPTION_KEY` ao `backend/.env` (valor **real**, novo, com 32+ caracteres e diferente da `SECRET_KEY`) e mantenha a `SECRET_KEY` **atual**: o script precisa dela para abrir as chaves antigas. O script recusa rodar (exit 1, nada alterado) se a chave estiver vazia ou for a de exemplo, mesmo em `development`.
 3. Rode:
 
@@ -143,12 +153,12 @@ O que o perfil sobe, em ordem:
 
 1. `migrate`: a mesma imagem do backend, com `alembic upgrade head`. Roda e sai. `api` e `worker` só iniciam depois que ele termina com sucesso (`service_completed_successfully`); se a migração falhar, nada sobe e o erro está em `docker compose logs migrate`.
 2. `api`: `uvicorn app.main:socket_app` na porta 8000 do host (`API_PORT`).
-3. `worker`: `python scripts/run_worker.py`. Ao parar, recebe SIGTERM e tem `stop_grace_period: 30s`. Se subir `SHUTDOWN_TIMEOUT_SECONDS` (padrão 20), mantenha o prazo em pelo menos esse valor + 10 s.
+3. `worker`: `python scripts/run_worker.py`. Ao parar, recebe SIGTERM: para de consumir, espera os Turns em voo até `SHUTDOWN_TIMEOUT_SECONDS` (padrão 20 s, prazo único que **não** espera `TURN_TIMEOUT_SECONDS`), cancela o que sobrar (a Message volta a `pending` e o worker seguinte a retoma) e desconecta. Pior caso ~25 s, por isso `stop_grace_period: 30s`. Regra: `stop_grace_period` ≥ `SHUTDOWN_TIMEOUT_SECONDS` + 10 s; se subir o prazo, suba o `stop_grace_period` do compose junto.
 4. `frontend`: o painel (Next `standalone`) na porta 3000 (`FRONTEND_PORT`).
 
 Diferenças em relação ao modo host:
 
-- **As URLs de infra são sobrescritas pelo compose.** `DATABASE_URL`, `REDIS_URL`, `RABBITMQ_URL` e `EVOLUTION_API_URL` apontam para os serviços da rede do compose (`postgres`, `redis`, `rabbitmq`, `evolution-api`), não para `localhost`; as senhas vêm das mesmas variáveis do `backend/.env`. As demais chaves do `backend/.env` não entram no container: só as que o compose lista.
+- **As URLs de infra são sobrescritas pelo compose.** `DATABASE_URL`, `REDIS_URL`, `RABBITMQ_URL` e `EVOLUTION_API_URL` apontam para os serviços da rede do compose (`postgres`, `redis`, `rabbitmq`, `evolution-api`), não para `localhost`; as senhas vêm das mesmas variáveis do `backend/.env`. As demais chaves do `backend/.env` não entram no container: só as que o compose lista. `SECRET_KEY`, `GATEWAY_ENCRYPTION_KEY`, `TRUSTED_PROXIES` e `FORWARDED_ALLOW_IPS` são repassadas **só se existirem** no `backend/.env` (o compose nunca as exige, para o `up` só da infra não pedir segredos da app); a app é quem recusa chaves ausentes, de exemplo ou curtas fora de `development`. Atrás de proxy reverso, defina `TRUSTED_PROXIES` (JSON) e, se o uvicorn deve ler o `X-Forwarded-For`, `FORWARDED_ALLOW_IPS` (nunca `*`): veja [operations.md](operations.md#login-ou-cadastro-respondem-429-ou-503).
 - **`ENVIRONMENT`**: sem ele vale `production`. Então a app exige `SECRET_KEY` e `GATEWAY_ENCRYPTION_KEY` reais (32+ caracteres, distintas) e o cookie de sessão leva `Secure`, que o navegador só aceita em HTTPS ou em `localhost`. Para testar por HTTP puro num host que não seja `localhost`, use `ENVIRONMENT=development`; para produção, ponha um proxy com TLS na frente.
 - **`CORS_ORIGINS`** (JSON) precisa listar a origem **real** do painel. O padrão é `["http://localhost:3000","http://127.0.0.1:3000"]`. Origem fora da lista: toda mutação responde 403.
 - **`NEXT_PUBLIC_API_URL`** (e `NEXT_PUBLIC_WS_URL`, opcional) é a URL pública da API que o **navegador** usa, gravada no bundle no build: ao trocá-la, reconstrua (`up -d --build frontend`). Já `API_INTERNAL_URL` (`http://api:8000`, fixo no compose) é a URL que o **servidor** do Next usa para validar a sessão, lida na hora, sem rebuild. A CSP do painel é montada por requisição com essas URLs.

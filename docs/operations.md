@@ -118,6 +118,8 @@ O `finalizar` recusa em código, e o Agent repassa o motivo ao Contact. Os erros
 
 - **`P1000 Authentication failed … credentials for evolution`** no log do `evolution-api`: o usuário e o banco `evolution` não existem porque o `scripts/init-multiple-databases.sh` não rodou. Ele só roda na primeira criação do volume do Postgres, e só se o Docker conseguir montá-lo como arquivo. Com Colima, mantenha o repositório dentro do `$HOME`. Depois de corrigir o caminho, recrie o volume (**apaga os dados locais do Postgres**): `docker compose --env-file backend/.env down -v && docker compose --env-file backend/.env up -d`.
 - **`required variable EVOLUTION_API_KEY is missing`** ao subir o compose: faltou `--env-file backend/.env` ou a variável está vazia no `.env`.
+- **`Permission denied` ao gravar em `/evolution/instances` ou `/evolution/store`** (a Evolution cai logo depois do start): os volumes foram criados pelo compose antigo, com dono root, e a imagem nova roda como uid 1000. Rode uma vez o `chown` de [setup.md](setup.md#2-infra-postgresql-redis-rabbitmq-evolution) ("Migrando de um compose antigo"):
+  `docker compose --env-file backend/.env run --rm --no-deps --build --user root --entrypoint chown evolution-api -R node:node /evolution/instances /evolution/store`.
 
 ### O webhook não chega à fila
 
@@ -179,7 +181,7 @@ Antes do #85, `POST /instances/{nome}` criava a Instance na Evolution com a `EVO
 
 Passo único e obrigatório ao atualizar um banco que já tem Gateways com chave de API, **antes de subir a app**:
 
-1. Backup: `pg_dump -t inference_gateways "$DATABASE_URL" > inference_gateways.sql` (URL `postgresql://…`, sem o `+psycopg`). O script regrava os tokens e não tem volta.
+1. Backup, **fora do repositório** (o dump contém os tokens): `mkdir -p ~/backups && pg_dump -t inference_gateways "$DATABASE_URL" > ~/backups/inference_gateways.sql` (URL `postgresql://…`, sem o `+psycopg`). O script regrava os tokens e não tem volta.
 2. No `backend/.env`, defina `GATEWAY_ENCRYPTION_KEY` (valor **real**, com 32+ caracteres e diferente da `SECRET_KEY`) e mantenha a `SECRET_KEY` atual. Com a chave vazia ou de exemplo o script recusa rodar (exit 1) e não altera nada, mesmo em `development`.
 3. `cd backend && python scripts/reencrypt_gateway_secrets.py`. Imprime quantas chaves converteu.
 
@@ -191,7 +193,7 @@ Como subir e o que cada serviço faz: [setup.md](setup.md#api-worker-e-painel-em
 
 - **Quem roda como quê.** `api`, `worker` e `migrate` usam a mesma imagem (`neuralilux/backend`, uid 10001); o painel e a Evolution rodam como uid 1000. Confira com `docker compose --env-file backend/.env --profile app top`. PostgreSQL, Redis e RabbitMQ usam as imagens oficiais, que largam o root depois de ajustar permissões.
 - **Logs.** `docker compose --env-file backend/.env --profile app logs -f api worker`. API e worker são processos separados, como no modo host.
-- **Parar o worker.** `docker compose ... stop worker` manda SIGTERM e espera até 30 s (`stop_grace_period`): o worker para de consumir, termina os Turns em voo e desconecta. Quem não terminar fica `pending` e é retomado no próximo start. Se subir `SHUTDOWN_TIMEOUT_SECONDS` (padrão 20), suba junto o `stop_grace_period` do compose (valor + 10 s).
+- **Parar o worker.** `docker compose ... stop worker` manda SIGTERM e espera até 30 s (`stop_grace_period`). O worker para de consumir, espera os Turns em voo até `SHUTDOWN_TIMEOUT_SECONDS` (padrão 20 s, prazo único que não espera `TURN_TIMEOUT_SECONDS`), cancela o que sobrar (a Message fica `pending` e o worker seguinte a retoma) e desconecta: pior caso ~25 s. **Regra:** `stop_grace_period` ≥ `SHUTDOWN_TIMEOUT_SECONDS` + 10 s. Se subir o prazo, suba o `stop_grace_period` do compose junto; senão o Docker mata o worker com SIGKILL no meio do desligamento.
 - **Healthcheck.** `api` e painel têm `HEALTHCHECK` na imagem (`/health` e `/login`). O worker não escuta porta e o `migrate` sai ao terminar; os dois têm o healthcheck desligado no compose.
 - **Login não "gruda" no painel.** `ENVIRONMENT` ausente vale `production`, e o cookie `nlx_auth` leva `Secure`: o navegador o descarta em HTTP puro fora de `localhost`. Acesse por `localhost`, ponha TLS na frente ou use `ENVIRONMENT=development` só em ambiente local. Mutação com 403: a origem do painel não está em `CORS_ORIGINS`.
 - **Painel chama a API errada.** `NEXT_PUBLIC_API_URL` é gravada no bundle no build. Troque no `.env` e reconstrua: `docker compose ... --profile app up -d --build frontend`. `API_INTERNAL_URL` não precisa de rebuild.
@@ -202,7 +204,7 @@ Como subir e o que cada serviço faz: [setup.md](setup.md#api-worker-e-painel-em
 No perfil `app`, o serviço `migrate` roda `alembic upgrade head` a cada `up`, e `api` e `worker` só iniciam depois dele. Num banco **novo** isso basta. Num banco **em uso**, a migração `0015` (fusão de Contacts e Conversations duplicados, índices em `messages` e `UNIQUE` em `contacts`/`conversations`) pede janela de manutenção ([agents/migrations.md](agents/migrations.md#0015-fusão-de-duplicatas-e-janela-de-manutenção)): os `ADD CONSTRAINT UNIQUE` seguram `ACCESS EXCLUSIVE` até o commit, e uma API no ar pode recriar uma duplicata e derrubar a migração. O tempo cresce com o tamanho de `messages`.
 
 1. Pare quem escreve no banco: `docker compose --env-file backend/.env --profile app stop api worker` (no modo host, pare o `uvicorn` e o `run_worker.py`).
-2. Faça backup do banco: `docker compose --env-file backend/.env exec postgres pg_dump -U neuralilux neuralilux > backup.sql`.
+2. Faça backup do banco, **fora do repositório** (o dump tem dados de clientes e tokens): `mkdir -p ~/backups && docker compose --env-file backend/.env exec -T postgres pg_dump -U neuralilux neuralilux > ~/backups/neuralilux-$(date +%F).sql`.
 3. Migre: `docker compose --env-file backend/.env --profile app run --rm migrate` (ou `alembic upgrade head` no host).
 4. Se o banco ainda tem Gateways com chave criptografada pela `SECRET_KEY`, rode o passo [Atualizar um banco existente](#atualizar-um-banco-existente-chaves-de-gateway) **antes de subir a app**. No container: `docker compose --env-file backend/.env --profile app run --rm api python scripts/reencrypt_gateway_secrets.py`, com o backup de `inference_gateways` feito antes (o script regrava os tokens e não tem volta). `SECRET_KEY` e `GATEWAY_ENCRYPTION_KEY` precisam estar no `backend/.env`.
 5. Suba de novo: `docker compose --env-file backend/.env --profile app up -d`.
