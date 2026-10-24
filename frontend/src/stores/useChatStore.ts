@@ -8,6 +8,7 @@ import type {
   ThinkingState,
 } from '@/types/chat'
 import { formatTimestamp } from '@/lib/utils'
+import { cancelAllThinkingClears } from '@/lib/thinkingTimers'
 
 interface ChatStore {
   conversations: Conversation[]
@@ -66,10 +67,7 @@ interface ChatStore {
   appendThinkingToken: (conversationId: string, token: string) => void
   collapseThinking: (conversationId: string, summary?: string) => void
   clearThinking: (conversationId: string) => void
-  cancelClearTimer: (conversationId: string) => void
   reset: () => void
-  // Internal timer tracking
-  thinkingClearTimers: Record<string, ReturnType<typeof setTimeout> | null>
 }
 
 /** Mais recente primeiro. `timestamp` é só o texto da lista; a ordem vem de `lastMessageAt`. */
@@ -96,13 +94,12 @@ function pinnedAfter(state: ChatStore, conversations: Conversation[]): Conversat
   return stillListed ? null : (selectActiveConversation(state) ?? null)
 }
 
-export const useChatStore = create<ChatStore>((set, get) => ({
+export const useChatStore = create<ChatStore>((set) => ({
   conversations: [],
   messages: {},
   activeConversationId: null,
   typingIndicators: {},
   thinkingEvents: {},
-  thinkingClearTimers: {},
   category: 'all',
   search: '',
   counts: null,
@@ -301,35 +298,17 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   clearThinking: (conversationId) =>
     set((prev) => {
       const { [conversationId]: _, ...rest } = prev.thinkingEvents
-      const { [conversationId]: __, ...timerRest } = prev.thinkingClearTimers
-      return { thinkingEvents: rest, thinkingClearTimers: timerRest }
+      return { thinkingEvents: rest }
     }),
 
-  cancelClearTimer: (conversationId) => {
-    const state = get()
-    const timer = state.thinkingClearTimers[conversationId]
-    if (timer) {
-      clearTimeout(timer)
-      set((prev) => {
-        const { [conversationId]: _, ...rest } = prev.thinkingClearTimers
-        return { thinkingClearTimers: rest }
-      })
-    }
-  },
-
   reset: () => {
-    // Clear all pending timers before reset
-    const state = get()
-    Object.values(state.thinkingClearTimers).forEach((timer) => {
-      if (timer) clearTimeout(timer)
-    })
+    cancelAllThinkingClears()
     set({
       conversations: [],
       messages: {},
       activeConversationId: null,
       typingIndicators: {},
       thinkingEvents: {},
-      thinkingClearTimers: {},
       category: 'all',
       search: '',
       counts: null,

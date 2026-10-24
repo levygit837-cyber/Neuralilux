@@ -15,9 +15,10 @@ const messageOf = (error: unknown, fallback: string) => (error instanceof Error 
 /**
  * Estado de conexão e QR code de uma Instance. O QR vem de `POST /instances/{name}/connect` e o
  * estado de `GET /instances/{name}/status`; `qr_code_update` e `connection_status_update` do
- * Socket.IO adiantam os dois. O polling cobre o socket fora do ar.
+ * Socket.IO adiantam os dois. O polling cobre o socket fora do ar. O socket é do `RealtimeProvider`: aqui só se
+ * entra e sai da sala da Instance (`instanceId`), sem ligar nem desligar a conexão.
  */
-export function useInstanceConnection(instanceName: string | undefined) {
+export function useInstanceConnection(instanceName: string | undefined, instanceId: string | undefined) {
   const queryClient = useQueryClient()
   const sessionReady = useSessionReady()
   const [status, setStatus] = useState<InstanceStatus>('disconnected')
@@ -112,9 +113,8 @@ export function useInstanceConnection(instanceName: string | undefined) {
 
   // Eventos do nosso Socket.IO.
   useEffect(() => {
-    if (!instanceName || !sessionReady) return
-    socketService.connect()
-    socketService.subscribeToInstance(instanceName)
+    if (!instanceId || !sessionReady) return
+    socketService.subscribeToInstance(instanceId)
 
     const unsubscribe = socketService.subscribe((notice) => {
       if (notice.type === 'qr_code') {
@@ -131,10 +131,9 @@ export function useInstanceConnection(instanceName: string | undefined) {
 
     return () => {
       unsubscribe()
-      socketService.leaveInstance(instanceName)
-      socketService.disconnect()
+      socketService.leaveInstance(instanceId)
     }
-  }, [instanceName, sessionReady, applyStatus])
+  }, [instanceId, sessionReady, applyStatus])
 
   // Enquanto espera a leitura do QR: confere o estado e renova o QR que expirou.
   useEffect(() => {

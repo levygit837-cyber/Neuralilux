@@ -53,23 +53,23 @@ export interface Paginated<T> {
   limit: number
 }
 
-/** Forma dos eventos Socket.IO `new_message` e `conversation_updated` (ver `status_events.publish_message`). */
+/** Eventos Socket.IO `new_message` e `conversation_updated`: o contrato é `app/realtime/events.py`, em snake_case. */
 export interface RealtimeMessage {
-  id?: string | null
-  conversationId: string
+  conversation_id: string
+  message_id?: string | null
   content?: string | null
   timestamp: string
-  isOutgoing: boolean
+  is_outgoing: boolean
   status?: string
-  sender?: { name: string } | null
+  sender_name?: string | null
 }
 
 export interface RealtimeConversation {
-  id: string
-  name?: string
-  lastMessage?: string
+  conversation_id: string
+  contact_name?: string
+  last_message?: string
   timestamp: string
-  unreadCount?: number
+  unread_count?: number
   avatar?: string | null
 }
 
@@ -172,16 +172,15 @@ export function mapMessage(
   }
 }
 
-/** `conversationId` já é o UUID: o evento traz o `remote_jid`, quem chama resolve antes. */
 export function mapRealtimeMessage(raw: RealtimeMessage, conversationId: string): Message {
   return {
-    id: raw.id || `rt_${conversationId}_${raw.timestamp}`,
+    id: raw.message_id || `rt_${conversationId}_${raw.timestamp}`,
     conversationId,
     content: raw.content?.trim() || '[Mensagem sem texto]',
     timestamp: parseServerDate(raw.timestamp),
-    isOutgoing: raw.isOutgoing,
+    isOutgoing: raw.is_outgoing,
     status: mapMessageStatus(raw.status),
     messageType: 'text',
-    sender: raw.sender ?? undefined,
+    sender: raw.sender_name ? { name: raw.sender_name } : undefined,
   }
 }

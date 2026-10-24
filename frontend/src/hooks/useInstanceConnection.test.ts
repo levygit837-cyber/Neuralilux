@@ -56,7 +56,7 @@ describe('useInstanceConnection: lista de Instances em cache', () => {
     const view = renderHook(
       () => ({
         list: useQuery({ queryKey: queryKeys.instances, queryFn: instanceService.list, staleTime: 60_000 }),
-        connection: useInstanceConnection('loja'),
+        connection: useInstanceConnection('loja', 'i1'),
       }),
       { wrapper: Wrapper }
     )
@@ -138,5 +138,31 @@ describe('useInstanceConnection: lista de Instances em cache', () => {
     })
 
     await waitFor(() => expect(result.current.list.data?.[0].status).toBe('connecting'))
+  })
+})
+
+describe('useInstanceConnection: o socket é do provider', () => {
+  beforeEach(() => {
+    useAuthStore.setState({ isAuthenticated: true, hasHydrated: true })
+    vi.mocked(socketService.subscribe).mockReturnValue(() => undefined)
+    vi.mocked(instanceService.getStatus).mockResolvedValue('connected')
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.resetAllMocks()
+    useAuthStore.setState({ isAuthenticated: false, hasHydrated: false })
+  })
+
+  it('entra na sala da Instance pelo id e, ao sair da tela, só sai da sala: não liga nem desliga o socket', async () => {
+    const { Wrapper } = queryWrapper()
+    const { unmount } = renderHook(() => useInstanceConnection('loja', 'i1'), { wrapper: Wrapper })
+    await waitFor(() => expect(socketService.subscribeToInstance).toHaveBeenCalledWith('i1'))
+
+    unmount()
+
+    expect(socketService.leaveInstance).toHaveBeenCalledWith('i1')
+    expect(socketService.disconnect).not.toHaveBeenCalled()
+    expect(socketService.connect).not.toHaveBeenCalled()
   })
 })
