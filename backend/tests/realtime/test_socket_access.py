@@ -151,7 +151,9 @@ async def test_send_message_follows_the_instance_owner(world, monkeypatch, email
 
     if allowed:
         assert result == {"ok": True, "messageId": "wamid-1"}
-        send.assert_awaited_once_with(instance.evolution_instance_id, conversation.remote_jid, "oi")
+        send.assert_awaited_once_with(
+            instance_name=instance.evolution_instance_id, remote_jid=conversation.remote_jid, text="oi"
+        )
     else:
         assert result == {"ok": False}
         send.assert_not_called()

@@ -154,11 +154,10 @@ async def enforce_rate_limit(request: Request, scope: str, attempts: int, window
             reason = "Redis rejected the rate limit command (EXPIRE NX needs Redis >= 7.0)"
         else:
             reason = "Redis unavailable or too slow"
-        logger.error(
+        logger.exception(
             f"Rate limit failed closed: {reason}; refusing the request",
             scope=scope,
             error_type=type(exc).__name__,
-            error=str(exc),
         )
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="Service temporarily unavailable")
     if count > attempts:

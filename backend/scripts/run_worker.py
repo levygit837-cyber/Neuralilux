@@ -47,7 +47,7 @@ async def run() -> int:
     try:
         await asyncio.wait({consuming, waiting}, return_when=asyncio.FIRST_COMPLETED)
         if consuming.done() and not consuming.cancelled() and consuming.exception():
-            logger.error("Worker error", error=str(consuming.exception()))
+            logger.error("Worker error", exc_info=consuming.exception())
             return 1
         return 0
     finally:

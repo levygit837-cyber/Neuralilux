@@ -9,6 +9,7 @@ Regras:
 - Rotas que listam dados de Instances filtram por `instance_ids_for_user`.
 """
 from fastapi import HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import Company, Instance, User
@@ -103,7 +104,9 @@ def check_create_access(db: Session, name: str, user: User) -> Instance | None:
 
 
 def upsert_instance_for_user(db: Session, name: str, user: User) -> Instance:
-    """Cria ou assume a Instance local do usuário. Não faz commit: quem chama decide.
+    """Cria ou assume a Instance local do usuário e comita (uma operação, um commit).
+
+    `IntegrityError` (criação concorrente do mesmo nome) faz `rollback` e sobe. A Instance volta carregada (`refresh`).
 
     Só `POST /instances/{name}` chama isto, depois de a Evolution criar a Instance (ou, para o
     superusuário, de ela já existir lá).
@@ -148,4 +151,10 @@ def upsert_instance_for_user(db: Session, name: str, user: User) -> Instance:
             instance.agent_id = agent.id
             instance.agent_enabled = True
 
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise
+    db.refresh(instance)
     return instance

@@ -329,8 +329,8 @@ def _prepare_remote_models(db: Session, gateway_id: str):
     registered = [m.model_id for m in gateway.models]
     try:
         client = registry.build_client(gateway, **_ADMIN_CALL_OPTIONS)
-    except LLMNotConfiguredError as exc:
-        logger.warning("Gateway sem chave utilizável ao listar modelos", gateway_id=gateway_id, error=str(exc))
+    except LLMNotConfiguredError:
+        logger.warning("Gateway sem chave utilizável ao listar modelos", gateway_id=gateway_id, exc_info=True)
         raise HTTPException(status.HTTP_409_CONFLICT, "Gateway sem chave utilizável: salve a chave de novo")
     db.close()
     return client, registered
@@ -347,8 +347,8 @@ async def list_remote_models(
     except LLMProviderError as exc:
         if exc.status_code == 404:
             return RemoteModelsResponse(models=registered)
-        logger.warning("Gateway recusou a listagem de modelos", gateway_id=gateway_id, error=str(exc))
+        logger.warning("Gateway recusou a listagem de modelos", gateway_id=gateway_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "O Gateway não respondeu à listagem de modelos")
-    except LLMError as exc:
-        logger.warning("Falha ao listar modelos do Gateway", gateway_id=gateway_id, error=str(exc))
+    except LLMError:
+        logger.warning("Falha ao listar modelos do Gateway", gateway_id=gateway_id, exc_info=True)
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "O Gateway não respondeu à listagem de modelos")

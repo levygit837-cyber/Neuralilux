@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 from app.models import CustomerOrder
 from app.packs.catalog_orders.changes import OrderChanged, cancel_order, claim_status
 from app.packs.catalog_orders.order_state import REOPENED_LABEL, STATUS_LABELS, is_reopened
-from app.whatsapp.sender import send_and_persist
+from app.whatsapp.sender import Recipient, send_and_persist
 
 logger = structlog.get_logger()
 
@@ -66,10 +66,9 @@ def _contact_message(order: CustomerOrder, target: str, refunds: list) -> str:
     return text
 
 
-async def _notify(db: Session, order: CustomerOrder, text: str) -> dict[str, Any]:
-    order_id, order_status = order.id, order.status  # antes do rollback, que expira o Order
+async def _notify(db: Session, order_id: str, order_status: str, to: Recipient, text: str) -> dict[str, Any]:
     try:
-        await send_and_persist(db, order.instance, order.conversation, order.contact, text, sent_by="system")
+        await send_and_persist(db, to, text, sent_by="system")
     except Exception:
         await asyncio.to_thread(db.rollback)  # o status já foi gravado; só descarta o que o envio deixou pela metade
         logger.exception("Failed to notify the Contact about the Order status", order_id=order_id, status=order_status)
@@ -77,11 +76,11 @@ async def _notify(db: Session, order: CustomerOrder, text: str) -> dict[str, Any
     return {"sent": True, "error": None}
 
 
-def _transition(db: Session, order: CustomerOrder, target: str) -> str:
-    """Valida e grava a mudança de status (bloqueante: roda em thread) e devolve o texto do aviso ao Contact.
+def _transition(db: Session, order: CustomerOrder, target: str) -> tuple[str, Recipient]:
+    """Valida e grava a mudança de status (bloqueante: roda em thread) e devolve o texto do aviso e o destinatário.
 
-    Depois do commit, carrega `instance`, `conversation` e `contact` do Order: o envio do aviso lê esses
-    atributos de dentro do event loop e não pode ir ao banco para isso.
+    Termina com `rollback`: o destinatário é só escalares, então o envio do aviso (até 30 s na Evolution) não segura
+    conexão do pool nem lê ORM expirado.
     """
     if is_reopened(order):
         raise TransitionError(
@@ -105,14 +104,16 @@ def _transition(db: Session, order: CustomerOrder, target: str) -> str:
         raise TransitionError(exc.args[0]) from exc
     text = _contact_message(order, target, refunds)
     db.refresh(order)
-    order.instance, order.conversation, order.contact  # noqa: B018 - carrega os relacionamentos em thread
-    return text
+    to = Recipient.of(order.instance, order.conversation, order.contact)
+    db.rollback()
+    return text, to
 
 
 async def change_status(db: Session, order: CustomerOrder, target: str) -> dict[str, Any]:
     """Move o Order para `target` e avisa o Contact; devolve o resultado do aviso. `TransitionError` se não for permitida.
 
     O banco roda em thread; só o envio do aviso (Evolution) fica no event loop."""
-    text = await asyncio.to_thread(_transition, db, order, target)
-    return await _notify(db, order, text)
+    order_id = order.id  # a rota carregou o Order; o rollback de `_transition` o expira
+    text, to = await asyncio.to_thread(_transition, db, order, target)
+    return await _notify(db, order_id, target, to, text)
 

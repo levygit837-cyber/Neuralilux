@@ -119,8 +119,8 @@ async def update_message_status(db: Session, data: Dict[str, Any]) -> None:
                     status=status,
                 )
             )
-    except Exception as e:
-        logger.error("Error updating message status", error=str(e))
+    except Exception:
+        logger.exception("Error updating message status")
         db.rollback()
 
 
@@ -172,8 +172,8 @@ async def update_connection_status(db: Session, data: Dict[str, Any]) -> bool:
                 ConnectionStatusUpdate(instance_id=instance.id, status=instance.status, evolution_state=state)
             )
             return True
-    except Exception as e:
-        logger.error("Error updating connection status", error=str(e))
+    except Exception:
+        logger.exception("Error updating connection status")
         db.rollback()
     return False
 

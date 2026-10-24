@@ -84,7 +84,7 @@ class ToolRegistry:
             # sem rollback a próxima Tool do Turn quebra também.
             ctx.db.rollback()
             if deadline.expired():
-                logger.error(
+                logger.exception(
                     "Tool handler timed out",
                     tool_name=name,
                     timeout_seconds=settings.TOOL_TIMEOUT_SECONDS,

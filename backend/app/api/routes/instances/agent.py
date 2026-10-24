@@ -18,6 +18,8 @@ import structlog
 from app.api.access import get_instance_for_user
 from app.api.deps import get_current_user, get_db
 from app.models import User, Instance
+from app.schemas.instance import AgentState, AgentStateChange
+from app.services.instance_service import bind_agent, set_agent_enabled
 from app.services.agent_service import get_agent_for_instance, resolve_turn_agent
 
 logger = structlog.get_logger()
@@ -25,7 +27,7 @@ logger = structlog.get_logger()
 router = APIRouter()
 
 
-def _agent_state(db: Session, instance: Instance) -> dict:
+def _agent_state(db: Session, instance: Instance) -> AgentState:
     """O Agent da Instance como o Turn o enxerga (`resolve_turn_agent`), sem gravar nada.
 
     `agent_id` e `agent_name` são os do Agent que responderia: o vinculado e, na falta dele (Instance legada sem
@@ -33,13 +35,13 @@ def _agent_state(db: Session, instance: Instance) -> dict:
     está ativa se há esse Agent e `agent_enabled` está ligado.
     """
     agent = resolve_turn_agent(db, instance)
-    return {
-        "instance_id": instance.id,
-        "instance_name": instance.name,
-        "agent_enabled": bool(instance.agent_enabled and agent),
-        "agent_id": agent.id if agent else None,
-        "agent_name": agent.name if agent else None,
-    }
+    return AgentState(
+        instance_id=instance.id,
+        instance_name=instance.name,
+        agent_enabled=bool(instance.agent_enabled and agent),
+        agent_id=agent.id if agent else None,
+        agent_name=agent.name if agent else None,
+    )
 
 
 class AgentStatusUpdate(BaseModel):
@@ -50,7 +52,7 @@ class AgentBindingUpdate(BaseModel):
     agent_id: str | None = None
 
 
-@router.get("/{instance_id}/agent-status")
+@router.get("/{instance_id}/agent-status", response_model=AgentState)
 def get_agent_status(
     instance_id: str,
     db: Session = Depends(get_db),
@@ -77,7 +79,7 @@ def get_agent_status(
         )
 
 
-@router.patch("/{instance_id}/agent-status")
+@router.patch("/{instance_id}/agent-status", response_model=AgentStateChange)
 def update_agent_status(
     instance_id: str,
     status_update: AgentStatusUpdate,
@@ -99,9 +101,7 @@ def update_agent_status(
                 detail="Assign an agent to this instance before enabling automatic responses.",
             )
 
-        instance.agent_enabled = status_update.agent_enabled
-        db.commit()
-        db.refresh(instance)
+        set_agent_enabled(db, instance, status_update.agent_enabled)
 
         logger.info(
             "Agent status updated",
@@ -110,10 +110,10 @@ def update_agent_status(
             agent_enabled=status_update.agent_enabled,
         )
 
-        return {
-            **_agent_state(db, instance),
-            "message": f"Agent {'enabled' if status_update.agent_enabled else 'disabled'} successfully",
-        }
+        return AgentStateChange(
+            **_agent_state(db, instance).model_dump(),
+            message=f"Agent {'enabled' if status_update.agent_enabled else 'disabled'} successfully",
+        )
 
     except HTTPException:
         raise
@@ -125,7 +125,7 @@ def update_agent_status(
         )
 
 
-@router.patch("/{instance_id}/agent-binding")
+@router.patch("/{instance_id}/agent-binding", response_model=AgentStateChange)
 def update_agent_binding(
     instance_id: str,
     binding_update: AgentBindingUpdate,
@@ -141,8 +141,6 @@ def update_agent_binding(
     try:
         instance = get_instance_for_user(db, instance_id, current_user)
 
-        message = "Agent unbound successfully"
-
         if binding_update.agent_id:
             agent = get_agent_for_instance(db, binding_update.agent_id, current_user, instance)
             if not agent:
@@ -151,16 +149,12 @@ def update_agent_binding(
                     detail=f"Active agent {binding_update.agent_id} not found",
                 )
 
-            instance.agent_id = agent.id
+            bind_agent(db, instance, agent.id)
             message = "Agent bound successfully"
+        elif bind_agent(db, instance, None):
+            message = "Agent unbound successfully and automatic responses disabled"
         else:
-            instance.agent_id = None
-            if instance.agent_enabled:
-                instance.agent_enabled = False
-                message = "Agent unbound successfully and automatic responses disabled"
-
-        db.commit()
-        db.refresh(instance)
+            message = "Agent unbound successfully"
 
         logger.info(
             "Agent binding updated",
@@ -170,7 +164,7 @@ def update_agent_binding(
             agent_enabled=instance.agent_enabled,
         )
 
-        return {**_agent_state(db, instance), "message": message}
+        return AgentStateChange(**_agent_state(db, instance).model_dump(), message=message)
 
     except HTTPException:
         raise

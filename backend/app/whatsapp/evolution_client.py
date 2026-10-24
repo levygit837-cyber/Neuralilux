@@ -71,7 +71,7 @@ class EvolutionAPIService(HistoryReads):
             response.raise_for_status()
             return response.json() if response.content else {}
         except httpx.HTTPStatusError as e:
-            logger.error(
+            logger.exception(
                 "Evolution API HTTP error",
                 status_code=e.response.status_code,
                 url=url,
@@ -82,7 +82,7 @@ class EvolutionAPIService(HistoryReads):
                 status_code=e.response.status_code,
             )
         except httpx.RequestError as e:
-            logger.error("Evolution API request error", url=url, error=str(e))
+            logger.exception("Evolution API request error", url=url)
             raise EvolutionAPIError(
                 f"Failed to connect to Evolution API: {str(e)}"
             ) from e

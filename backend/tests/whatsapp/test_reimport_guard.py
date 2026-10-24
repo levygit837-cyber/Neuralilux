@@ -114,6 +114,8 @@ async def test_redis_down_fails_open_and_reconnects_next_time(monkeypatch, clock
         assert await reimport_guard.allow("inst-1", "chats.upsert") is True  # Redis fora: reimporta
 
     assert [log["event"] for log in logs] == ["History reimport guard unavailable; importing anyway"]
+    assert [(log["log_level"], bool(log["exc_info"])) for log in logs] == [("warning", True)]
+    assert "error" not in logs[0]
     monotonic["now"] += reimport_guard.DOWN_BACKOFF_SECONDS
     assert await reimport_guard.allow("inst-1", "chats.upsert") is True  # cliente novo, chave criada
     assert await reimport_guard.allow("inst-1", "chats.upsert") is False

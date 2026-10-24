@@ -62,3 +62,16 @@ def company_agent(db: Session, company_id: Optional[str]) -> Optional[Agent]:
         .order_by(Agent.created_at, Agent.id)
         .first()
     )
+
+
+def update_agent_settings(db: Session, agent: Agent, fields: dict) -> Agent:
+    """Grava os ajustes do Agent e comita (uma operação, um commit); em erro desfaz e relança."""
+    try:
+        for name, value in fields.items():
+            setattr(agent, name, value)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    db.refresh(agent)
+    return agent

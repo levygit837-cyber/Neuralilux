@@ -10,7 +10,9 @@ import structlog
 from app.core.config import settings
 from app.core.logging import configure_logging
 from app.core.origin_guard import OriginGuardMiddleware
+from app.core.request_id import RequestIdMiddleware
 from app.api.router import api_router
+from app.schemas.health import HealthResponse, RootResponse
 from app.core import http_clients
 from app.whatsapp import reimport_guard
 from app.whatsapp.message_queue import message_queue_service
@@ -30,8 +32,8 @@ async def lifespan(_: FastAPI):
     await realtime_event_bus.start(chat_socket_service.emit_realtime_event)
     try:
         await evolution_realtime_service.start()
-    except Exception as exc:  # pragma: no cover - defensive startup logging
-        logger.error("Failed to start Evolution realtime bridge", error=str(exc))
+    except Exception:  # pragma: no cover - defensive startup logging
+        logger.exception("Failed to start Evolution realtime bridge")
     yield
     logger.info("Shutting down Neuralilux API")
     await evolution_realtime_service.stop()
@@ -63,25 +65,24 @@ app.add_middleware(
 
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
+# Por último, logo o mais externo: toda resposta (inclusive o 403 do guarda e as do CORS) leva o `X-Request-ID`.
+app.add_middleware(RequestIdMiddleware)
+
 app.include_router(api_router, prefix="/api/v1")
 
 
-@app.get("/health")
+@app.get("/health", response_model=HealthResponse)
 async def health_check():
-    return {
-        "status": "healthy",
-        "version": settings.VERSION,
-        "environment": settings.ENVIRONMENT
-    }
+    return HealthResponse(status="healthy", version=settings.VERSION, environment=settings.ENVIRONMENT)
 
 
-@app.get("/")
+@app.get("/", response_model=RootResponse)
 async def root():
-    return {
-        "message": "Neuralilux API",
-        "version": settings.VERSION,
-        "docs": "/docs" if settings.ENVIRONMENT == "development" else None
-    }
+    return RootResponse(
+        message="Neuralilux API",
+        version=settings.VERSION,
+        docs="/docs" if settings.ENVIRONMENT == "development" else None,
+    )
 
 
 socket_app = socketio.ASGIApp(

@@ -18,6 +18,7 @@ from typing import Iterator
 
 import structlog
 from sqlalchemy.orm import Session
+from structlog.contextvars import bound_contextvars
 
 from app.core.config import settings
 from app.core.conversation_lock import TURN, LockBusy, conversation_lock
@@ -26,7 +27,7 @@ from app.services.agent_service import resolve_turn_agent
 from app.services import handoff_service
 from app.whatsapp import turn_state
 from app.whatsapp.agent_turn import FAILED, GONE, NO_REPLY, REPLIED, run_agent_turn
-from app.whatsapp.sender import send_and_persist
+from app.whatsapp.sender import Recipient, send_and_persist
 from app.whatsapp.turn_batcher import Entry, Group, Hold, TurnBatcher
 from app.whatsapp.webhook_parser import ParsedContent, parsed_from_stored
 
@@ -87,11 +88,19 @@ class TurnRunner:
         """
         for work in works:
             self._queued[work.entry.message_id] = work.entry.claim
+        # A task herda uma cópia do contexto do evento (`message_id` da Evolution, `instance_id`, `conversation_id`): o
+        # `clear_contextvars` do consumer ao fim do evento não a afeta, e o que ela vincular morre com ela.
         task = asyncio.create_task(self._submit(works, hold, recovered))
         self.tasks.add(task)
         task.add_done_callback(self.tasks.discard)
 
     async def _submit(self, works: list[Work], hold: Hold | None, recovered: bool) -> None:
+        first = works[0]
+        # Works da recuperação nascem fora de um evento: sem herança, os ids vêm daqui.
+        with bound_contextvars(instance_id=first.instance_id, conversation_id=first.conversation_id):
+            await self._submit_bound(works, hold, recovered)
+
+    async def _submit_bound(self, works: list[Work], hold: Hold | None, recovered: bool) -> None:
         first = works[0]
         log = logger.bind(instance_id=first.instance_id, conversation_id=first.conversation_id)
         try:
@@ -160,6 +169,7 @@ class TurnRunner:
         self, db: Session, instance: Instance, conversation: Conversation, contact: Contact, work: Work
     ) -> None:
         message_id = work.entry.message_id
+        to = Recipient.of(instance, conversation, contact)  # antes do claim, cujo commit expira o ORM
         won = turn_state.claim(db, [(message_id, work.entry.claim)], turn_state.now())
         self._queued.pop(message_id, None)
         if message_id not in won:
@@ -170,7 +180,7 @@ class TurnRunner:
             if handoff_service.in_handoff(db, conversation.id):
                 turn_state.settle(db, mine, turn_state.SKIPPED, turn_state.SKIP_HANDOFF)
             else:
-                await send_and_persist(db, instance, conversation, contact, MEDIA_REPLY)
+                await send_and_persist(db, to, MEDIA_REPLY)
                 turn_state.settle(db, mine, turn_state.ANSWERED, turn_state.MEDIA_REPLY)
         except asyncio.CancelledError:
             db.rollback()
@@ -190,6 +200,10 @@ class TurnRunner:
         resposta, antes de este tomar as Messages e ler o contexto. Sem o lock em `TURN_LOCK_WAIT_SECONDS` as Messages
         voltam a ficar sem dono e a recuperação as retoma.
         """
+        with bound_contextvars(instance_id=work.instance_id, conversation_id=work.conversation_id):
+            await self._run_bound(work, agent_id, group)
+
+    async def _run_bound(self, work: Work, agent_id: str, group: Group) -> None:
         async with self._slots:
             with self._session() as db:
                 bind = db.get_bind()

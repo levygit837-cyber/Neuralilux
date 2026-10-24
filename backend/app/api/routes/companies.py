@@ -20,6 +20,7 @@ from app.services.company_service import (
     create_company,
     delete_company,
     list_companies,
+    update_agent_settings,
     update_company,
 )
 
@@ -131,8 +132,5 @@ def update_company_agent(
 ):
     """Atualiza temperatura, limite de tokens e instruções do Agent (só campos enviados); o modelo vem do Gateway."""
     agent = _agent_for_user(db, company_id, current_user)
-    for field in update.model_fields_set:
-        setattr(agent, field, getattr(update, field))
-    db.commit()
-    db.refresh(agent)
-    return _agent_settings(agent)
+    fields = {field: getattr(update, field) for field in update.model_fields_set}
+    return _agent_settings(update_agent_settings(db, agent, fields))
