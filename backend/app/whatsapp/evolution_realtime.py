@@ -29,10 +29,6 @@ def _ensure_aiohttp_ws_timeout_compat() -> None:
     aiohttp.ClientWSTimeout = _client_ws_timeout  # type: ignore[attr-defined]
 
 
-class WebhookPublishError(RuntimeError):
-    """O evento do socket da Evolution não entrou na fila (RabbitMQ fora): a Message se perderia sem rastro."""
-
-
 class EvolutionRealtimeService:
     SUPPORTED_EVENTS = (
         "messages.upsert",
@@ -105,7 +101,6 @@ class EvolutionRealtimeService:
                 instance=payload.get("instance"),
                 message_ids=webhook_message_ids(normalized_payload),
             )
-            raise WebhookPublishError(f"publish of {event_name} failed")
 
 
 evolution_realtime_service = EvolutionRealtimeService()

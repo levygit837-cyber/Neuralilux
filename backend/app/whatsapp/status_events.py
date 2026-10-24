@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.models import Contact, Conversation, Instance, Message
 from app.realtime.event_bus import realtime_event_bus
 from app.whatsapp.webhook_parser import (
+    MESSAGE_STATUS_RANK,
     normalize_connection_status,
     normalize_message_status,
     unwrap_event_payload,
@@ -92,30 +93,56 @@ async def update_message_status(db: Session, data: Dict[str, Any]) -> None:
         status = normalize_message_status(message_payload.get("status"))
         instance_name = data.get("instance")
 
-        if message_id and status:
-            message = db.query(Message).filter(Message.message_id == message_id).first()
-            if message:
-                message.status = status
-                db.commit()
-                logger.info("Message status updated", message_id=message_id, status=status)
-                await realtime_event_bus.publish(
-                    {
-                        "type": "message_status",
-                        "instance_name": instance_name,
-                        "conversation_id": message.remote_jid,
-                        "payload": {
-                            "messageId": message_id,
-                            "status": status,
-                        },
-                    }
-                )
+        if not message_id or not status:
+            logger.debug("Message status update ignored", message_id=message_id, evolution_status=message_payload.get("status"))
+            return
+        message = db.query(Message).filter(Message.message_id == message_id).first()
+        if message is None:
+            # O ack pode chegar antes de o `messages.upsert` ser gravado; ele não é reenfileirado e se perde.
+            logger.warning("Message status update for unknown message discarded", message_id=message_id, status=status)
+            return
+        # A Evolution reenvia (e reordena) webhooks: o status só avança, nunca volta de `read` para `delivered`.
+        if MESSAGE_STATUS_RANK.get(message.status, -1) >= MESSAGE_STATUS_RANK[status]:
+            logger.debug("Stale message status ignored", message_id=message_id, current=message.status, received=status)
+            return
+        message.status = status
+        db.commit()
+        logger.info("Message status updated", message_id=message_id, status=status)
+        await realtime_event_bus.publish(
+            {
+                "type": "message_status",
+                "instance_name": instance_name,
+                "conversation_id": message.remote_jid,
+                "payload": {
+                    "messageId": message_id,
+                    "status": status,
+                },
+            }
+        )
     except Exception as e:
         logger.error("Error updating message status", error=str(e))
         db.rollback()
 
 
+# Instante (`date_time` do envelope) do último `connection.update` aplicado por Instance. Só em memória do
+# processo: sem coluna para persistir (exigiria migração), um reinício do worker zera o histórico.
+_last_connection_event: dict[str, datetime] = {}
+
+
+def _event_time(data: Dict[str, Any]) -> Optional[datetime]:
+    """`date_time` do envelope da Evolution, fixado quando o evento nasce e igual em todo reenvio."""
+    value = data.get("date_time")
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
 async def update_connection_status(db: Session, data: Dict[str, Any]) -> None:
-    """Update instance connection status"""
+    """Grava a conexão da Instance; um `connection.update` mais antigo que o já aplicado (reenvio) é ignorado."""
     try:
         instance_name = data.get("instance")
         message_payload = unwrap_event_payload(data)
@@ -126,6 +153,13 @@ async def update_connection_status(db: Session, data: Dict[str, Any]) -> None:
             if instance is None:
                 logger.warning("Connection update for unknown instance discarded", instance_name=instance_name)
                 return
+            event_time = _event_time(data)
+            last = _last_connection_event.get(instance_name)
+            if event_time and last and event_time < last:
+                logger.debug("Stale connection update ignored", instance=instance_name, state=state, event_time=event_time.isoformat())
+                return
+            if event_time:
+                _last_connection_event[instance_name] = event_time
             instance.status = normalize_connection_status(state)
             instance.updated_at = datetime.now(timezone.utc)
             db.commit()

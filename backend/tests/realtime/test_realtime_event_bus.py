@@ -139,3 +139,30 @@ def test_client_is_created_with_timeouts_and_health_check(monkeypatch):
     assert captured["socket_connect_timeout"] > 0
     assert captured["socket_timeout"] > 0
     assert captured["health_check_interval"] > 0
+
+
+def test_closing_a_hung_client_does_not_add_to_the_callers_wait(monkeypatch):
+    class HangsOnClose(HangingRedis):
+        async def aclose(self):
+            await asyncio.Event().wait()
+
+    bus = _bus_with(monkeypatch, HangsOnClose, REALTIME_PUBLISH_TIMEOUT_SECONDS=0.1)
+
+    async def run():
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        await bus.publish({"type": "a"})
+        elapsed = loop.time() - started
+        await bus.stop()  # espera o fechamento em background, que também tem teto
+        return elapsed
+
+    assert asyncio.run(run()) < 0.15  # teto de 0,1 s; somar o aclose() daria ~0,2 s
+
+
+def test_cooldown_not_greater_than_the_publish_timeout_is_refused():
+    import pytest
+
+    from app.core.config import Settings
+
+    with pytest.raises(ValueError, match="REALTIME_PUBLISH_COOLDOWN_SECONDS"):
+        Settings(_env_file=None, REALTIME_PUBLISH_TIMEOUT_SECONDS=2, REALTIME_PUBLISH_COOLDOWN_SECONDS=2)

@@ -110,6 +110,15 @@ class Settings(BaseSettings):
             raise ValueError("MEMORY_WINDOW_BLOCK deve ficar entre 1 e MEMORY_WINDOW")
         return self
 
+    @model_validator(mode="after")
+    def _cooldown_outlasts_publish_timeout(self) -> "Settings":
+        if self.REALTIME_PUBLISH_COOLDOWN_SECONDS <= self.REALTIME_PUBLISH_TIMEOUT_SECONDS:
+            raise ValueError(
+                "REALTIME_PUBLISH_COOLDOWN_SECONDS deve ser maior que REALTIME_PUBLISH_TIMEOUT_SECONDS "
+                "(senão o cooldown acaba antes de o teto de um publish terminar e cada evento paga o teto de novo)"
+            )
+        return self
+
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")
 
 

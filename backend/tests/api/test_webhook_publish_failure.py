@@ -40,3 +40,15 @@ def test_publish_failure_answers_503_and_logs_event_and_message_id(client, broke
     assert len(lost) == 1
     assert lost[0]["event_type"] == "messages.upsert"
     assert lost[0]["message_ids"] == ["msg-perdida"]
+
+
+def test_publish_failure_of_a_flat_messages_update_logs_the_key_id(client, broker):
+    broker["accepts"] = False
+    update = {"event": "messages.update", "instance": "evo-503", "data": {"keyId": "msg-ack", "status": "READ"}}
+
+    with structlog.testing.capture_logs() as logs:
+        response = client.post("/api/v1/webhooks/evolution", params={"token": TOKEN}, json=update)
+
+    assert response.status_code == 503
+    lost = [log for log in logs if log["event"].startswith("Evolution webhook event lost")]
+    assert [log["message_ids"] for log in lost] == [["msg-ack"]]

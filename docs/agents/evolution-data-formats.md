@@ -257,7 +257,11 @@ Sim, no webhook HTTP. Lido em `WebhookController.retryWebhookRequest` da tag `2.
 
 - Qualquer erro do `axios.post` (status fora de 2xx, timeout de `WEBHOOK_REQUEST_TIMEOUT_MS`, conexão recusada) entra no retry, **exceto** os status de `WEBHOOK_RETRY_NON_RETRYABLE_STATUS_CODES` (padrão `400,401,403,404,422`), que abortam na hora. Um **503 é reenviado**; o 401 do token errado não é.
 - Até `WEBHOOK_RETRY_MAX_ATTEMPTS=10` tentativas, espera inicial de 5 s, dobrando a cada falha até 300 s, com jitter de ±20 %. No pior caso a Evolution insiste por mais de 20 minutos; esgotadas as tentativas, loga o erro e **descarta o evento**.
-- O corpo reenviado é o mesmo envelope, então um evento que o Neuralilux já aceitou e depois recebe de novo cai na deduplicação por `message_id` do consumer.
+- O corpo reenviado é o mesmo envelope (`webhookData` é montado uma vez, antes do loop de retry; `date_time` não muda), e o reenvio chega fora de ordem e até ~20 min atrasado. O que o Neuralilux faz com isso, por evento:
+  - `messages.upsert`: a Message já gravada é reconhecida por `message_id` e ignorada.
+  - `messages.update`: o status só avança (`pending < failed < sent < delivered < read`; `ERROR` vira `failed`, `PLAYED` vira `read`). `READ` seguido de um `DELIVERY_ACK` reenviado continua `read`; o status velho é ignorado com log `debug` (`Stale message status ignored`). Se a Message ainda não existe (o ack chegou antes do `upsert`), loga `warning` (`Message status update for unknown message discarded`) e descarta: a Evolution não reenvia aquele ack.
+  - `connection.update`: usa o `date_time` do envelope. Um evento com `date_time` anterior ao último aplicado para a Instance é ignorado (`debug`); igual ou posterior é aplicado. **Limites:** o último instante fica só na memória do processo do worker (persistir exigiria coluna nova e migração), então um reinício do worker o zera; e um evento sem `date_time` é aplicado como chega, sem proteção contra reordenação.
+  - Demais eventos (`qrcode.updated` etc.): sem proteção; reaplicá-los é inofensivo (o QR mais novo vence só por ordem de chegada).
 - **Não vale para o caminho do websocket** (`EvolutionRealtimeService`): o socket não tem ack nem retry. Se o publish no RabbitMQ falha ali, o evento só fica registrado no log (`Evolution realtime event lost`, com `event_type`, `instance` e `message_ids`) e se perde.
 - Não conferi em runtime com o container: a conclusão vem do código da tag e dos defaults do `.env.example`; este ambiente não define nenhuma variável `WEBHOOK_RETRY_*`.
 
