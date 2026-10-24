@@ -29,6 +29,8 @@ Edite `backend/.env`:
 - `SECRET_KEY`: assina o JWT. Fora de `development` a app recusa o valor de exemplo.
 - `GATEWAY_ENCRYPTION_KEY`: criptografa as chaves de API dos Gateways no banco. É independente da `SECRET_KEY` (trocar o JWT para derrubar sessões não destrói as chaves salvas), obrigatória fora de `development`, diferente da `SECRET_KEY`. As duas chaves precisam de 32+ caracteres fora de `development`. Trocá-la invalida as chaves salvas. Gere `SECRET_KEY` e `GATEWAY_ENCRYPTION_KEY` com `python3 -c "import secrets; print(secrets.token_urlsafe(48))"`.
 - `KIRO_GATEWAY_URL` (e `KIRO_GATEWAY_API_KEY`, opcional): onde o seed aponta o Gateway inicial.
+- `ALLOW_PUBLIC_REGISTRATION`: padrão `false`. Com ele desligado, `POST /auth/register` só aceita um superusuário autenticado (os demais recebem 403). O primeiro usuário vem do seed ou de `scripts/create_superuser.py` (passo 3). Ligue só se o produto tiver auto-cadastro.
+- `LOGIN_RATE_LIMIT_*`, `REGISTER_RATE_LIMIT_*` e `TRUSTED_PROXIES` (opcionais): rate limit por IP em login e cadastro, no Redis. Atrás de proxy reverso, preencha `TRUSTED_PROXIES`, senão todos os clientes dividem o mesmo contador. Redis fora do ar: login e cadastro respondem 503 (falha fechada). Veja [operations.md](operations.md#login-ou-cadastro-respondem-429-ou-503).
 - `EVOLUTION_DB_PASSWORD` (opcional): senha do usuário `evolution` no PostgreSQL. Entra na URI do banco da Evolution, então use só letras, dígitos, `-` e `_` (`@ : / ? # %` quebram a URI). Vazio, vale o default de desenvolvimento do compose e do script de init.
 
 As demais variáveis do `.env.example` já batem com a infra do passo 2.
@@ -105,6 +107,8 @@ SUPERUSER_EMAIL=admin@empresa.com SUPERUSER_PASSWORD='...' python scripts/create
 
 O script é idempotente, promove um usuário existente e nunca imprime a senha.
 
+Com `ALLOW_PUBLIC_REGISTRATION` desligado (o padrão), o cadastro anônimo não cria ninguém (403): entre como superusuário e cadastre os usuários da Company por `POST /api/v1/auth/register` (com `company_id`).
+
 ### Subir API e worker
 
 Cada um num terminal, com o venv ativo:
@@ -139,6 +143,8 @@ O seed já cadastrou o `Kiro-backend` (modelo `claude-sonnet-5.5`, effort `low`)
 
 Para testar a conexão, use **Testar** no modelo ou `POST /api/v1/gateways/models/{id}/test`.
 
+Gateways são só de superusuário, inclusive a leitura (`GET /api/v1/gateways/`, `/gateways/{id}` e `/gateways/assignments` respondem 403 aos demais), porque a lista expõe o endereço interno do provedor. Qualquer usuário logado enxerga apenas o nome do Gateway e do modelo ativo de cada agente em `GET /api/v1/gateways/active-models` (é o que o card **Provedor de Inferência** mostra); a aba **Gateways** mostra "Somente superusuários acessam Gateways" para os demais.
+
 ## 6. Conectar o WhatsApp (QR code)
 
 A ordem importa: a Instance precisa existir no banco (com Company) **antes** de ler o QR code. O evento `connection.update` de uma Instance sem linha no banco é descartado (`Connection update for unknown instance discarded`), e o status nunca chega a `connected`.
@@ -172,6 +178,8 @@ Reexecutar o seed não religa uma Instance que o administrador desligou. O Agent
 - Toda rota de `/api/v1/instances` exige login. O dono (`owner_id`) e o superusuário acessam; outro usuário recebe 403.
 - `GET /instances/` lista só as Instances do usuário (superusuário: todas) e nunca devolve o token da Evolution.
 - Só `POST /instances/{nome}` cria a linha local. Se o nome já existe na Evolution, só um superusuário o importa; os demais recebem 409.
+- Criar Instance exige usuário **com Company** (ou superusuário). Sem Company, `POST /instances/{nome}` responde 403 antes de falar com a Evolution, porque a Instance nasceria sem Agent nem escopo.
+- A Instance nasce na Evolution com um token **próprio e aleatório**; a `EVOLUTION_API_KEY` (chave global) nunca é enviada como token da Instance. Só o backend fala com a Evolution, usando a chave global no cabeçalho `apikey`.
 - Uma Instance sem dono (linha antiga, `owner_id` nulo) só é acessada por superusuário. Para assumi-la, um superusuário chama `POST /instances/{nome}`: ele vira o dono e a Instance ganha a Company dele e o Agent da Company.
 
 ## 7. Conferir de ponta a ponta

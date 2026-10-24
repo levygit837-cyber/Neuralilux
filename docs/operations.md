@@ -141,6 +141,22 @@ O `finalizar` recusa em código, e o Agent repassa o motivo ao Contact. Os erros
 - O socket exige o JWT em `auth.token`; sem ele, com token inválido/vencido ou de usuário inativo a conexão é recusada (mesma regra da API HTTP). O cliente precisa chamar `subscribe_instance` e `join_conversation`. Desativar o usuário recusa conexões novas e os eventos `subscribe_instance`, `join_conversation` e `send_message`, mas um socket já aberto segue recebendo os `emit` da sala até desconectar.
 - Há polling de contingência no frontend para mensagens, mas não para esses eventos.
 
+### Login ou cadastro respondem 429 ou 503
+
+`POST /auth/login` e `POST /auth/register` têm rate limit por IP, em janela fixa no Redis (a chave `neuralilux:ratelimit:<escopo>:<ip>` expira sozinha ao fim da janela):
+
+| Variável | Padrão | Efeito |
+| --- | --- | --- |
+| `LOGIN_RATE_LIMIT_ATTEMPTS` / `LOGIN_RATE_LIMIT_WINDOW_SECONDS` | 10 / 60 | tentativas de login por IP por janela |
+| `REGISTER_RATE_LIMIT_ATTEMPTS` / `REGISTER_RATE_LIMIT_WINDOW_SECONDS` | 5 / 3600 | tentativas de cadastro por IP por janela |
+| `ALLOW_PUBLIC_REGISTRATION` | `false` | cadastro anônimo: `false` responde 403 |
+| `TRUSTED_PROXIES` | vazio | proxies de confiança (JSON, IP ou CIDR) |
+
+- **429**: passou do limite. `Retry-After` traz os segundos até a janela virar. Toda tentativa conta, acertando ou errando, e a senha de quem está bloqueado não é conferida. No cadastro, a tentativa recusada com 403 (cadastro fechado) também conta.
+- **Redis fora do ar ou travado: falha fechada, 503.** Sem Redis não há como contar tentativas, e deixar o login passar sem contar abriria a força bruta justamente quando o contador cai. O preço é o login (e o cadastro público) indisponível enquanto o Redis cai, o que já derruba o resto do atendimento (eventos de UI, debounce). Um Redis que não responde não prende a requisição: o cliente usa `REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS` e `REDIS_SOCKET_TIMEOUT_SECONDS` e a chamada tem teto igual à soma dos dois. Quem já tem token segue usando a API; só login e cadastro param. O superusuário autenticado cadastra mesmo com o Redis fora, porque não passa pelo limite. O log traz `Rate limit unavailable: refusing the request`; o cliente reconecta sozinho na tentativa seguinte.
+- **Atrás de proxy reverso**: o IP do peer TCP é o do proxy, e sem configuração todos os clientes dividem um contador (o primeiro a abusar bloqueia todos). Liste os proxies em `TRUSTED_PROXIES`; só de um peer listado o `X-Forwarded-For` é lido, da direita para a esquerda, pulando os proxies listados, e o primeiro endereço fora da lista vira o IP do cliente. O proxy precisa **anexar** o IP real ao cabeçalho (nginx: `proxy_add_x_forwarded_for`) e nunca repassar o valor do cliente. Valor que não é IP no cabeçalho é ignorado e vale o IP do peer. Sem `TRUSTED_PROXIES`, o cabeçalho é ignorado por inteiro, então um cliente não escolhe a própria chave.
+- Para liberar alguém bloqueado antes da janela virar: `redis-cli DEL neuralilux:ratelimit:login:<ip>`.
+
 ### A app não sobe
 
 - `Configuração recusada com ENVIRONMENT='production' (sem ENVIRONMENT definido vale 'production')…`: sem `ENVIRONMENT=development` explícito a app recusa `SECRET_KEY`, `EVOLUTION_WEBHOOK_TOKEN` e `GATEWAY_ENCRYPTION_KEY` vazios ou de exemplo (e exige `GATEWAY_ENCRYPTION_KEY` diferente da `SECRET_KEY`, as duas com 32+ caracteres). Em dev local, ponha `ENVIRONMENT=development` no `backend/.env`. Fora dele, defina valores fortes e distintos (`python3 -c "import secrets; print(secrets.token_urlsafe(48))"`).
