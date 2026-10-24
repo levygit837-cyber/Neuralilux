@@ -220,7 +220,7 @@ A entrega do RabbitMQ só grava a Message e confirma (`ack`); o Turn roda depois
 
 ### Mensagens pendentes e recuperação
 
-Garantia e estados: [architecture.md](architecture.md#resposta-durável). Variáveis (todas em segundos, exceto `TURN_CONCURRENCY`):
+Garantia e estados: [architecture.md](architecture.md#resposta-durável). Variáveis (todas em segundos, exceto `TURN_CONCURRENCY`). No perfil `app` do compose, `TURN_CONCURRENCY`, `TURN_RECOVERY_MAX_AGE_SECONDS`, `TURN_CLAIM_LEASE_SECONDS` e `SHUTDOWN_TIMEOUT_SECONDS` chegam do `backend/.env`; `TURN_RECOVERY_INTERVAL_SECONDS` fica no default:
 
 | Variável | Padrão | Efeito |
 |---|---|---|
@@ -230,7 +230,7 @@ Garantia e estados: [architecture.md](architecture.md#resposta-durável). Variá
 | `TURN_CLAIM_LEASE_SECONDS` | 180 | Quanto tempo a posse de um worker protege a Message de outro. Maior que `DEBOUNCE_MAX_WAIT_SECONDS + TURN_TIMEOUT_SECONDS`. |
 | `SHUTDOWN_TIMEOUT_SECONDS` | 20 | Prazo do shutdown para os Turns em voo. |
 
-- **Deploy e reinício.** O `SIGTERM` para de consumir, espera os Turns até `SHUTDOWN_TIMEOUT_SECONDS` e cancela o resto; as Messages desses Turns seguem `pending` e o worker novo as retoma na subida. Mantenha o `stop_grace_period` do orquestrador pelo menos 10 s acima de `SHUTDOWN_TIMEOUT_SECONDS`.
+- **Deploy e reinício.** O `SIGTERM` para de consumir, espera os Turns até `SHUTDOWN_TIMEOUT_SECONDS` e cancela o resto; as Messages desses Turns seguem `pending` e o worker novo as retoma na subida. A regra do `stop_grace_period` (≥ `SHUTDOWN_TIMEOUT_SECONDS` + 10 s) e o valor do compose estão em [Containers](#containers-perfil-app); fora do compose, aplique-a no seu orquestrador.
 - **Vários workers.** Podem rodar juntos: cada Message é tomada por um UPDATE condicional atômico, então só um worker responde. Um worker que cai sem `SIGTERM` (kill -9, falta de energia) deixa a Message com a posse até vencer em `TURN_CLAIM_LEASE_SECONDS`; só então outro a retoma.
 - **Ver o que está pendente.** `SELECT turn_reason, count(*), min(timestamp) FROM messages WHERE turn_state = 'pending' GROUP BY 1;` (usa o índice parcial). Pendente antiga que não sai: o worker está parado, ou a Message passa de `TURN_RECOVERY_MAX_AGE_SECONDS` e vira `stale` na próxima varredura.
 - **Duplicidade.** A garantia é pelo menos uma resposta; ver "Limites" em architecture.md para a janela em que um crash entre o envio e a gravação da resposta pode repetir a resposta.

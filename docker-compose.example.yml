@@ -54,6 +54,13 @@ x-backend-environment: &backend-environment
   FORWARDED_ALLOW_IPS:
   # Prazo do worker para terminar os Turns em voo no SIGTERM. Se subir, suba `stop_grace_period` do worker junto.
   SHUTDOWN_TIMEOUT_SECONDS: ${SHUTDOWN_TIMEOUT_SECONDS:-20}
+  # Resposta durável (docs/operations.md, "Mensagens pendentes e recuperação"). Só o que o operador ajusta, em pass-through:
+  # ausentes, valem os defaults do config.py (um default só, sem cópia aqui). TURN_CLAIM_LEASE_SECONDS vai junto de
+  # TURN_TIMEOUT_SECONDS: a app exige posse > DEBOUNCE_MAX_WAIT_SECONDS + TURN_TIMEOUT_SECONDS, então subir um pede subir o outro.
+  # TURN_RECOVERY_INTERVAL_SECONDS (cadência interna da varredura) não é repassada.
+  TURN_CONCURRENCY:
+  TURN_RECOVERY_MAX_AGE_SECONDS:
+  TURN_CLAIM_LEASE_SECONDS:
 
 x-backend-image: &backend-image
   image: neuralilux/backend:0.1.0
@@ -117,9 +124,9 @@ services:
       retries: 5
 
   evolution-api:
-    # A imagem oficial roda como root; docker/evolution/Dockerfile só a troca para o usuário `node`. A versão vive
-    # numa variável só (EVOLUTION_VERSION), usada no build e na tag local. Sem digest de propósito: um `@sha256`
-    # na base faria o Docker ignorar a tag e reconstruir a versão antiga em silêncio ao trocar EVOLUTION_VERSION.
+    # A imagem oficial roda como root; docker/evolution/Dockerfile só a troca para o usuário `node`. Este arquivo é o dono
+    # do default da versão (`v2.3.7`): o Dockerfile não tem default e a CI lê o valor daqui. Sem digest de propósito: um
+    # `@sha256` na base faria o Docker ignorar a tag e reconstruir a versão antiga em silêncio ao trocar EVOLUTION_VERSION.
     # Volumes de um compose antigo são do root: veja docs/setup.md ("Migrando de um compose antigo") antes do 1º up.
     image: neuralilux/evolution-api:${EVOLUTION_VERSION:-v2.3.7}
     build:
