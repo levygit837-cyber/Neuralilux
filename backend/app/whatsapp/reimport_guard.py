@@ -8,15 +8,18 @@ com frequência (reconexões, rajadas de chats). Cada importação lê o histór
   ignora. É atômico e compartilhado, então vale entre todos os workers: com N workers, uma reimportação por
   intervalo no total, não uma por worker. O estado em memória do processo não serviria, pois cada worker teria o
   seu relógio.
-- Redis fora do ar (ou mais lento que os timeouts do cliente): **falha aberta**, reimporta. O oposto do rate limit
-  de login: aqui perder a importação deixaria a Instance sem histórico, e importar demais custa só tempo, porque a
-  importação é idempotente (`message_id`) e uma por vez por Instance (advisory lock no Postgres).
+- Redis fora do ar (ou mais lento que os timeouts do cliente): **falha aberta**, reimporta, e lembra a falha por
+  `DOWN_BACKOFF_SECONDS`: nesse tempo os eventos seguintes reimportam direto, sem pagar de novo os timeouts (até 4 s
+  por evento, no handler do webhook). O oposto do rate limit de login: aqui perder a importação deixaria a Instance
+  sem histórico, e importar demais custa só tempo, porque a importação é idempotente (`message_id`) e uma por vez
+  por Instance (advisory lock no Postgres).
 - Intervalo 0 desliga o guarda: toda ocorrência importa.
 - A chave é gravada ao decidir, não ao terminar: uma importação que falha também espera o intervalo.
 """
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Optional
 
 import structlog
@@ -27,9 +30,11 @@ from app.core.config import settings
 logger = structlog.get_logger()
 
 _KEY_PREFIX = "neuralilux:history_reimport"
+DOWN_BACKOFF_SECONDS = 5.0
 
 _redis: Optional[Redis] = None
 _redis_loop: Optional[asyncio.AbstractEventLoop] = None
+_down_until = 0.0  # `time.monotonic()` até quando o Redis é tratado como fora do ar (falha aberta sem tentar)
 
 
 def _client() -> Redis:
@@ -58,8 +63,8 @@ async def close() -> None:
     if client is not None and loop is asyncio.get_running_loop():
         try:
             await asyncio.wait_for(client.aclose(), timeout=settings.REDIS_SOCKET_TIMEOUT_SECONDS)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("History reimport guard: closing the Redis client failed", error_type=type(exc).__name__)
 
 
 async def allow(instance_id: str, reason: str) -> bool:
@@ -70,6 +75,9 @@ async def allow(instance_id: str, reason: str) -> bool:
     interval = settings.HISTORY_REIMPORT_MIN_INTERVAL_SECONDS
     if interval <= 0:
         return True
+    global _down_until
+    if time.monotonic() < _down_until:  # Redis caiu há pouco: não paga os timeouts de novo a cada evento
+        return True
     timeout = settings.REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS + settings.REDIS_SOCKET_TIMEOUT_SECONDS
     try:
         acquired = await asyncio.wait_for(
@@ -78,6 +86,7 @@ async def allow(instance_id: str, reason: str) -> bool:
     except asyncio.CancelledError:
         raise
     except Exception as exc:  # inclui TimeoutError do teto
+        _down_until = time.monotonic() + DOWN_BACKOFF_SECONDS
         await close()  # a próxima tentativa reconecta do zero
         logger.warning(
             "History reimport guard unavailable; importing anyway",

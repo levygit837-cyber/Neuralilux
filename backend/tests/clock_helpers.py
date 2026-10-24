@@ -9,7 +9,11 @@ _in_flight = 0  # chamadas de `asyncio.to_thread` que ainda não voltaram (só o
 
 
 def track_threads(monkeypatch) -> None:
-    """Conta as chamadas de `asyncio.to_thread` em voo, para o `settle` esperá-las. As threads continuam reais."""
+    """Conta as chamadas de `asyncio.to_thread` em voo, para o `settle` esperá-las. As threads continuam reais.
+
+    Zera o contador: um loop de teste que morreu com `to_thread` em voo deixaria o `settle` do teste seguinte esperando."""
+    global _in_flight
+    _in_flight = 0
     real_to_thread = asyncio.to_thread
 
     async def counted(func, /, *args, **kwargs):
