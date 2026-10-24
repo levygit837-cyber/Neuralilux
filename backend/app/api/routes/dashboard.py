@@ -235,10 +235,12 @@ async def get_satisfaction_metrics(
         if user_instance_ids is not None:
             base = base.filter(Conversation.instance_id.in_(user_instance_ids))
 
-        # Monthly average — PostgreSQL to_char for YYYY-MM grouping
+        # Monthly average — PostgreSQL to_char for YYYY-MM grouping. A mesma expressão (mesmo parâmetro de formato)
+        # vai no SELECT, no GROUP BY e no ORDER BY: três `to_char(..., $n)` distintos o Postgres não reconhece como iguais.
+        month = func.to_char(Conversation.updated_at, "YYYY-MM")
         monthly_rows = (
             db.query(
-                func.to_char(Conversation.updated_at, "YYYY-MM").label("month"),
+                month.label("month"),
                 func.avg(Conversation.rating).label("avg_score"),
             )
             .filter(Conversation.rating.isnot(None))
@@ -248,8 +250,8 @@ async def get_satisfaction_metrics(
                 if user_instance_ids is not None
                 else True
             )
-            .group_by(func.to_char(Conversation.updated_at, "YYYY-MM"))
-            .order_by(func.to_char(Conversation.updated_at, "YYYY-MM"))
+            .group_by(month)
+            .order_by(month)
             .all()
         )
 

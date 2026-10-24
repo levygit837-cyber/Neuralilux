@@ -56,21 +56,28 @@ def pytest_sessionfinish(session, exitstatus):
         os.remove(TEST_DB_PATH)
 
 
-# Custom marker for E2E tests
+# Custom markers
 def pytest_configure(config):
     config.addinivalue_line(
         "markers", "e2e: marks tests as end-to-end tests with real dependencies"
     )
+    config.addinivalue_line(
+        "markers", "postgres: precisa de um Postgres de teste (variável TEST_POSTGRES_URL); sem ela o teste é pulado"
+    )
 
 
 def pytest_collection_modifyitems(config, items):
-    """Testes `e2e` falam com serviços reais (LLM, Evolution, banco de dev): só rodam com RUN_E2E=1."""
-    if os.environ.get("RUN_E2E") == "1":
-        return
+    """`e2e` fala com serviços reais (LLM, Evolution, banco de dev): só roda com RUN_E2E=1.
+
+    `postgres` precisa de um servidor Postgres de teste: só roda com `TEST_POSTGRES_URL` definida.
+    """
     skip_e2e = pytest.mark.skip(reason="teste e2e: defina RUN_E2E=1 para rodar contra serviços reais")
+    skip_postgres = pytest.mark.skip(reason="teste postgres: defina TEST_POSTGRES_URL (veja AGENTS.md)")
     for item in items:
-        if "e2e" in item.keywords:
+        if "e2e" in item.keywords and os.environ.get("RUN_E2E") != "1":
             item.add_marker(skip_e2e)
+        if "postgres" in item.keywords and not os.environ.get("TEST_POSTGRES_URL"):
+            item.add_marker(skip_postgres)
 
 
 @pytest.fixture
