@@ -1,4 +1,4 @@
-import { Pencil, Plus, Tag, Trash2 } from 'lucide-react'
+import { PencilSimple, Plus, Tag, Trash } from '@phosphor-icons/react'
 
 import { Button } from '@/components/ui/Button'
 import type { MenuCategory } from '@/types/menu'
@@ -26,7 +26,7 @@ export function CategoryList({
           <p className="text-xs text-content-muted">{categories?.length || 0} cadastradas</p>
         </div>
         <Button type="button" size="sm" onClick={onNew}>
-          <Plus className="h-4 w-4" />
+          <Plus className="h-4 w-4" aria-hidden="true" />
           Adicionar
         </Button>
       </div>
@@ -65,7 +65,7 @@ export function CategoryList({
                       onClick={() => onEdit(category)}
                       className="rounded-full bg-brand-hover p-2 text-content-muted hover:text-content-light focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                     >
-                      <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                      <PencilSimple className="h-3.5 w-3.5" aria-hidden="true" />
                     </button>
                     <button
                       type="button"
@@ -73,7 +73,7 @@ export function CategoryList({
                       onClick={() => onDelete(category)}
                       className="rounded-full bg-brand-hover p-2 text-content-muted hover:text-status-error focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                     >
-                      <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                      <Trash className="h-3.5 w-3.5" aria-hidden="true" />
                     </button>
                   </div>
                 </div>
@@ -88,7 +88,7 @@ export function CategoryList({
           })
         ) : (
           <div className="rounded-2xl border border-dashed border-brand-border bg-brand-base px-4 py-8 text-center">
-            <Tag className="mx-auto h-8 w-8 text-content-muted" />
+            <Tag className="mx-auto h-8 w-8 text-content-muted" aria-hidden="true" />
             <p className="mt-4 text-sm font-medium text-content-light">
               Nenhuma categoria criada
             </p>
@@ -96,7 +96,7 @@ export function CategoryList({
               Comece criando a primeira categoria do seu cardápio.
             </p>
             <Button type="button" size="sm" className="mt-4" onClick={onNew}>
-              <Plus className="h-4 w-4" />
+              <Plus className="h-4 w-4" aria-hidden="true" />
               Criar categoria
             </Button>
           </div>

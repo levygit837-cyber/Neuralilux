@@ -1,6 +1,6 @@
 'use client'
 
-import { Plus, Lock } from 'lucide-react'
+import { Plus, Lock } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/Button'
 import { AssignmentsSection } from './gateways/AssignmentsSection'
 import { READ_ONLY_MESSAGE, RESTRICTED_HINT, RESTRICTED_MESSAGE } from './gateways/constants'

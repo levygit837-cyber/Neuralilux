@@ -1,5 +1,5 @@
 import type { Dispatch, FormEvent, SetStateAction } from 'react'
-import { Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash } from '@phosphor-icons/react'
 
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -136,7 +136,7 @@ export function ItemFormDialog({
                 )
               }
             >
-              <Plus className="h-4 w-4" />
+              <Plus className="h-4 w-4" aria-hidden="true" />
               Variável
             </Button>
           </div>
@@ -195,7 +195,7 @@ export function ItemFormDialog({
                       )
                     }
                   >
-                    <Trash2 className="h-4 w-4" />
+                    <Trash className="h-4 w-4" aria-hidden="true" />
                   </Button>
                 </div>
               ))

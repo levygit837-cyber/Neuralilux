@@ -1,6 +1,6 @@
 'use client'
 
-import { Boxes, Plus } from 'lucide-react'
+import { Stack, Plus } from '@phosphor-icons/react'
 
 import { CategoryFormDialog } from '@/components/estoque/CategoryFormDialog'
 import { CategoryList } from '@/components/estoque/CategoryList'
@@ -40,7 +40,7 @@ export default function EstoquePage() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="space-y-2">
               <div className="inline-flex items-center gap-2 rounded-full bg-primary/10 px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-primary-light">
-                <Boxes className="h-3.5 w-3.5" />
+                <Stack className="h-3.5 w-3.5" aria-hidden="true" />
                 Estoque conectado ao cardápio
               </div>
               <h2 className="text-3xl font-semibold text-content-light">
@@ -62,7 +62,7 @@ export default function EstoquePage() {
                 </div>
               )}
               <Button type="button" onClick={openNewCategoryModal}>
-                <Plus className="h-4 w-4" />
+                <Plus className="h-4 w-4" aria-hidden="true" />
                 Nova categoria
               </Button>
             </div>

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Building2, Save } from 'lucide-react'
+import { Buildings, FloppyDisk } from '@phosphor-icons/react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import type { CompanySettingsState } from '@/hooks/useCompanySettings'
@@ -65,7 +65,7 @@ function CompanyForm({ company, saveCompany }: { company: Company; saveCompany: 
     <div className="rounded-2xl border border-brand-border bg-brand-card p-7">
       <div className="mb-6 flex items-center gap-4">
         <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10">
-          <Building2 className="h-5 w-5 text-primary-light" />
+          <Buildings className="h-5 w-5 text-primary-light" aria-hidden="true" />
         </div>
         <div>
           <h3 className="text-lg font-semibold text-content-light">Informações da Empresa</h3>
@@ -129,7 +129,7 @@ function CompanyForm({ company, saveCompany }: { company: Company; saveCompany: 
           </p>
         )}
         <Button onClick={handleSave} disabled={isSaving}>
-          <Save className="mr-2 h-4 w-4" />
+          <FloppyDisk className="mr-2 h-4 w-4" aria-hidden="true" />
           {isSaving ? 'Salvando...' : 'Salvar alterações'}
         </Button>
       </div>
