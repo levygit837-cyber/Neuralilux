@@ -44,9 +44,7 @@ async def sync_conversations(
     except EvolutionAPIError as error:
         db.rollback()
         logger.error("History sync failed", instance_id=instance.id, error=error.message)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Evolution API error: {error.message}"
-        )
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Evolution API error")
     except IntegrityError:
         # O worker gravou as mesmas Messages durante a importação e as tentativas do lote se esgotaram.
         db.rollback()

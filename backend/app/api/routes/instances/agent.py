@@ -69,8 +69,8 @@ async def get_agent_status(
 
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error("Error getting agent status", instance_id=instance_id, error=str(e))
+    except Exception:
+        logger.exception("Error getting agent status", instance_id=instance_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get agent status for instance {instance_id}",
@@ -117,8 +117,8 @@ async def update_agent_status(
 
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error("Error updating agent status", instance_id=instance_id, error=str(e))
+    except Exception:
+        logger.exception("Error updating agent status", instance_id=instance_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update agent status for instance {instance_id}",
@@ -174,8 +174,8 @@ async def update_agent_binding(
 
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error("Error updating agent binding", instance_id=instance_id, error=str(e))
+    except Exception:
+        logger.exception("Error updating agent binding", instance_id=instance_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to update agent binding for instance {instance_id}",

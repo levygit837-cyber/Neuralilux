@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Response, status, HTTPException
+from fastapi import APIRouter, Depends, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -57,11 +57,8 @@ async def delete_category(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    try:
-        delete_menu_category(db, current_user.company_id, category_id)
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
-    except ValueError as e:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    delete_menu_category(db, current_user.company_id, category_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/items", response_model=MenuItemResponse, status_code=status.HTTP_201_CREATED)

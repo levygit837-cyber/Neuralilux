@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any, Optional
 
+from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.models import MenuCategory, MenuItem
@@ -117,8 +118,9 @@ def delete_menu_category(db: Session, company_id: Optional[str], category_id: st
     )
     if items_with_stock:
         item_names = [item.name for item in items_with_stock]
-        raise ValueError(
-            f"Não é possível excluir categoria com itens em estoque: {', '.join(item_names)}"
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Não é possível excluir categoria com itens em estoque: {', '.join(item_names)}",
         )
 
     db.query(MenuItem).filter(MenuItem.category_id == category.id).delete(synchronize_session=False)

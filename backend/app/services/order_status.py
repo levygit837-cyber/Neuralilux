@@ -34,7 +34,11 @@ NOTIFICATION_FAILED = "Não foi possível avisar o cliente pelo WhatsApp. O stat
 
 
 class TransitionError(Exception):
-    """A mudança de status pedida não é permitida para o Order."""
+    """A mudança de status pedida não é permitida para o Order. `message` é o texto para o painel."""
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        self.message = message
 
 
 def allowed_transitions(order: CustomerOrder) -> list[str]:
@@ -92,6 +96,6 @@ async def change_status(db: Session, order: CustomerOrder, target: str) -> dict[
         db.commit()
     except OrderChanged as exc:
         db.rollback()  # perdeu a corrida: nada foi gravado e o Contact não é avisado
-        raise TransitionError(str(exc)) from exc
+        raise TransitionError(exc.args[0]) from exc
     return await _notify(db, order, _contact_message(order, target, refunds))
 
