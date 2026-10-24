@@ -31,7 +31,7 @@ function renderPage() {
 
 describe('DashboardPage', () => {
   beforeEach(() => {
-    useAuthStore.setState({ token: 'token', hasHydrated: true })
+    useAuthStore.setState({ isAuthenticated: true, hasHydrated: true })
     vi.mocked(dashboardService.getOverview).mockResolvedValue(overview)
     vi.mocked(dashboardService.getConversationsOverTime).mockResolvedValue({
       timezone: 'America/Sao_Paulo',
@@ -49,7 +49,7 @@ describe('DashboardPage', () => {
   afterEach(() => {
     cleanup()
     vi.resetAllMocks()
-    useAuthStore.setState({ token: null, hasHydrated: false })
+    useAuthStore.setState({ isAuthenticated: false, hasHydrated: false })
   })
 
   it('mostra os números do backend, o nome real da Instance e a tendência contra o período anterior', async () => {
