@@ -83,7 +83,8 @@ def _release(db: Session, conversation_id: str, user: User):
     db.refresh(conversation)
     if released is not None:
         db.refresh(instance)
-        db.refresh(released.ticket)
+        if released.ticket is not None:  # Handoff antigo pode não ter Ticket (contrato de `Released.ticket`)
+            db.refresh(released.ticket)
     return conversation, instance, released
 
 

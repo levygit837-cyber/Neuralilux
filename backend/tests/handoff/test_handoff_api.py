@@ -160,6 +160,22 @@ def test_release_after_timeout_already_returned_it_changes_and_announces_nothing
     assert db.query(Ticket).one().status == "expired"
 
 
+def test_release_of_a_legacy_handoff_without_ticket_returns_200_and_no_ticket_status(client, db, realtime):
+    headers, instance, conversation = _setup(client, db)
+    conversation.human_in_loop = True
+    conversation.human_handoff_reason = "Handoff antigo"
+    conversation.ticket_id = None
+    db.commit()
+
+    response = client.post(f"/api/v1/conversations/{conversation.id}/release-control", headers=headers)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["human_in_loop"] is False and body["ticket_id"] is None and body["ticket_status"] is None
+    assert db.query(Ticket).count() == 0
+    assert realtime[-1]["payload"]["change"] == "released"
+
+
 def test_status_endpoint_is_read_only_even_when_the_timeout_is_due(client, db, realtime, monkeypatch):
     headers, instance, conversation = _setup(client, db)
     ticket = handoff_service.open_handoff(db, conversation, "Reclamação")
