@@ -85,6 +85,14 @@ describe('sessão por cookie', () => {
     expect(String(fetchMock.mock.calls[0][0])).toMatch(/\/api\/v1\/auth\/login$/)
   })
 
+  it('login sem rede (TypeError do fetch) mostra mensagem em português, não "Failed to fetch"', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')))
+
+    await expect(authService.login({ email: 'a@x.com', password: 'x' })).rejects.toThrow(
+      'Sem conexão com o servidor. Tente de novo.'
+    )
+  })
+
   it('logout pede ao backend para apagar o cookie', async () => {
     const fetchMock = stubFetch(new Response(null, { status: 204 }))
     await authService.logout()

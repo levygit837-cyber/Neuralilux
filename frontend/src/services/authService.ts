@@ -46,11 +46,18 @@ export const authService = {
     formData.append('password', credentials.password)
 
     // `apiFetch`, não `apiRequest`: 401 aqui é senha errada, e `apiRequest` encerraria uma sessão que não existe.
-    const response = await apiFetch('/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData.toString(),
-    })
+    let response: Response
+    try {
+      response = await apiFetch('/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: formData.toString(),
+      })
+    } catch (error) {
+      // `fetch` rejeita com `TypeError` quando não chega ao servidor (rede caída, API fora do ar, CORS).
+      if (error instanceof TypeError) throw new Error('Sem conexão com o servidor. Tente de novo.')
+      throw error
+    }
 
     if (!response.ok) throw new HttpError(response.status, await loginErrorMessage(response))
   },

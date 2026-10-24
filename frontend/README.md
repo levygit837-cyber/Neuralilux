@@ -59,7 +59,7 @@ Todas com versão exata. O `.npmrc` tem `save-exact=true`, então `npm install <
 - **Styling**: TailwindCSS, só tema dark. Os tokens de cor vivem como variáveis CSS em `src/app/globals.css` (`:root`) e são expostos em `tailwind.config.js` como `brand-*`, `primary-*`, `content-*` e `status-*`; não use hex nem cor fora desses nomes. O lint (`tailwindcss/no-custom-classname`) falha em classe inexistente. Variantes de componente com `class-variance-authority`; classes combinadas por `cn` (`clsx` + `tailwind-merge`).
 - **State**: React Query (dados do backend) + Zustand (sessão, Instance selecionada, chat)
 - **Realtime**: Socket.IO (`socket.io-client`)
-- **Icons**: Phosphor (`@phosphor-icons/react`). É a única lib de ícones; ícone decorativo leva `aria-hidden="true"`.
+- **Icons**: Phosphor (`@phosphor-icons/react`). É a única lib de ícones. Convenção para código novo: ícone decorativo (o texto ao lado já diz o que ele significa) leva `aria-hidden="true"`, porque o Phosphor não o põe por padrão; botão só com ícone leva `aria-label`.
 - **QR Code**: `react-qr-code`
 - **Testes**: Vitest, Testing Library e jsdom
 

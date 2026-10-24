@@ -56,7 +56,7 @@ export function WhatsAppConnectionCard() {
               >
                 <span className="text-sm font-medium text-content-light">{instance.name}</span>
                 <span className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${status.bgColor} ${status.color}`}>
-                  <StatusIcon className={`h-3.5 w-3.5 ${instance.status === 'connecting' ? 'animate-spin' : ''}`} />
+                  <StatusIcon aria-hidden="true" className={`h-3.5 w-3.5 ${instance.status === 'connecting' ? 'animate-spin' : ''}`} />
                   {status.label}
                 </span>
               </li>
