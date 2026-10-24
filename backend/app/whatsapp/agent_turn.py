@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 
 from app.agent import executor
 from app.core.config import settings
-from app.models import Agent, Contact, Conversation, Instance
+from app.models import Agent, Company, Contact, Conversation, Instance
+from app.packs.registry import packs_for
 from app.whatsapp.evolution_client import evolution_api
 from app.whatsapp.sender import send_and_persist
 from app.whatsapp.turn_batcher import Group
@@ -81,6 +82,8 @@ async def run_agent_turn(
         if instance is None or conversation is None or contact is None or agent is None:
             log.warning("Conversation vanished before the Turn, skipped")
             return
+        company = db.get(Company, instance.company_id) if instance.company_id else None
+        packs = packs_for(company) if company else []
 
         async with typing_indicator(instance.evolution_instance_id or instance.name, conversation.remote_jid):
             result = await executor.handle_incoming(
@@ -93,13 +96,14 @@ async def run_agent_turn(
                 message_ids=group.message_ids,
                 deferred_ids=group.deferred_ids,
                 agent=agent,
+                packs=packs,
             )
         if not result.reply_text:
             log.info("Agent returned no response", steps=result.steps)
             return
 
         delivered_at = await send_and_persist(db, instance, conversation, contact, result.reply_text)
-        executor.reply_delivered(db, instance, conversation, result.turn_id, delivered_at)
+        executor.reply_delivered(db, conversation, packs, result.turn_id, delivered_at)
         log.info("Agent response sent", steps=result.steps, response_length=len(result.reply_text))
     except Exception:
         log.exception("Unexpected error processing message with agent")

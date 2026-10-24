@@ -1,7 +1,7 @@
 """Eventos realtime de um Turn, no formato que o frontend já consome.
 
 `thinking` (`thinking_start`/`thinking_end`) e `tool_event` vão para a sala da
-Conversation via `realtime_event_bus.publish(event)`, sempre com um único dict
+Conversation via `app.realtime.publish.publish_event`, sempre com um único dict
 (o bus não aceita kwargs). Falha ao publicar só loga: evento de UI nunca derruba
 um Turn.
 """
@@ -11,23 +11,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-import structlog
-
 from app.agent.contracts import ToolUseBlock
 from app.agent.tools import ToolCall
-from app.realtime.event_bus import realtime_event_bus
+from app.realtime.publish import publish_event
 from app.realtime.tool_events import ToolEventTracker, TrackedToolCall
 
-logger = structlog.get_logger()
-
 EVENT_SOURCE = "whatsapp_agent"
-
-
-async def _publish(event: dict[str, Any]) -> None:
-    try:
-        await realtime_event_bus.publish(event)
-    except Exception as exc:
-        logger.warning("Realtime event publish failed", event_type=event.get("type"), error=str(exc))
 
 
 class TurnEvents:
@@ -44,7 +33,7 @@ class TurnEvents:
         )
 
     async def _thinking(self, event: str, data: dict[str, Any]) -> None:
-        await _publish(
+        await publish_event(
             {
                 "instance_name": self.instance_name,
                 "type": "thinking",
@@ -81,7 +70,7 @@ async def publish_handoff_requested(
     reason: str,
 ) -> None:
     """Avisa a UI que a Conversation entrou em Handoff."""
-    await _publish(
+    await publish_event(
         {
             "instance_name": instance_name,
             "type": "human_handoff_requested",

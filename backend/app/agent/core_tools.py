@@ -1,8 +1,10 @@
 """Tools do núcleo: valem para qualquer Company, independentemente do Pack.
 
-- `info_empresa`: dados cadastrais, horário, Pix, taxas e pedido mínimo, sempre da Company do contexto.
+- `info_empresa`: nome, endereço, telefone, horários e se está aberta agora, sempre da Company do contexto.
 - `transferir_atendente`: Handoff. Abre o Ticket, passa a Conversation para o Attendant e encerra o Turn.
 - `buscar_historico`: History Search nas Messages antigas do Contact (`app.agent.memory.search_history`).
+
+Nada aqui conhece um ramo (ADR 0004): o que é de um negócio específico fica no Pack do Business Type.
 """
 
 from __future__ import annotations
@@ -10,17 +12,15 @@ from __future__ import annotations
 import json
 from typing import Any
 
-import structlog
-
 from app.agent.business_hours import DAY_KEYS, DAY_LABELS, describe_opening, is_open_at, next_opening
 from app.agent import clock
 from app.agent.clock import DEFAULT_TIMEZONE, company_zone
 from app.agent.contracts import Tool, ToolContext, ToolResult
 from app.agent.memory import search_history
-from app.models import Company, Conversation, DeliveryZone, Instance
+from app.models import Company, Conversation, Instance
+from app.realtime.publish import publish_event
 from app.services.handoff_service import open_handoff
 
-logger = structlog.get_logger()
 
 TRANSFER_MESSAGE = "Vou te passar para um de nossos atendentes. Em instantes alguém continua essa conversa por aqui."
 AFTER_HOURS_MESSAGE = (
@@ -29,12 +29,6 @@ AFTER_HOURS_MESSAGE = (
 AFTER_HOURS_NO_WINDOW_MESSAGE = (
     "Nosso atendimento humano está fora do horário agora. Um atendente continua essa conversa assim que possível."
 )
-
-
-async def publish_event(event: dict[str, Any]) -> None:
-    from app.realtime.event_bus import realtime_event_bus
-
-    await realtime_event_bus.publish(event)
 
 
 def _ok(data: dict[str, Any]) -> ToolResult:
@@ -69,15 +63,7 @@ async def _info_empresa(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
     if company is None:
         return _error("Empresa não encontrada.")
 
-    zones = (
-        ctx.db.query(DeliveryZone)
-        .filter(DeliveryZone.company_id == company.id, DeliveryZone.is_active.is_(True))
-        .order_by(DeliveryZone.name)
-        .all()
-    )
     local_now = clock.utc_now().astimezone(company_zone(company))
-    payment_methods = ["pix"] if company.pix_key else []
-    payment_methods += ["dinheiro", "cartao"]
 
     return _ok(
         {
@@ -87,12 +73,6 @@ async def _info_empresa(ctx: ToolContext, _args: dict[str, Any]) -> ToolResult:
             "horarios": _format_hours(company.business_hours),
             "aberto_agora": is_open_at(company.business_hours, local_now),
             "fuso_horario": company.timezone or DEFAULT_TIMEZONE,
-            "formas_pagamento": payment_methods,
-            "chave_pix": company.pix_key,
-            "pedido_minimo": float(company.minimum_order) if company.minimum_order is not None else None,
-            "taxas_entrega": [
-                {"zona": z.name, "bairros": list(z.neighborhoods or []), "taxa": float(z.delivery_fee)} for z in zones
-            ],
         }
     )
 
@@ -117,23 +97,20 @@ async def _transferir_atendente(ctx: ToolContext, args: dict[str, Any]) -> ToolR
     if ticket is None:  # outra requisição abriu o Handoff no meio: o Turn termina do mesmo jeito
         return ToolResult(content=farewell, ends_turn=True)
     instance = ctx.db.get(Instance, conversation.instance_id)
-    try:
-        await publish_event(
-            {
-                "instance_name": instance.name if instance else None,
-                "type": "human_handoff_requested",
-                "payload": {
-                    "conversation_id": conversation.id,
-                    "instance_id": conversation.instance_id,
-                    "contact_id": conversation.contact_id,
-                    "ticket_id": ticket.id,
-                    "reason": reason,
-                    "timestamp": clock.utc_now().isoformat(),
-                },
-            }
-        )
-    except Exception as exc:  # o Handoff já está gravado; falha de notificação não pode desfazê-lo
-        logger.warning("Failed to publish handoff event", ticket_id=ticket.id, error=str(exc))
+    await publish_event(  # o Handoff já está gravado; falha de notificação só loga (`publish_event`)
+        {
+            "instance_name": instance.name if instance else None,
+            "type": "human_handoff_requested",
+            "payload": {
+                "conversation_id": conversation.id,
+                "instance_id": conversation.instance_id,
+                "contact_id": conversation.contact_id,
+                "ticket_id": ticket.id,
+                "reason": reason,
+                "timestamp": clock.utc_now().isoformat(),
+            },
+        }
+    )
 
     return ToolResult(content=farewell, ends_turn=True)
 
@@ -179,9 +156,8 @@ def core_tools() -> list[Tool]:
         Tool(
             name="info_empresa",
             description=(
-                "Dados da empresa que atende: nome, endereço, telefone, horários de funcionamento, se está "
-                "aberta agora, formas de pagamento, chave Pix, taxas de entrega por zona e pedido mínimo. "
-                "Use para responder sobre horário, endereço, taxa de entrega ou como pagar."
+                "Dados da empresa que atende: nome, endereço, telefone, horários de funcionamento e se está "
+                "aberta agora. Use para responder sobre horário, endereço ou telefone."
             ),
             input_schema={"type": "object", "properties": {}, "additionalProperties": False},
             handler=_info_empresa,
@@ -190,11 +166,11 @@ def core_tools() -> list[Tool]:
             name="transferir_atendente",
             description=(
                 "Passa a conversa para um atendente humano e encerra o seu turno. Use quando o cliente pedir para "
-                "falar com um humano, fizer uma reclamação grave, ou relatar um problema com um pedido já feito. "
-                "Não use para dúvidas que você mesmo consegue responder. Antes de transferir, escreva em "
-                "frase_empatica uma frase curta e acolhedora ao cliente, coerente com o motivo (peça de desculpas "
-                "numa reclamação; confirme o pedido de falar com uma pessoa). Não prometa prazo nem horário: o "
-                "sistema acrescenta quando haverá atendimento humano."
+                "falar com um humano, fizer uma reclamação grave, ou relatar um problema com algo que já foi "
+                "combinado. Não use para dúvidas que você mesmo consegue responder. Antes de "
+                "transferir, escreva em frase_empatica uma frase curta e acolhedora ao cliente, coerente com o "
+                "motivo (peça desculpas numa reclamação; confirme que vai chamar uma pessoa). Não prometa "
+                "prazo nem horário: o sistema acrescenta quando haverá atendimento humano."
             ),
             input_schema={
                 "type": "object",
@@ -214,7 +190,7 @@ def core_tools() -> list[Tool]:
             name="buscar_historico",
             description=(
                 "Busca por palavras nas mensagens antigas deste cliente, fora das mensagens recentes que você já vê. "
-                "Use quando o cliente se referir a algo de antes, como 'o pedido de ontem' ou 'aquela pizza que pedi'."
+                "Use quando o cliente se referir a algo de antes, como 'aquilo que combinamos ontem'."
             ),
             input_schema={
                 "type": "object",

@@ -75,7 +75,7 @@ async def test_message_arriving_during_a_turn_is_answered_in_the_next_turn_witho
     gate = asyncio.Event()
     running, peak = 0, 0
 
-    async def slow_turn(db, conversation, contact, instance, text, received_at=None, message_ids=(), deferred_ids=(), agent=None):
+    async def slow_turn(db, conversation, contact, instance, text, received_at=None, message_ids=(), deferred_ids=(), agent=None, packs=()):
         nonlocal running, peak
         world["turns"].append(text)
         running += 1
@@ -128,7 +128,7 @@ async def test_different_conversations_group_independently_and_run_in_parallel(d
 async def test_typing_is_shown_while_the_turn_runs_and_stops_after_the_reply(db, world, consumer, clock, presence, monkeypatch):
     seen_during_turn = []
 
-    async def turn(db, conversation, contact, instance, text, received_at=None, message_ids=(), deferred_ids=(), agent=None):
+    async def turn(db, conversation, contact, instance, text, received_at=None, message_ids=(), deferred_ids=(), agent=None, packs=()):
         await settle()
         seen_during_turn.append(len(presence))
         return TurnResult(reply_text="Resposta")
@@ -175,7 +175,7 @@ async def test_grouped_turn_is_triggered_at_the_oldest_message_of_the_group(db, 
     """O Recap só vale se a Message que dispara o Turn é posterior à entrega dele: a mais antiga do grupo manda."""
     received = []
 
-    async def turn(db, conversation, contact, instance, text, received_at=None, message_ids=(), deferred_ids=(), agent=None):
+    async def turn(db, conversation, contact, instance, text, received_at=None, message_ids=(), deferred_ids=(), agent=None, packs=()):
         received.append(received_at)
         return TurnResult(reply_text=None)
 

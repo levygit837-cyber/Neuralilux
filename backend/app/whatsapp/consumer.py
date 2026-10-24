@@ -20,12 +20,12 @@ from app.core.config import settings
 from app.core.database import SessionLocal
 from app.agent.sessions import roll_session
 from app.models import Company, Contact, Conversation, Instance, Message
-from app.whatsapp import history_sync
+from app.packs.registry import packs_for
+from app.whatsapp import history_sync, system_notice
 from app.services.agent_service import resolve_turn_agent
 from app.whatsapp.agent_turn import run_agent_turn
 from app.whatsapp.message_store import get_or_create_contact, get_or_create_conversation, new_message
 from app.whatsapp.message_queue import message_queue_service
-from app.whatsapp import system_notice
 from app.whatsapp.handoff_tracking import track_handoff
 from app.whatsapp.sender import send_and_persist
 from app.whatsapp.turn_batcher import Entry, Hold, TurnBatcher
@@ -253,7 +253,7 @@ class WhatsAppMessageConsumer:
         company = db.get(Company, instance.company_id) if instance.company_id else None
         if company is None:
             return
-        roll_session(db, conversation, company, executor.packs_for(company), timestamp)
+        roll_session(db, conversation, company, packs_for(company), timestamp)
 
     def _skip_agent_reason(self, from_me: bool, remote_jid: str, timestamp: datetime) -> Optional[str]:
         if is_group_chat(remote_jid):

@@ -3,7 +3,7 @@
 A Session começa na primeira Message depois de `Company.session_timeout_minutes` sem Messages. A Recent
 Window mostra só a Session atual; Summary e History Search continuam alcançando as anteriores. Cada Pack é
 avisado, se tiver o gancho opcional `on_session_start`, quando uma Session nova substitui outra, para tratar o
-que ficou pendente (ex.: Order aberto).
+que ficou pendente (ex.: um rascunho aberto).
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.agent.clock import as_utc
 from app.agent.contracts import Pack
+from app.agent.pack_hooks import run_session_start
 from app.models import Company, Conversation, Message
 from app.models.company import DEFAULT_SESSION_TIMEOUT_MINUTES
 
@@ -40,11 +41,7 @@ def roll_session(
 
     conversation.previous_session_started_at = conversation.session_started_at
     conversation.session_started_at = at
-    for pack in packs:
-        # Gancho opcional: Pack sem pendência de Session não precisa declará-lo.
-        on_session_start = getattr(pack, "on_session_start", None)
-        if on_session_start is not None:
-            on_session_start(db, conversation)
+    run_session_start(packs, db, conversation)  # gancho opcional: Pack sem pendência de Session não o declara
     return True
 
 

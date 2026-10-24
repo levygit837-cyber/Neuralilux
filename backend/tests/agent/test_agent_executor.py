@@ -8,6 +8,7 @@ import pytest
 from app.agent import executor
 from app.agent.contracts import DEFAULT_MAX_TOKENS, Tool, ToolResult
 from app.core import database
+from app.packs import registry
 from app.models import Agent, Company, Contact, Conversation, ConversationMemorySummary, Instance, Message, Ticket
 from tests.agent_fakes import FakeMessagesClient, FakePack, reply, text, tool_use, without_turn_context
 from app.services.agent_service import resolve_turn_agent
@@ -32,8 +33,16 @@ def _message(db, conversation, content, direction, minutes_ago):
 
 async def _handle(db, conversation, contact, instance, text, **kwargs):
     """O Turn como o consumer o roda: o Agent vem de `resolve_turn_agent` e segue até o executor."""
+    company = db.get(Company, instance.company_id) if instance.company_id else None
     return await executor.handle_incoming(
-        db, conversation, contact, instance, text, agent=resolve_turn_agent(db, instance), **kwargs
+        db,
+        conversation,
+        contact,
+        instance,
+        text,
+        agent=resolve_turn_agent(db, instance),
+        packs=registry.packs_for(company) if company else [],
+        **kwargs,
     )
 
 
@@ -75,7 +84,7 @@ def agent(monkeypatch):
         Tool(name=name, description=name, input_schema={"type": "object"}, handler=handler)
     )
     monkeypatch.setattr(executor, "resolve_gateway", lambda agent_type: (state["client"], "fake-model", "low"))
-    monkeypatch.setattr(executor, "pack_for_company", lambda company: pack)
+    monkeypatch.setattr(registry, "pack_for_company", lambda company: pack)
     return state
 
 

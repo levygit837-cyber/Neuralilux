@@ -6,6 +6,7 @@ from pack_helpers import call, make_world, payload, tool_named
 from app.agent import clock, core_tools
 from app.agent.core_tools import TRANSFER_MESSAGE, core_tools as build_core_tools
 from app.models import Message, Ticket
+from app.realtime.event_bus import realtime_event_bus
 
 pytestmark = pytest.mark.asyncio
 
@@ -60,25 +61,27 @@ async def test_info_empresa_fields(world, monkeypatch):
     assert data["horarios"]["segunda"] == "18:00-23:00"
     assert data["horarios"]["sexta"] == "18:00-00:00"
     assert data["fuso_horario"] == "America/Fortaleza"
-    assert data["formas_pagamento"] == ["pix", "dinheiro", "cartao"]
-    assert data["chave_pix"] == "pix@macedos.example"
-    assert data["pedido_minimo"] == 30.0
-    assert data["taxas_entrega"] == [{"zona": "Centro", "bairros": ["Centro", "Aldeota"], "taxa": 5.0}]
+    assert data["aberto_agora"] is True
+
+
+async def test_info_empresa_returns_only_company_identity_and_hours(world):
+    """O núcleo não conhece ramo (ADR 0004): entrega, Pix, mínimo e pagamento são do Pack de pedidos."""
+    data = payload(await call(tool("info_empresa"), world.ctx))
+    assert set(data) == {"nome", "endereco", "telefone", "horarios", "aberto_agora", "fuso_horario"}
 
 
 async def test_info_empresa_is_scoped_to_context_company(world):
     data = payload(await call(tool("info_empresa"), world.ctx))
-    assert "Outra Pizzaria" not in str(data) and "outra@pix.example" not in str(data)
-    assert all(z["zona"] not in ("Praia", "Legada") for z in data["taxas_entrega"])
+    assert data["nome"] == "Macedos"
+    assert "Outra Pizzaria" not in str(data)
 
 
-async def test_info_empresa_without_hours_or_pix(db):
-    world = make_world(db, pix_key=None)
+async def test_info_empresa_without_hours(db):
+    world = make_world(db)
     world.company.business_hours = None
     db.commit()
     data = payload(await call(tool("info_empresa"), world.ctx))
     assert data["aberto_agora"] is None
-    assert "pix" not in data["formas_pagamento"] and data["chave_pix"] is None
 
 
 # ---------- transferir_atendente ----------
@@ -141,7 +144,7 @@ async def test_transfer_survives_event_bus_failure(world, monkeypatch):
     async def boom(event):
         raise ConnectionError("redis down")
 
-    monkeypatch.setattr(core_tools, "publish_event", boom)
+    monkeypatch.setattr(realtime_event_bus, "publish", boom)
     result = await call(tool("transferir_atendente"), world.ctx, motivo="x")
     assert result.ends_turn and not result.is_error
     assert world.db.query(Ticket).count() == 1
@@ -163,11 +166,11 @@ async def test_buscar_historico_blank_query_is_error(world):
 # ---------- contrato ----------
 
 
-async def test_six_tools_in_total():
+async def test_seven_tools_in_total_with_unique_names():
     from app.packs.catalog_orders.pack import CatalogOrdersPack
 
     names = [t.name for t in build_core_tools()] + [t.name for t in CatalogOrdersPack().tools()]
-    assert len(names) == len(set(names)) == 6
+    assert len(names) == len(set(names)) == 7
 
 
 async def test_buscar_historico_uses_memory_search_scoped_to_contact(world):

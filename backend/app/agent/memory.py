@@ -23,7 +23,8 @@ _SUMMARY_SYSTEM = (
     "Você mantém o resumo de uma conversa de atendimento por WhatsApp entre um Cliente e o Agent "
     f"de uma empresa. Escreva em português do Brasil, em no máximo {SUMMARY_MAX_CHARS} caracteres. "
     "Una o resumo anterior (se houver) às novas mensagens. Preserve fatos úteis para atender depois: "
-    "pedidos, itens, endereços, preferências, combinados e pendências. Responda só com o resumo."
+    "o que o cliente pediu ou combinou, dados de contato e endereço, preferências e pendências. "
+    "Responda só com o resumo."
 )
 
 

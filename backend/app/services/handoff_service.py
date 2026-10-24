@@ -14,7 +14,6 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any
 
 import structlog
 from sqlalchemy import or_
@@ -23,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.agent import clock
 from app.core import database
 from app.models import Company, Conversation, Instance, Message, Ticket, User
+from app.realtime.publish import publish_event
 
 logger = structlog.get_logger()
 
@@ -46,12 +46,6 @@ class Released:
 def _aware(value: datetime) -> datetime:
     """SQLite devolve datetimes sem fuso; tudo é gravado em UTC."""
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-
-
-async def publish_event(event: dict[str, Any]) -> None:
-    from app.realtime.event_bus import realtime_event_bus
-
-    await realtime_event_bus.publish(event)
 
 
 # ---------- transições ----------
@@ -232,28 +226,25 @@ def is_overdue(db: Session, conversation: Conversation, company: Company | None,
 
 
 async def announce(instance: Instance | None, conversation: Conversation, change: str, ticket: Ticket | None) -> None:
-    """Avisa a UI (`handoff_updated`). `change`: assumed | released | expired. Falha de notificação só loga."""
+    """Avisa a UI (`handoff_updated`). `change`: assumed | released | expired. Falha de notificação só loga (`publish_event`)."""
     if instance is None:
         return
-    try:
-        await publish_event(
-            {
-                "instance_name": instance.name,
-                "type": "handoff_updated",
-                "payload": {
-                    "conversation_id": conversation.id,
-                    "remote_jid": conversation.remote_jid,
-                    "instance_id": conversation.instance_id,
-                    "ticket_id": ticket.id if ticket else None,
-                    "change": change,
-                    "human_in_loop": bool(conversation.human_in_loop),
-                    "assigned_to": ticket.assigned_to if ticket and conversation.human_in_loop else None,
-                    "timestamp": clock.utc_now().isoformat(),
-                },
-            }
-        )
-    except Exception as exc:  # o estado já está gravado
-        logger.warning("Failed to publish handoff update", conversation_id=conversation.id, change=change, error=str(exc))
+    await publish_event(  # o estado já está gravado: falha de notificação só loga (`publish_event`)
+        {
+            "instance_name": instance.name,
+            "type": "handoff_updated",
+            "payload": {
+                "conversation_id": conversation.id,
+                "remote_jid": conversation.remote_jid,
+                "instance_id": conversation.instance_id,
+                "ticket_id": ticket.id if ticket else None,
+                "change": change,
+                "human_in_loop": bool(conversation.human_in_loop),
+                "assigned_to": ticket.assigned_to if ticket and conversation.human_in_loop else None,
+                "timestamp": clock.utc_now().isoformat(),
+            },
+        }
+    )
 
 
 async def expire_if_due(db: Session, conversation: Conversation, instance: Instance, now: datetime | None = None) -> bool:

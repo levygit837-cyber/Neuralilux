@@ -2,11 +2,10 @@
 
 import pytest
 
-from app.agent import executor
 from app.agent.core_tools import core_tools
 from app.models import BusinessType, Company
 from app.packs.catalog_orders.pack import CatalogOrdersPack
-from app.packs.registry import pack_for_company
+from app.packs.registry import pack_for_company, packs_for
 
 CORE_TOOL_NAMES = sorted(tool.name for tool in core_tools())
 
@@ -32,9 +31,9 @@ def test_restaurant_recebe_o_pack_de_catalogo_e_pedidos_alem_do_nucleo(db):
     company = _company(db, "restaurant")
 
     assert isinstance(pack_for_company(company), CatalogOrdersPack)
-    names = _tool_names(executor.packs_for(company))
+    names = _tool_names(packs_for(company))
     assert set(CORE_TOOL_NAMES) < set(names)
-    assert "buscar_cardapio" in names
+    assert {"buscar_cardapio", "gerenciar_pedido", "status_pedido", "condicoes_pedido"} <= set(names)
 
 
 @pytest.mark.parametrize("slug", ["oficina", "", None], ids=["desconhecido", "vazio", "sem-business-type"])
@@ -42,4 +41,4 @@ def test_business_type_sem_pack_fica_so_com_as_tools_do_nucleo(db, slug):
     company = _company(db, slug)
 
     assert pack_for_company(company) is None
-    assert _tool_names(executor.packs_for(company)) == CORE_TOOL_NAMES
+    assert _tool_names(packs_for(company)) == CORE_TOOL_NAMES
