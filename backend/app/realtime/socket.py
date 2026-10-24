@@ -12,6 +12,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.api.access import can_access_instance, resolve_instance
+from app.core.auth_cookie import auth_cookie_from_header
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.services.user_service import get_active_user_from_token
@@ -40,7 +41,8 @@ class ChatSocketService:
             environ: dict[str, Any],
             auth: Optional[dict[str, Any]] = None,
         ):
-            token = (auth or {}).get("token")
+            # Navegador: cookie httpOnly no handshake. `auth.token` segue valendo para clientes que não são navegador.
+            token = (auth or {}).get("token") or auth_cookie_from_header(environ.get("HTTP_COOKIE"))
             user = self._get_user_from_token(token) if token else None
 
             if not user:

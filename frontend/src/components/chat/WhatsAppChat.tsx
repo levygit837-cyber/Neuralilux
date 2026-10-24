@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef } from 'react'
 import { selectActiveConversation, useChatStore } from '@/stores/useChatStore'
-import { useAuthStore } from '@/stores/useAuthStore'
+import { useSessionReady } from '@/hooks/useSessionReady'
 import { useResolvedInstance } from '@/hooks/useResolvedInstance'
 import { useAgentControl } from '@/hooks/useAgentControl'
 import { useChatRealtime } from '@/hooks/useChatRealtime'
@@ -23,7 +23,7 @@ function Banner({ text, tone }: { text: string; tone: 'warning' | 'error' }) {
 }
 
 export function WhatsAppChat() {
-  const token = useAuthStore((state) => state.token)
+  const sessionReady = useSessionReady()
   const conversations = useChatStore((state) => state.conversations)
   const activeConversationId = useChatStore((state) => state.activeConversationId)
   const isLoadingConversations = useChatStore((state) => state.isLoadingConversations)
@@ -43,11 +43,11 @@ export function WhatsAppChat() {
 
   const { resolvedInstance, isResolvingInstance, resolveError } = useResolvedInstance()
   const instanceName = resolvedInstance?.name
-  const agent = useAgentControl(instanceName, token)
+  const agent = useAgentControl(instanceName)
   const handoff = useHandoffControl(activeConversationId)
 
   const { isConnected } = useChatRealtime({
-    token,
+    enabled: sessionReady,
     instanceName,
     openConversationJid,
   })

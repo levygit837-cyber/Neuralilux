@@ -21,7 +21,7 @@ const wrapper = () => queryWrapper().Wrapper
 
 describe('useCompanySettings', () => {
   beforeEach(() => {
-    useAuthStore.setState({ token: 'token', hasHydrated: true })
+    useAuthStore.setState({ isAuthenticated: true, hasHydrated: true })
     vi.mocked(authService.getCurrentUser).mockResolvedValue({ company_id: 'c1', is_superuser: false } as User)
     vi.mocked(companyService.getAgent).mockResolvedValue(agent)
   })
@@ -29,7 +29,7 @@ describe('useCompanySettings', () => {
   afterEach(() => {
     cleanup()
     vi.resetAllMocks()
-    useAuthStore.setState({ token: null, hasHydrated: false })
+    useAuthStore.setState({ isAuthenticated: false, hasHydrated: false })
   })
 
   it('expõe o erro do backend quando a Company não carrega', async () => {

@@ -29,6 +29,9 @@ def make_user(client, db, email: str, company=None, superuser: bool = False) -> 
     token = client.post(
         "/api/v1/auth/login", data={"username": email, "password": "testpass123"}
     ).json()["access_token"]
+    # O login também grava o cookie de sessão no jar do client. Os testes que usam esses headers querem Bearer puro
+    # (e os "sem token" têm de continuar anônimos), então o cookie não fica no client.
+    client.cookies.clear()
     return {"Authorization": f"Bearer {token}"}
 
 

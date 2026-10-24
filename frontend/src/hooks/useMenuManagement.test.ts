@@ -26,7 +26,7 @@ const menu = (items: MenuItem[]) =>
 
 describe('useMenuManagement', () => {
   beforeEach(() => {
-    useAuthStore.setState({ token: 'token', hasHydrated: true })
+    useAuthStore.setState({ isAuthenticated: true, hasHydrated: true })
     vi.stubGlobal('confirm', vi.fn().mockReturnValue(true))
     window.confirm = vi.fn().mockReturnValue(true)
   })
@@ -35,7 +35,7 @@ describe('useMenuManagement', () => {
     cleanup()
     vi.resetAllMocks()
     vi.unstubAllGlobals()
-    useAuthStore.setState({ token: null, hasHydrated: false })
+    useAuthStore.setState({ isAuthenticated: false, hasHydrated: false })
   })
 
   it('apagar um item refaz o cardápio e o item some da tela', async () => {

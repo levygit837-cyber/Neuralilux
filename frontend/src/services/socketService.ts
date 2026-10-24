@@ -94,12 +94,13 @@ class SocketService {
     })
   }
 
-  connect(token: string) {
+  /** Autentica pelo cookie de sessão no handshake (`withCredentials`); o token não passa pelo JavaScript. */
+  connect() {
     if (this.socket?.connected) return
 
     this.socket?.disconnect()
     this.socket = io(SOCKET_URL, {
-      auth: { token },
+      withCredentials: true,
       path: SOCKET_PATH,
       transports: ['websocket', 'polling'],
       reconnection: true,

@@ -5,7 +5,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/queryKeys'
 import { instanceService, type InstanceStatus } from '@/services/instanceService'
 import { socketService } from '@/services/socketService'
-import { useAuthStore } from '@/stores/useAuthStore'
+import { useSessionReady } from '@/hooks/useSessionReady'
 
 const STATUS_POLL_MS = 3000
 const QR_REFRESH_MS = 20000
@@ -19,7 +19,7 @@ const messageOf = (error: unknown, fallback: string) => (error instanceof Error 
  */
 export function useInstanceConnection(instanceName: string | undefined) {
   const queryClient = useQueryClient()
-  const token = useAuthStore((state) => state.token)
+  const sessionReady = useSessionReady()
   const [status, setStatus] = useState<InstanceStatus>('disconnected')
   const [qrCode, setQrCode] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
@@ -112,8 +112,8 @@ export function useInstanceConnection(instanceName: string | undefined) {
 
   // Eventos do nosso Socket.IO.
   useEffect(() => {
-    if (!instanceName || !token) return
-    socketService.connect(token)
+    if (!instanceName || !sessionReady) return
+    socketService.connect()
     socketService.subscribeToInstance(instanceName)
 
     const unsubscribe = socketService.subscribe((notice) => {
@@ -134,7 +134,7 @@ export function useInstanceConnection(instanceName: string | undefined) {
       socketService.leaveInstance(instanceName)
       socketService.disconnect()
     }
-  }, [instanceName, token, applyStatus])
+  }, [instanceName, sessionReady, applyStatus])
 
   // Enquanto espera a leitura do QR: confere o estado e renova o QR que expirou.
   useEffect(() => {

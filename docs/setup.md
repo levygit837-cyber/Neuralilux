@@ -137,6 +137,16 @@ npm run dev                   # http://localhost:3000
 
 Entre com `usuario@teste.com` / `teste123`.
 
+### Sessão do painel (cookie `httpOnly`)
+
+O login do painel grava o JWT num cookie `httpOnly` (`nlx_auth`), que JavaScript não lê ([ADR 0008](adr/0008-sessao-em-cookie-httponly.md)). Para o cookie chegar ao Next e à API:
+
+- **Dev**: deixe frontend e API no mesmo host (`localhost:3000` e `localhost:8000`); cookies ignoram a porta. O cookie só leva `Secure` fora de `ENVIRONMENT=development`, então em `localhost` ele funciona em http.
+- **Origem do painel em `CORS_ORIGINS`**: toda mutação (POST, PUT, PATCH, DELETE) com `Origin` fora dessa lista responde 403. Se abrir o painel por outra porta ou host, acrescente-o em `CORS_ORIGINS` do `backend/.env`.
+- **Produção**: o cookie é `Secure` (só https). Frontend e API precisam ser do mesmo site: subdomínios de um domínio comum com `AUTH_COOKIE_DOMAIN=.exemplo.com` no backend, ou atrás do mesmo host. Em sites diferentes o painel não loga. Com `AUTH_COOKIE_DOMAIN` no backend, defina o mesmo valor no ambiente do frontend: o proxy só consegue apagar um cookie de domínio pai (cookie recusado pelo backend) se informar o mesmo domínio.
+- **`API_INTERNAL_URL`** (frontend, opcional): a URL pela qual o servidor do Next alcança a API para validar a sessão (`/auth/me`), quando difere da `NEXT_PUBLIC_API_URL` do navegador (ex.: `http://api:8000` na rede do Docker).
+- Scripts e integrações continuam com `Authorization: Bearer` (veja [integrations.md](integrations.md)); eles não usam o cookie.
+
 ## 5. Gateway
 
 O seed já cadastrou o `Kiro-backend` (modelo `claude-sonnet-5.5`, effort `low`) e o atribuiu a `default`. Para usar outro, entre como superuser e abra **Configurações > Gateways**, ou use `/api/v1/gateways`. `base_url` é a raiz, sem `/v1` (`http://localhost:5580`). Sem atribuição para `whatsapp_agent` vale a de `default`; sem nenhuma, o Turn falha com `LLMNotConfiguredError`.

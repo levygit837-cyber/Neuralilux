@@ -23,5 +23,6 @@ class UserResponse(BaseModel):
 
 
 class Token(BaseModel):
-    access_token: str
+    # Ausente na resposta de navegador (requisição com `Origin`): a sessão fica só no cookie `httpOnly`.
+    access_token: str | None = None
     token_type: str = "bearer"

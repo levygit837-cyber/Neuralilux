@@ -1,10 +1,11 @@
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta
 
 from app.api.deps import get_current_user, get_db, get_optional_user
+from app.core.auth_cookie import clear_auth_cookie, set_auth_cookie
 from app.core.config import settings
 from app.core.rate_limit import limit_login, limit_register
 from app.core.security import create_access_token
@@ -52,12 +53,17 @@ async def register(
         )
 
 
-@router.post("/login", response_model=Token, dependencies=[Depends(limit_login)])
+@router.post("/login", response_model=Token, response_model_exclude_none=True, dependencies=[Depends(limit_login)])
 async def login(
+    request: Request,
+    response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
-    """Login and get access token. Rate limit por IP (429 com Retry-After; 503 se o Redis falha)."""
+    """Login: grava o JWT no cookie `httpOnly`. Navegador (requisição com `Origin`) só recebe o cookie, o JS nunca vê o
+    token; clientes sem `Origin` (scripts, e2e com Bearer) recebem também `access_token` no corpo.
+
+    Rate limit por IP (429 com Retry-After; 503 se o Redis falha)."""
     user = authenticate_user(db, form_data.username, form_data.password)
     if not user:
         raise HTTPException(
@@ -77,7 +83,16 @@ async def login(
         data={"sub": user.email}, expires_delta=access_token_expires
     )
 
+    set_auth_cookie(response, access_token)
+    if request.headers.get("origin") is not None:
+        return {"token_type": "bearer"}
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(response: Response):
+    """Encerra a sessão do navegador apagando o cookie. Sem autenticação: sair com cookie vencido tem de funcionar."""
+    clear_auth_cookie(response)
 
 
 @router.get("/me", response_model=UserResponse)

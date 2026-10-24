@@ -21,7 +21,7 @@ const messageOf = (err: unknown, fallback: string) => (err instanceof Error ? er
 export function useOrderPanel() {
   const queryClient = useQueryClient()
   const enabled = useSessionReady()
-  const isLoggedOut = useAuthStore((state) => state.hasHydrated && !state.token)
+  const isLoggedOut = useAuthStore((state) => state.hasHydrated && !state.isAuthenticated)
 
   const [filter, setFilter] = useState<OrderListFilter>('active')
   const [feedback, setFeedback] = useState<OrderFeedback | null>(null)

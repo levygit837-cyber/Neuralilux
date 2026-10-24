@@ -1,8 +1,17 @@
-import { describe, expect, it } from 'vitest'
-import { loginErrorMessage } from '@/services/authService'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { authService, loginErrorMessage } from '@/services/authService'
+import { apiRequest } from '@/services/http'
+
+afterEach(() => vi.unstubAllGlobals())
 
 const response = (status: number, body: unknown, headers: Record<string, string> = {}) =>
   new Response(typeof body === 'string' ? body : JSON.stringify(body), { status, headers })
+
+const stubFetch = (res = new Response('{}', { status: 200 })) => {
+  const fetchMock = vi.fn().mockResolvedValue(res)
+  vi.stubGlobal('fetch', fetchMock)
+  return fetchMock
+}
 
 describe('loginErrorMessage', () => {
   it('429 diz quanto esperar a partir de Retry-After', async () => {
@@ -30,5 +39,47 @@ describe('loginErrorMessage', () => {
 
   it('corpo sem JSON cai no fallback em vez de estourar', async () => {
     expect(await loginErrorMessage(response(502, '<html>'))).toBe('Erro ao fazer login')
+  })
+})
+
+describe('sessão por cookie', () => {
+  it('apiRequest manda o cookie (credentials: include) e nenhum Authorization', async () => {
+    const fetchMock = stubFetch()
+    await apiRequest('/menu')
+
+    const init = fetchMock.mock.calls[0][1]
+    expect(init.credentials).toBe('include')
+    expect(Object.keys(init.headers)).not.toContain('Authorization')
+  })
+
+  it('login deixa o navegador guardar o cookie e não devolve o token', async () => {
+    const fetchMock = stubFetch(new Response('{"access_token":"segredo","token_type":"bearer"}', { status: 200 }))
+
+    await expect(authService.login({ email: 'a@x.com', password: 'senha' })).resolves.toBeUndefined()
+    expect(fetchMock.mock.calls[0][1].credentials).toBe('include')
+  })
+
+  it('login recusado mostra o detail do backend', async () => {
+    stubFetch(new Response('{"detail":"Incorrect email or password"}', { status: 401 }))
+    await expect(authService.login({ email: 'a@x.com', password: 'x' })).rejects.toThrow('Incorrect email or password')
+  })
+
+  it('logout pede ao backend para apagar o cookie', async () => {
+    const fetchMock = stubFetch(new Response(null, { status: 204 }))
+    await authService.logout()
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(String(url)).toMatch(/\/api\/v1\/auth\/logout$/)
+    expect(init).toMatchObject({ method: 'POST', credentials: 'include' })
+  })
+
+  it('logout recusado pelo backend (403 por CORS_ORIGINS) vira erro: o cookie segue valendo', async () => {
+    stubFetch(new Response('{"detail":"Origin not allowed"}', { status: 403 }))
+    await expect(authService.logout()).rejects.toThrow('Origin not allowed')
+  })
+
+  it('logout com erro 5xx também vira erro', async () => {
+    stubFetch(new Response('', { status: 502 }))
+    await expect(authService.logout()).rejects.toThrow('Erro ao encerrar a sessão')
   })
 })

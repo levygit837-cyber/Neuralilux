@@ -1,14 +1,10 @@
 import { API_BASE_URL as API_URL } from '@/lib/constants'
-import { apiRequest, errorFromResponse } from '@/services/http'
+import { apiRequest, clearServerSession, errorFromResponse } from '@/services/http'
+import type { User as SessionUser } from '@/types/auth'
 
 export interface LoginCredentials {
   email: string
   password: string
-}
-
-export interface LoginResponse {
-  access_token: string
-  token_type: string
 }
 
 export interface User {
@@ -35,14 +31,24 @@ export async function loginErrorMessage(response: Response): Promise<string> {
   return (await errorFromResponse(response, 'Erro ao fazer login')).message
 }
 
+/** Usuário do store (nome e e-mail para a interface) a partir do `/auth/me`. */
+export function toSessionUser(user: User): SessionUser {
+  return { id: user.id, name: user.full_name || user.email, email: user.email }
+}
+
 export const authService = {
-  async login(credentials: LoginCredentials): Promise<LoginResponse> {
+  /**
+   * O backend grava o JWT num cookie `httpOnly` (`credentials: 'include'` deixa o navegador guardá-lo). Com `Origin`
+   * (navegador) o corpo não traz o token; só scripts, sem `Origin`, o recebem. O frontend nunca o lê nem o guarda.
+   */
+  async login(credentials: LoginCredentials): Promise<void> {
     const formData = new URLSearchParams()
     formData.append('username', credentials.email)
     formData.append('password', credentials.password)
 
     const response = await fetch(`${API_URL}/api/v1/auth/login`, {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
@@ -52,13 +58,20 @@ export const authService = {
     if (!response.ok) {
       throw new Error(await loginErrorMessage(response))
     }
-
-    return response.json()
   },
 
-  /** `token` explícito: no login o token ainda não está salvo. Um 401 passa pela camada HTTP central. */
-  getCurrentUser(token: string): Promise<User> {
-    return apiRequest<User>('/auth/me', { headers: { Authorization: `Bearer ${token}` } }, 'Erro ao obter dados do usuário')
+  /** Usuário da sessão (cookie). Um 401 passa pela camada HTTP central, que encerra a sessão. */
+  getCurrentUser(): Promise<User> {
+    return apiRequest<User>('/auth/me', {}, 'Erro ao obter dados do usuário')
+  },
+
+  /**
+   * Apaga o cookie de sessão no backend. Só ele pode: o cookie é `httpOnly`. Recusa (403 por `CORS_ORIGINS`, 5xx)
+   * vira erro: o cookie continua valendo, então quem chama não pode dar a sessão por encerrada.
+   */
+  async logout(): Promise<void> {
+    const response = await clearServerSession()
+    if (!response.ok) throw await errorFromResponse(response, 'Erro ao encerrar a sessão')
   },
 
   async register(data: {

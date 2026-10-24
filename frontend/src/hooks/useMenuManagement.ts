@@ -16,9 +16,8 @@ const messageOf = (err: unknown, fallback: string) => (err instanceof Error ? er
 
 export function useMenuManagement() {
   const queryClient = useQueryClient()
-  const token = useAuthStore((state) => state.token)
   const enabled = useSessionReady()
-  const isLoggedOut = useAuthStore((state) => state.hasHydrated && !state.token)
+  const isLoggedOut = useAuthStore((state) => state.hasHydrated && !state.isAuthenticated)
 
   const query = useQuery({ queryKey: queryKeys.menu, queryFn: menuService.getMenu, enabled })
   const menu = query.data ?? null
@@ -104,7 +103,7 @@ export function useMenuManagement() {
 
   const handleCategorySubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!token || !categoryForm) {
+    if (!enabled || !categoryForm) {
       return
     }
 
@@ -120,7 +119,7 @@ export function useMenuManagement() {
 
   const handleItemSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!token || !itemForm) {
+    if (!enabled || !itemForm) {
       return
     }
 
@@ -143,7 +142,7 @@ export function useMenuManagement() {
   }
 
   const handleDeleteCategory = async (category: MenuCategory) => {
-    if (!token) {
+    if (!enabled) {
       return
     }
 
@@ -158,7 +157,7 @@ export function useMenuManagement() {
   }
 
   const handleDeleteItem = async (item: MenuItem) => {
-    if (!token) {
+    if (!enabled) {
       return
     }
 

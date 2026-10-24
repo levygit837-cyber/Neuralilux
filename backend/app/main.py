@@ -9,6 +9,7 @@ import structlog
 
 from app.core.config import settings
 from app.core.logging import configure_logging
+from app.core.origin_guard import OriginGuardMiddleware
 from app.api.router import api_router
 from app.whatsapp.message_queue import message_queue_service
 from app.whatsapp.evolution_realtime import evolution_realtime_service
@@ -44,6 +45,9 @@ app = FastAPI(
     redoc_url="/redoc" if settings.ENVIRONMENT == "development" else None,
     lifespan=lifespan,
 )
+
+# Adicionado antes do CORS: o CORS fica por fora e a resposta 403 do guarda ainda carrega os cabeçalhos CORS.
+app.add_middleware(OriginGuardMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

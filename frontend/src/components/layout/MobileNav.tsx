@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react'
 import { usePathname } from 'next/navigation'
 import { List, X } from '@phosphor-icons/react'
 import { Brand } from './Brand'
+import { LogoutButton } from './LogoutButton'
 import { NavList } from './NavList'
 
 /**
@@ -66,6 +67,9 @@ export function MobileNav() {
             </button>
           </div>
           <NavList onNavigate={close} />
+          <div className="px-4 pb-4">
+            <LogoutButton />
+          </div>
         </div>
       </dialog>
     </div>

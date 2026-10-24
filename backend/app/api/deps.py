@@ -1,13 +1,14 @@
 """Dependências compartilhadas das rotas: sessão do banco e usuário autenticado."""
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
 from app.core import database
+from app.core.auth_cookie import AUTH_COOKIE_NAME
 from app.services.user_service import get_active_user_from_token
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
-optional_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
+# Sem auto_error: o token pode vir do cookie do navegador, e o 401 é decidido em `_token_of`.
+bearer_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
 
 def get_db():
@@ -30,19 +31,34 @@ def _user_from_token(token: str, db: Session):
     return user
 
 
+def _token_of(request: Request, bearer: str | None) -> str | None:
+    """JWT da requisição: `Authorization: Bearer` (scripts, e2e) vence o cookie `httpOnly` do navegador."""
+    return bearer or request.cookies.get(AUTH_COOKIE_NAME)
+
+
 async def get_current_user(
-    token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db)
+    request: Request,
+    bearer: str | None = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
 ):
-    """Get current user from JWT token"""
+    """Usuário do JWT (Bearer ou cookie); 401 sem token."""
+    token = _token_of(request, bearer)
+    if token is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return _user_from_token(token, db)
 
 
 async def get_optional_user(
-    token: str | None = Depends(optional_oauth2_scheme),
+    request: Request,
+    bearer: str | None = Depends(bearer_scheme),
     db: Session = Depends(get_db),
 ):
-    """Usuário do JWT, ou None se não houver Authorization. Token presente mas inválido é 401."""
+    """Usuário do JWT, ou None se não houver Bearer nem cookie. Token presente mas inválido é 401."""
+    token = _token_of(request, bearer)
     if token is None:
         return None
     return _user_from_token(token, db)
