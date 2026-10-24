@@ -4,6 +4,19 @@ const nextConfig = {
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
   },
+  // Cabeçalhos que não dependem da requisição. A CSP (com nonce por requisição e frame-ancestors) é do src/proxy.ts.
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          { key: 'X-Frame-Options', value: 'DENY' },
+        ],
+      },
+    ]
+  },
   images: {
     remotePatterns: [
       { protocol: 'http', hostname: 'localhost' },

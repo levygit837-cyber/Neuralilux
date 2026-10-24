@@ -2,6 +2,11 @@ export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost
 // O Socket.IO é do nosso backend: sem NEXT_PUBLIC_WS_URL, usa o mesmo host da API.
 export const WS_URL = process.env.NEXT_PUBLIC_WS_URL || API_BASE_URL.replace(/^http/i, 'ws')
 
+// Nome do cookie `httpOnly` da sessão. É o mesmo de `backend/app/core/auth_cookie.py` (AUTH_COOKIE_NAME): mude os dois juntos.
+export const AUTH_COOKIE_NAME = 'nlx_auth'
+// O proxy do Next valida a sessão no backend a partir do servidor; em Docker/rede interna a URL pode ser outra que a do navegador.
+export const API_INTERNAL_URL = process.env.API_INTERNAL_URL || API_BASE_URL
+
 export const ROUTES = {
   HOME: '/',
   LOGIN: '/login',

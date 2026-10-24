@@ -5,17 +5,18 @@ import { socketService } from '@/services/socketService'
 import { useChatStore } from '@/stores/useChatStore'
 
 interface ChatRealtimeOptions {
-  token: string | null
+  /** Sessão pronta (hidratada e logada): só então o socket conecta. */
+  enabled: boolean
   instanceName: string | undefined
   /** `remote_jid` da Conversation aberta; a sala do backend usa esse nome. */
   openConversationJid: string | undefined
 }
 
 /**
- * Liga o Socket.IO do backend (autenticado com o Bearer) e entra nas salas da Instance e da
+ * Liga o Socket.IO do backend (autenticado pelo cookie de sessão) e entra nas salas da Instance e da
  * Conversation aberta. `{ok:false}` do backend (Instance de outro dono) vira erro visível no store.
  */
-export function useChatRealtime({ token, instanceName, openConversationJid }: ChatRealtimeOptions) {
+export function useChatRealtime({ enabled, instanceName, openConversationJid }: ChatRealtimeOptions) {
   const [isConnected, setIsConnected] = useState(false)
   const setError = useChatStore((state) => state.setError)
 
@@ -37,10 +38,10 @@ export function useChatRealtime({ token, instanceName, openConversationJid }: Ch
   }, [setError])
 
   useEffect(() => {
-    if (!token) return
-    socketService.connect(token)
+    if (!enabled) return
+    socketService.connect()
     return () => socketService.disconnect()
-  }, [token])
+  }, [enabled])
 
   useEffect(() => {
     if (!instanceName) return

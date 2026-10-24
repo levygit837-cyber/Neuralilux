@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { useSessionReady } from '@/hooks/useSessionReady'
 import { agentService } from '@/services/agentService'
 import { instanceService } from '@/services/instanceService'
 import type { AgentListItem } from '@/types/chat'
@@ -8,7 +9,8 @@ import type { AgentListItem } from '@/types/chat'
 const NO_AGENTS: AgentListItem[] = []
 
 interface AgentBinding {
-  token: string | null
+  /** Sessão em que o vínculo foi lido: se a sessão acabou, o vínculo não vale mais. */
+  sessionReady: boolean
   id: string | null
   name: string | null
 }
@@ -16,24 +18,25 @@ interface AgentBinding {
 const messageOf = (error: unknown, fallback: string) => (error instanceof Error ? error.message : fallback)
 
 /** Estado do Agent da Instance: ligado/desligado, Agent vinculado e a lista de Agents disponíveis. */
-export function useAgentControl(instanceName: string | undefined, token: string | null) {
+export function useAgentControl(instanceName: string | undefined) {
+  const sessionReady = useSessionReady()
   const [agentEnabled, setAgentEnabled] = useState<boolean | null>(null)
   const [fetchedAgents, setFetchedAgents] = useState<AgentListItem[]>([])
-  // O vínculo guarda o token com que foi lido; sem token, ou com outro token, ele some no render.
-  const [binding, setBinding] = useState<AgentBinding>({ token: null, id: null, name: null })
+  // O vínculo guarda a sessão em que foi lido; sem sessão ele some no render.
+  const [binding, setBinding] = useState<AgentBinding>({ sessionReady: false, id: null, name: null })
   const [isStatusLoading, setIsStatusLoading] = useState(false)
   const [isAgentsLoading, setIsAgentsLoading] = useState(false)
   const [isBinding, setIsBinding] = useState(false)
   const [isToggling, setIsToggling] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const availableAgents = token ? fetchedAgents : NO_AGENTS
-  const hasCurrentBinding = token !== null && binding.token === token
+  const availableAgents = sessionReady ? fetchedAgents : NO_AGENTS
+  const hasCurrentBinding = sessionReady && binding.sessionReady
   const selectedAgentId = hasCurrentBinding ? binding.id : null
   const selectedAgentName = hasCurrentBinding ? binding.name : null
 
   useEffect(() => {
-    if (!token) return
+    if (!sessionReady) return
     let cancelled = false
 
     const loadAgents = async () => {
@@ -52,7 +55,7 @@ export function useAgentControl(instanceName: string | undefined, token: string 
     return () => {
       cancelled = true
     }
-  }, [token])
+  }, [sessionReady])
 
   useEffect(() => {
     if (!instanceName) return
@@ -66,7 +69,7 @@ export function useAgentControl(instanceName: string | undefined, token: string 
         const status = await instanceService.getAgentStatus(instanceName)
         if (cancelled) return
         setAgentEnabled(status.agent_enabled)
-        setBinding({ token, id: status.agent_id, name: status.agent_name ?? null })
+        setBinding({ sessionReady, id: status.agent_id, name: status.agent_name ?? null })
       } catch (e) {
         if (!cancelled) setError(messageOf(e, 'Nao foi possivel carregar o status do agente para esta instancia.'))
       } finally {
@@ -78,7 +81,7 @@ export function useAgentControl(instanceName: string | undefined, token: string 
     return () => {
       cancelled = true
     }
-  }, [instanceName, token])
+  }, [instanceName, sessionReady])
 
   const toggleAgent = useCallback(async () => {
     if (!instanceName || agentEnabled === null || isToggling) return
@@ -108,7 +111,7 @@ export function useAgentControl(instanceName: string | undefined, token: string 
       try {
         const response = await instanceService.updateAgentBinding(instanceName, nextAgentId)
         setBinding({
-          token,
+          sessionReady,
           id: response.agent_id,
           name: response.agent_name ?? availableAgents.find((agent) => agent.id === response.agent_id)?.name ?? null,
         })
@@ -119,7 +122,7 @@ export function useAgentControl(instanceName: string | undefined, token: string 
         setIsBinding(false)
       }
     },
-    [instanceName, isBinding, selectedAgentId, availableAgents, token]
+    [instanceName, isBinding, selectedAgentId, availableAgents, sessionReady]
   )
 
   return {

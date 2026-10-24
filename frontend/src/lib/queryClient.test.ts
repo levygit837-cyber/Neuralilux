@@ -17,7 +17,7 @@ describe('cache na fronteira da sessão', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     clearQueryCache()
-    useAuthStore.setState({ token: null, user: null, isAuthenticated: false })
+    useAuthStore.setState({ user: null, isAuthenticated: false })
   })
 
   it('o logout descarta os dados em cache', () => {
@@ -28,15 +28,16 @@ describe('cache na fronteira da sessão', () => {
 
   it('um novo login não herda o cache de quem estava antes', () => {
     seed()
-    useAuthStore.getState().login({ id: 'u2', name: 'Outro', email: 'o@x.com' }, 'token-2')
+    useAuthStore.getState().login({ id: 'u2', name: 'Outro', email: 'o@x.com' })
     expect(getQueryClient().getQueryData(queryKeys.menu)).toBeUndefined()
   })
 
   it('um 401 encerra a sessão e descarta o cache', async () => {
     const assign = vi.fn()
     vi.stubGlobal('location', { pathname: '/dashboard', assign })
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{"detail":"expirou"}', { status: 401 })))
-    useAuthStore.setState({ token: 'velho', isAuthenticated: true })
+    const fetchMock = vi.fn().mockImplementation(async () => new Response('{"detail":"expirou"}', { status: 401 }))
+    vi.stubGlobal('fetch', fetchMock)
+    useAuthStore.setState({ isAuthenticated: true })
     seed()
 
     await expect(apiRequest('/menu')).rejects.toMatchObject({ status: 401 })
@@ -44,5 +45,7 @@ describe('cache na fronteira da sessão', () => {
     expect(getQueryClient().getQueryData(queryKeys.menu)).toBeUndefined()
     expect(useAuthStore.getState().isAuthenticated).toBe(false)
     expect(assign).toHaveBeenCalledWith('/login')
+    // E o cookie httpOnly é apagado no backend, senão o proxy aceitaria a sessão de novo.
+    expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/api/v1/auth/logout'))).toBe(true)
   })
 })

@@ -3,13 +3,12 @@
 import { useQuery } from '@tanstack/react-query'
 import { queryKeys } from '@/lib/queryKeys'
 import { authService } from '@/services/authService'
-import { useAuthStore } from '@/stores/useAuthStore'
+import { useSessionReady } from '@/hooks/useSessionReady'
 
 export function useCurrentUser() {
-  const token = useAuthStore((state) => state.token)
   return useQuery({
     queryKey: queryKeys.me,
-    queryFn: () => authService.getCurrentUser(token as string),
-    enabled: Boolean(token),
+    queryFn: authService.getCurrentUser,
+    enabled: useSessionReady(),
   })
 }

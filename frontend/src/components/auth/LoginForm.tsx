@@ -28,21 +28,15 @@ export function LoginForm({ callbackUrl }: LoginFormProps) {
     setIsLoading(true)
 
     try {
-      // Login via API
-      const { access_token } = await authService.login({ email, password })
+      // O login grava o cookie de sessão; o usuário vem de /auth/me com esse cookie.
+      await authService.login({ email, password })
+      const userData = await authService.getCurrentUser()
 
-      // Obter dados do usuário
-      const userData = await authService.getCurrentUser(access_token)
-
-      // Salvar no store
-      login(
-        {
-          id: userData.id,
-          name: userData.full_name || userData.email,
-          email: userData.email,
-        },
-        access_token
-      )
+      login({
+        id: userData.id,
+        name: userData.full_name || userData.email,
+        email: userData.email,
+      })
 
       router.push(callbackUrl)
     } catch (err) {

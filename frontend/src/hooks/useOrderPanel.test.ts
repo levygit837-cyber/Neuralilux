@@ -15,13 +15,13 @@ const order = (status: OrderStatus): PanelOrder =>
 
 describe('useOrderPanel', () => {
   beforeEach(() => {
-    useAuthStore.setState({ token: 'token', hasHydrated: true })
+    useAuthStore.setState({ isAuthenticated: true, hasHydrated: true })
   })
 
   afterEach(() => {
     cleanup()
     vi.resetAllMocks()
-    useAuthStore.setState({ token: null, hasHydrated: false })
+    useAuthStore.setState({ isAuthenticated: false, hasHydrated: false })
   })
 
   it('mudar o status refaz a lista e mostra o pedido atualizado', async () => {

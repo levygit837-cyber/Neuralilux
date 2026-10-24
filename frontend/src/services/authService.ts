@@ -1,14 +1,9 @@
 import { API_BASE_URL as API_URL } from '@/lib/constants'
-import { apiRequest, errorFromResponse } from '@/services/http'
+import { apiRequest, clearServerSession, errorFromResponse } from '@/services/http'
 
 export interface LoginCredentials {
   email: string
   password: string
-}
-
-export interface LoginResponse {
-  access_token: string
-  token_type: string
 }
 
 export interface User {
@@ -36,13 +31,18 @@ export async function loginErrorMessage(response: Response): Promise<string> {
 }
 
 export const authService = {
-  async login(credentials: LoginCredentials): Promise<LoginResponse> {
+  /**
+   * O backend grava o JWT num cookie `httpOnly` (`credentials: 'include'` deixa o navegador guardá-lo). O corpo
+   * também traz o token, para scripts que não são navegador; o frontend não o lê nem o guarda.
+   */
+  async login(credentials: LoginCredentials): Promise<void> {
     const formData = new URLSearchParams()
     formData.append('username', credentials.email)
     formData.append('password', credentials.password)
 
     const response = await fetch(`${API_URL}/api/v1/auth/login`, {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
@@ -52,13 +52,16 @@ export const authService = {
     if (!response.ok) {
       throw new Error(await loginErrorMessage(response))
     }
-
-    return response.json()
   },
 
-  /** `token` explícito: no login o token ainda não está salvo. Um 401 passa pela camada HTTP central. */
-  getCurrentUser(token: string): Promise<User> {
-    return apiRequest<User>('/auth/me', { headers: { Authorization: `Bearer ${token}` } }, 'Erro ao obter dados do usuário')
+  /** Usuário da sessão (cookie). Um 401 passa pela camada HTTP central, que encerra a sessão. */
+  getCurrentUser(): Promise<User> {
+    return apiRequest<User>('/auth/me', {}, 'Erro ao obter dados do usuário')
+  },
+
+  /** Apaga o cookie de sessão no backend. Só ele pode: o cookie é `httpOnly`. */
+  async logout(): Promise<void> {
+    await clearServerSession()
   },
 
   async register(data: {

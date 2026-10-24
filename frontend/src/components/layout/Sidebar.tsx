@@ -2,6 +2,7 @@
 
 import { useAuthStore } from '@/stores/useAuthStore'
 import { Brand } from './Brand'
+import { LogoutButton } from './LogoutButton'
 import { NavList } from './NavList'
 
 function initialsOf(name: string): string {
@@ -26,6 +27,10 @@ export function Sidebar() {
       </div>
 
       <NavList />
+
+      <div className="px-4 pb-4">
+        <LogoutButton />
+      </div>
 
       {/* O cookie só é lido no cliente: até hidratar, reserva o espaço do bloco para não gerar mismatch de SSR nem salto de layout. */}
       {!hasHydrated ? (

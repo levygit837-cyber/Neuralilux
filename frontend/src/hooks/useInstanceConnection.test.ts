@@ -36,7 +36,7 @@ describe('useInstanceConnection: lista de Instances em cache', () => {
   let emit: (notice: SocketNotice) => void
 
   beforeEach(() => {
-    useAuthStore.setState({ token: 'token', hasHydrated: true })
+    useAuthStore.setState({ isAuthenticated: true, hasHydrated: true })
     vi.mocked(socketService.subscribe).mockImplementation((listener) => {
       emit = listener as typeof emit
       return () => undefined
@@ -47,7 +47,7 @@ describe('useInstanceConnection: lista de Instances em cache', () => {
   afterEach(() => {
     cleanup()
     vi.resetAllMocks()
-    useAuthStore.setState({ token: null, hasHydrated: false })
+    useAuthStore.setState({ isAuthenticated: false, hasHydrated: false })
   })
 
   // Uma tela que mostra a lista (Configurações, Instâncias) e a tela do QR no mesmo cliente.

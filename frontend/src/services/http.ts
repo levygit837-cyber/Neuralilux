@@ -36,16 +36,6 @@ function parseValidationErrors(items: ValidationItem[]): { message?: string; fie
   return { message: messages.length > 0 ? messages.join('; ') : undefined, fieldErrors }
 }
 
-export function getToken(): string | null {
-  return typeof window !== 'undefined' ? localStorage.getItem('token') : null
-}
-
-/** Cabeçalho `Authorization: Bearer` do usuário logado; vazio quando não há token. */
-export function authHeaders(): Record<string, string> {
-  const token = getToken()
-  return token ? { Authorization: `Bearer ${token}` } : {}
-}
-
 export async function errorFromResponse(response: Response, fallback?: string): Promise<HttpError> {
   let message = fallback ?? `Erro ${response.status}`
   let fieldErrors: Record<string, string> = {}
@@ -64,8 +54,17 @@ export async function errorFromResponse(response: Response, fallback?: string): 
   return new HttpError(response.status, message, fieldErrors)
 }
 
-/** Token recusado: encerra a sessão pelo mesmo caminho do logout e leva para o login. */
+/** Pede ao backend para apagar o cookie de sessão: só ele pode, o cookie é `httpOnly`. `keepalive` sobrevive à navegação. */
+export function clearServerSession(): Promise<Response> {
+  return fetch(`${API_BASE_URL}/api/v1/auth/logout`, { method: 'POST', credentials: 'include', keepalive: true })
+}
+
+/**
+ * Sessão recusada (cookie vencido ou inválido): encerra pelo mesmo caminho do logout e leva para o login. O cookie
+ * também é apagado; senão o proxy o aceitaria de novo e devolveria ao painel um usuário que o store já deslogou.
+ */
 function endSession(): void {
+  void clearServerSession().catch(() => undefined)
   useAuthStore.getState().logout()
   if (typeof window !== 'undefined' && window.location.pathname !== ROUTES.LOGIN) {
     window.location.assign(ROUTES.LOGIN)
@@ -74,15 +73,15 @@ function endSession(): void {
 
 /**
  * Chamada JSON autenticada ao backend (`/api/v1` + `path`). É a única porta do frontend para
- * dados: nenhuma chave de terceiros passa por aqui, só o Bearer do usuário.
- * `init.headers` vence os padrões (ex.: login ainda sem token salvo).
+ * dados: nenhuma chave de terceiros passa por aqui. A sessão é o cookie `httpOnly` (`credentials: 'include'`);
+ * o JavaScript nunca vê o token.
  */
 export async function apiRequest<T>(path: string, init: RequestInit = {}, fallback?: string): Promise<T> {
   const response = await fetch(`${API_BASE_URL}/api/v1${path}`, {
     ...init,
+    credentials: 'include',
     headers: {
       ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-      ...authHeaders(),
       ...(init.headers as Record<string, string> | undefined),
     },
   })
