@@ -1,3 +1,4 @@
+import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -7,8 +8,9 @@ from app.api.deps import get_current_user, get_db, get_optional_user
 from app.core.config import settings
 from app.core.security import create_access_token
 from app.schemas.user import UserCreate, UserResponse, Token
-from app.services.user_service import create_user, authenticate_user
+from app.services.user_service import CompanyNotFound, EmailAlreadyRegistered, authenticate_user, create_user
 
+logger = structlog.get_logger()
 router = APIRouter()
 
 
@@ -28,14 +30,16 @@ async def register(
             detail="Only a superuser can register a user into a Company",
         )
     try:
-        db_user = create_user(db, user)
-        return db_user
-    except HTTPException as e:
-        raise e
-    except Exception as e:
+        return create_user(db, user)
+    except EmailAlreadyRegistered:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
+    except CompanyNotFound:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Company not found")
+    except Exception:
+        logger.exception("Unexpected error creating user")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error creating user: {str(e)}"
+            detail="Error creating user",
         )
 
 
