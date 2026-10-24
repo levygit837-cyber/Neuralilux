@@ -21,7 +21,7 @@ def real_handoff_gate(world, monkeypatch):
     fake_turn = executor.handle_incoming
 
     async def gated(db, conversation, contact, instance, text, received_at=None, message_ids=(), deferred_ids=(), agent=None, packs=()):
-        if executor._in_handoff(db, conversation.id):
+        if handoff_service.in_handoff(db, conversation.id):
             return TurnResult(reply_text=None)
         return await fake_turn(db, conversation, contact, instance, text, received_at)
 

@@ -124,7 +124,7 @@ class Pack(Protocol):
 
     A Pack MAY also implement the optional hooks `SessionStartHook` and `ReplyDeliveredHook` below. They are
     separate Protocols so a Pack without a hook stays a valid `Pack`; the core narrows with `isinstance`
-    (`app.agent.sessions.roll_session`, `app.agent.delivery`). Hook names are closed: `app.agent.pack_hooks`
+    (`app.agent.sessions.roll_session`, `app.agent.executor.reply_delivered`). Hook names are closed: `app.agent.pack_hooks`
     rejects any other `on_*` attribute when the Pack is registered, so a typo never turns into a silent no-op.
     """
 
@@ -148,7 +148,7 @@ class SessionStartHook(Protocol):
 @runtime_checkable
 class ReplyDeliveredHook(Protocol):
     """Optional Pack hook: called after the reply of the Turn `turn_id` was actually sent to the Contact
-    (`app.agent.delivery`). No commit required beyond what the hook needs."""
+    (`app.agent.executor.reply_delivered`). No commit required beyond what the hook needs."""
 
     def on_reply_delivered(self, db: Session, conversation: Conversation, turn_id: str, at: datetime) -> None: ...
 

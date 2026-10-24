@@ -36,7 +36,6 @@ class ChatSocketService:
             logger=False,
             engineio_logger=False,
         )
-        self.asgi_app = socketio.ASGIApp(self.server, socketio_path="realtime/socket.io")
         self._register_handlers()
 
     def _register_handlers(self) -> None:

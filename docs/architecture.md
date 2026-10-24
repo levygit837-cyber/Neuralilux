@@ -17,7 +17,7 @@ O worker não tem Socket.IO. Os eventos de UI que ele gera (`thinking`, `tool_ev
 flowchart LR
     C([Contact no WhatsApp]) --> EV[Evolution API]
     EV -->|"POST /api/v1/webhooks/evolution?token="| WH[API: webhook]
-    WH -->|"publica"| Q[(RabbitMQ<br/>webhooks.evolution)]
+    WH -->|"publica"| Q[(RabbitMQ<br/>webhooks.evolution<br/>falhou 2x → .dlq)]
     Q --> CO[Worker: consumer]
     CO -->|"grava Message, Contact, Conversation"| DB[(PostgreSQL)]
     CO --> EX[executor.handle_incoming]

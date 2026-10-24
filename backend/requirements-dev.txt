@@ -4,10 +4,10 @@
 pytest==9.1.1
 pytest-asyncio==1.4.0
 pytest-cov==7.1.0
-pytest-mock==3.16.0
 pytest-xdist==3.8.0
 respx==0.23.1
 fakeredis==2.40.0
+# Exigido pelo starlette.testclient (fastapi.testclient); sem ele o warning de depreciação derruba a suíte.
 httpx2==2.13.1
 
 # Development

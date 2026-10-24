@@ -18,11 +18,11 @@ from sqlalchemy.orm import Session
 
 from app.agent.clock import opening_notice, time_context, utc_now
 from app.agent.contracts import DEFAULT_MAX_TOKENS, ChatMessage, Pack, ToolContext
-from app.agent.delivery import notify_reply_delivered
 from app.agent.events import TurnEvents
 from app.agent.formatting import to_whatsapp
 from app.agent.loop import TurnResult, run_turn
 from app.agent.memory import build_context, maybe_refresh_summary
+from app.agent.pack_hooks import run_reply_delivered
 from app.agent.prompts import build_system_prompt
 from app.agent.sessions import previous_message_at
 from app.agent.tools import ToolRegistry
@@ -31,17 +31,12 @@ from app.core import database
 from app.core.config import settings
 from app.llm.registry import resolve as resolve_gateway
 from app.models import Agent, Company, Contact, Conversation, Instance
+from app.services import handoff_service
 
 logger = structlog.get_logger()
 
 AGENT_TYPE = "whatsapp_agent"
 FALLBACK_REPLY = "Desculpe, tive um problema para responder agora. Pode mandar sua mensagem de novo em instantes?"
-
-
-def _in_handoff(db: Session, conversation_id: str) -> bool:
-    # Lê do banco, não do objeto: um Attendant pode ter assumido depois que a Conversation foi carregada.
-    flag = db.query(Conversation.human_in_loop).filter(Conversation.id == conversation_id).scalar()
-    return bool(flag)
 
 
 async def handle_incoming(
@@ -66,7 +61,7 @@ async def handle_incoming(
     `packs` são os Packs do Turn (núcleo + ramo da Company), escolhidos por quem chama: o executor não conhece ramos.
     """
     log = logger.bind(conversation_id=conversation.id, instance_id=instance.id)
-    if _in_handoff(db, conversation.id):
+    if handoff_service.in_handoff(db, conversation.id):
         log.info("Conversation in Handoff, Agent stays silent")
         return TurnResult(reply_text=None)
 
@@ -137,7 +132,7 @@ async def handle_incoming(
         await events.thinking_end()
 
     ended_by_tool = any(call.ends_turn for call in result.tool_calls)
-    if not ended_by_tool and _in_handoff(db, conversation.id):
+    if not ended_by_tool and handoff_service.in_handoff(db, conversation.id):
         # Um Attendant assumiu enquanto o modelo respondia: a resposta do Agent não sai.
         log.info("Conversation entered Handoff during the Turn, reply dropped")
         return TurnResult(reply_text=None, tool_calls=result.tool_calls, steps=result.steps)
@@ -156,7 +151,7 @@ def reply_delivered(
     if turn_id is None:
         return
     try:
-        notify_reply_delivered(db, conversation, packs, turn_id, at)
+        run_reply_delivered(packs, db, conversation, turn_id, at)
     except Exception:
         # A resposta já saiu; sem a marca de entrega o Pack só pede a confirmação de novo (falha segura).
         db.rollback()

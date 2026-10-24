@@ -19,10 +19,10 @@ from typing import Iterator
 import structlog
 from sqlalchemy.orm import Session
 
-from app.agent import executor
 from app.core.config import settings
 from app.models import Contact, Conversation, Instance
 from app.services.agent_service import resolve_turn_agent
+from app.services import handoff_service
 from app.whatsapp import turn_state
 from app.whatsapp.agent_turn import FAILED, GONE, NO_REPLY, REPLIED, run_agent_turn
 from app.whatsapp.sender import send_and_persist
@@ -166,7 +166,7 @@ class TurnRunner:
         mine = [(message_id, won[message_id])]
         self._running[message_id] = won[message_id]
         try:
-            if executor._in_handoff(db, conversation.id):
+            if handoff_service.in_handoff(db, conversation.id):
                 turn_state.settle(db, mine, turn_state.SKIPPED, turn_state.SKIP_HANDOFF)
             else:
                 await send_and_persist(db, instance, conversation, contact, MEDIA_REPLY)
