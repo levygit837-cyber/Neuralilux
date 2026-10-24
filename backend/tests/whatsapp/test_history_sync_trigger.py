@@ -4,13 +4,21 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.whatsapp import consumer as consumer_module, history_sync, status_events
+from app.whatsapp import consumer as consumer_module, history_sync, history_trigger, status_events
 from app.whatsapp.consumer import WhatsAppMessageConsumer
 from consumer_helpers import process
 
 
 def _event(event, **data):
     return {"event": event, "data": {"instance": "evo-t7", "data": data}}
+
+
+async def _until_started(syncs, count=1):
+    """O início do sync passa por saltos de thread (busca da Instance, abertura da Session): espera a condição."""
+    for _ in range(400):
+        if len(syncs["started"]) >= count:
+            return
+        await asyncio.sleep(0.005)
 
 
 @pytest.fixture
@@ -31,7 +39,7 @@ def syncs(monkeypatch):
 async def test_history_events_schedule_one_sync(db, world, syncs, event):
     consumer = WhatsAppMessageConsumer()
     await consumer.process_webhook_event(_event(event))
-    await asyncio.sleep(0)
+    await _until_started(syncs)
 
     assert syncs["started"] == [world["instance"].id]
     syncs["release"].set()
@@ -46,7 +54,7 @@ async def test_connection_open_schedules_sync_but_close_does_not(db, world, sync
     assert syncs["started"] == []
 
     await consumer.process_webhook_event(_event("connection.update", state="open"))
-    await asyncio.sleep(0)
+    await _until_started(syncs)
     assert syncs["started"] == [world["instance"].id]
     syncs["release"].set()
     await consumer.drain()
@@ -57,7 +65,7 @@ async def test_second_event_is_ignored_while_a_sync_runs_and_allowed_after(db, w
     consumer = WhatsAppMessageConsumer()
     await consumer.process_webhook_event(_event("messages.set"))
     await consumer.process_webhook_event(_event("chats.set"))
-    await asyncio.sleep(0)
+    await _until_started(syncs)
     assert len(syncs["started"]) == 1
 
     syncs["release"].set()
@@ -102,7 +110,7 @@ async def test_worker_skips_with_an_info_log_when_another_process_is_importing(d
 
     logs = MagicMock()
     monkeypatch.setattr(history_sync, "sync_instance", busy)
-    monkeypatch.setattr(consumer_module, "logger", logs)
+    monkeypatch.setattr(history_trigger, "logger", logs)
     consumer = WhatsAppMessageConsumer()
 
     await process(consumer, _event("messages.set"))
@@ -126,14 +134,68 @@ async def test_replayed_stale_open_does_not_start_a_history_sync(world, syncs, m
 
     consumer = WhatsAppMessageConsumer()
     await consumer.process_webhook_event(connection("open", "2026-01-01T12:10:00.000-03:00"))
-    await asyncio.sleep(0)
+    await _until_started(syncs)
     syncs["release"].set()
     await consumer.drain()
     assert len(syncs["started"]) == 1
 
     await consumer.process_webhook_event(connection("close", "2026-01-01T12:20:00.000-03:00"))
     await consumer.process_webhook_event(connection("open", "2026-01-01T12:10:00.000-03:00"))  # reenvio velho
-    await asyncio.sleep(0)
     await consumer.drain()
 
     assert len(syncs["started"]) == 1
+
+
+@pytest.fixture
+def guarded(monkeypatch):
+    """Intervalo de reimportação ligado (300 s) sobre um Redis em memória."""
+    import fakeredis
+
+    from app.core.config import settings
+    from app.whatsapp import reimport_guard
+
+    server = fakeredis.FakeServer()
+    monkeypatch.setattr(settings, "HISTORY_REIMPORT_MIN_INTERVAL_SECONDS", 300)
+    monkeypatch.setattr(reimport_guard, "_redis", None)
+    monkeypatch.setattr(reimport_guard, "_redis_loop", None)
+    monkeypatch.setattr(
+        reimport_guard,
+        "Redis",
+        type("R", (), {"from_url": staticmethod(lambda *a, **k: fakeredis.FakeAsyncRedis(server=server, decode_responses=True))}),
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("first,second", [
+    (_event("chats.upsert"), _event("chats.upsert")),
+    (_event("connection.update", state="open"), _event("connection.update", state="open")),
+    (_event("chats.upsert"), _event("connection.update", state="open")),
+])
+async def test_a_repeated_reimport_inside_the_interval_is_ignored_with_a_log(db, world, syncs, guarded, first, second):
+    import structlog
+
+    consumer = WhatsAppMessageConsumer()
+    await consumer.process_webhook_event(first)
+    await _until_started(syncs)
+    syncs["release"].set()
+    await consumer.drain()
+    assert len(syncs["started"]) == 1
+
+    with structlog.testing.capture_logs() as logs:
+        await consumer.process_webhook_event(second)
+        await consumer.drain()
+
+    assert len(syncs["started"]) == 1  # a segunda ocorrência não importou
+    ignored = [log for log in logs if log["event"].startswith("History reimport ignored")]
+    assert len(ignored) == 1 and ignored[0]["instance_id"] == world["instance"].id
+
+
+@pytest.mark.asyncio
+async def test_the_initial_load_events_are_not_held_back_by_the_interval(db, world, syncs, guarded):
+    consumer = WhatsAppMessageConsumer()
+    syncs["release"].set()
+    for event in ("messages.set", "chats.set", "contacts.set"):
+        await consumer.process_webhook_event(_event(event))
+        await consumer.drain()
+
+    assert len(syncs["started"]) == 3

@@ -238,6 +238,15 @@ def fake_rate_limit_redis(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_history_reimport_guard(monkeypatch):
+    """O intervalo entre reimportações do histórico usa Redis; os testes o desligam (0). Os do próprio guarda
+    ligam o intervalo e trocam o cliente por um Redis em memória."""
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "HISTORY_REIMPORT_MIN_INTERVAL_SECONDS", 0)
+
+
+@pytest.fixture(autouse=True)
 def _no_real_realtime_publish(monkeypatch):
     """Impede que os testes publiquem no Redis real via realtime_event_bus.
 

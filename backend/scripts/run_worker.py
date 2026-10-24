@@ -15,8 +15,10 @@ from pathlib import Path
 # Add backend project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from app.core import http_clients
 from app.core.config import settings
 from app.services.handoff_service import sweep_forever
+from app.whatsapp import reimport_guard
 from app.whatsapp.consumer import whatsapp_consumer
 from app.whatsapp.message_queue import message_queue_service
 
@@ -54,6 +56,8 @@ async def run() -> int:
         await asyncio.gather(consuming, sweeping, return_exceptions=True)
         waiting.cancel()
         await message_queue_service.disconnect()
+        await http_clients.close_all()  # Evolution e Gateways: um cliente por destino, vivo até aqui
+        await reimport_guard.close()
         logger.info("Worker stopped")
 
 
