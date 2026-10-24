@@ -1,5 +1,5 @@
 import { API_BASE_URL as API_URL } from '@/lib/constants'
-import { apiRequest } from '@/services/http'
+import { apiRequest, errorFromResponse } from '@/services/http'
 
 export interface LoginCredentials {
   email: string
@@ -21,6 +21,20 @@ export interface User {
   created_at: string
 }
 
+/**
+ * Mensagem de um login recusado. 429 (rate limit por IP) diz quanto esperar, a partir de `Retry-After`;
+ * 503 é o rate limit sem Redis (falha fechada). O resto vem do `detail` do backend.
+ */
+export async function loginErrorMessage(response: Response): Promise<string> {
+  if (response.status === 429) {
+    const seconds = Number(response.headers.get('Retry-After'))
+    const wait = Number.isFinite(seconds) && seconds > 0 ? ` Tente de novo em ${Math.ceil(seconds)} s.` : ' Tente de novo em instantes.'
+    return `Muitas tentativas de login.${wait}`
+  }
+  if (response.status === 503) return 'Login indisponível no momento. Tente de novo em instantes.'
+  return (await errorFromResponse(response, 'Erro ao fazer login')).message
+}
+
 export const authService = {
   async login(credentials: LoginCredentials): Promise<LoginResponse> {
     const formData = new URLSearchParams()
@@ -36,8 +50,7 @@ export const authService = {
     })
 
     if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.detail || 'Erro ao fazer login')
+      throw new Error(await loginErrorMessage(response))
     }
 
     return response.json()

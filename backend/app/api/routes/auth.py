@@ -1,11 +1,12 @@
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from datetime import timedelta
 
 from app.api.deps import get_current_user, get_db, get_optional_user
 from app.core.config import settings
+from app.core.rate_limit import limit_login, limit_register
 from app.core.security import create_access_token
 from app.schemas.user import UserCreate, UserResponse, Token
 from app.services.user_service import CompanyNotFound, EmailAlreadyRegistered, authenticate_user, create_user
@@ -16,15 +17,23 @@ router = APIRouter()
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register(
+    request: Request,
     user: UserCreate,
     db: Session = Depends(get_db),
     caller=Depends(get_optional_user),
 ):
     """Register a new user.
 
-    Registro público não escolhe Company: com `company_id`, só um superusuário autenticado cria o usuário.
+    Superusuário autenticado cria qualquer usuário, com ou sem Company, sem limite de tentativas. Os demais
+    passam pelo rate limit por IP e só cadastram com `ALLOW_PUBLIC_REGISTRATION` ligada (padrão: desligada, 403);
+    o registro público não escolhe Company: com `company_id`, só um superusuário cria o usuário.
     """
-    if user.company_id is not None and not (caller and caller.is_superuser):
+    is_superuser = bool(caller and caller.is_superuser)
+    if not is_superuser:
+        await limit_register(request)
+        if not settings.ALLOW_PUBLIC_REGISTRATION:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Public registration is disabled")
+    if user.company_id is not None and not is_superuser:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only a superuser can register a user into a Company",
@@ -43,12 +52,12 @@ async def register(
         )
 
 
-@router.post("/login", response_model=Token)
+@router.post("/login", response_model=Token, dependencies=[Depends(limit_login)])
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
-    """Login and get access token"""
+    """Login and get access token. Rate limit por IP (429 com Retry-After; 503 se o Redis falha)."""
     user = authenticate_user(db, form_data.username, form_data.password)
     if not user:
         raise HTTPException(
