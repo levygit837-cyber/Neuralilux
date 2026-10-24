@@ -1,4 +1,5 @@
 """Token → usuário: HTTP e handshake do Socket.IO usam a mesma regra e recusam token ruim e usuário inativo (#83)."""
+import warnings
 from datetime import datetime, timedelta, timezone
 
 import jwt
@@ -34,6 +35,16 @@ def _tampered() -> str:
     return ".".join((header, payload, flipped + signature[1:]))
 
 
+def _token_with_algorithm(algorithm: str) -> str:
+    """Token com `sub` válido e a chave certa, mas assinado por um algoritmo que o servidor não aceita."""
+    claims = {"sub": EMAIL, "exp": datetime.now(timezone.utc) + timedelta(minutes=5)}
+    with warnings.catch_warnings():
+        # A SECRET_KEY de teste tem menos de 64 bytes, o mínimo que o PyJWT recomenda para HS512. O teste precisa
+        # justamente da mesma chave do servidor com outro algoritmo, então o aviso é esperado só neste encode.
+        warnings.simplefilter("ignore", jwt.warnings.InsecureKeyLengthWarning)
+        return jwt.encode(claims, settings.SECRET_KEY, algorithm=algorithm)
+
+
 def _bad_tokens() -> dict[str, str]:
     return {
         "expired": _token(expires_in=timedelta(minutes=-5)),
@@ -42,6 +53,8 @@ def _bad_tokens() -> dict[str, str]:
         "unknown_sub": _token(sub="ninguem@example.com"),
         "no_sub": _token(sub=None),
         "garbage": "isso-nao-e-um-jwt",
+        "alg_none": jwt.encode({"sub": EMAIL, "exp": datetime.now(timezone.utc) + timedelta(minutes=5)}, None, algorithm="none"),
+        "wrong_alg_hs512": _token_with_algorithm("HS512"),
     }
 
 

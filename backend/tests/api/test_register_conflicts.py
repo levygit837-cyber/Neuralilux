@@ -3,6 +3,7 @@ import threading
 
 import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from app.api.deps import get_db
@@ -52,6 +53,20 @@ def test_unexpected_database_error_does_not_leak_into_detail(client, db, monkeyp
     response = client.post("/api/v1/auth/register", json=_payload("b@example.com"))
     assert response.status_code == 500
     assert response.json()["detail"] == "Error creating user"
+
+
+def test_integrity_error_that_is_not_the_email_is_500_never_409(client, db, monkeypatch):
+    """Outra constraint estoura no commit e o e-mail continua livre após o rollback: não é duplicado."""
+
+    def violate():
+        raise IntegrityError("INSERT INTO users", {}, Exception("FOREIGN KEY constraint failed"))
+
+    with monkeypatch.context() as patch:
+        patch.setattr(db, "commit", violate)
+        response = client.post("/api/v1/auth/register", json=_payload("c@example.com"))
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Error creating user"
+    assert db.query(User).filter(User.email == "c@example.com").first() is None
 
 
 def test_concurrent_registrations_of_the_same_email_give_one_201_and_one_409(tmp_path, monkeypatch):
