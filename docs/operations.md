@@ -24,9 +24,9 @@ Toda mudança (assumir, devolver, expirar) publica `handoff_updated`; o chat atu
 ### Atender
 
 1. Veja os Handoffs abertos: `GET /api/v1/tickets?status=open`, ou o selo "Atendimento humano" na lista de conversas.
-2. Assuma pelo botão "Assumir" (ou `take-control`). Atribuir só o Ticket (`POST /api/v1/tickets/{id}/assign?user_id=<usuário>`) não pausa nem devolve a Conversation.
+2. Assuma pelo botão "Assumir" (ou `take-control`). Esse é o único caminho de assumir; as rotas de Ticket são só de leitura.
 3. Responda pelo dashboard ou por `POST /api/v1/conversations/{id}/messages` (a Instance precisa estar `connected`).
-4. Clique em "Devolver ao Agent" (ou `release-control`). Isso já fecha o Ticket; `PATCH /tickets/{id}?status=closed` sozinho **não** devolve a Conversation.
+4. Clique em "Devolver ao Agent" (ou `release-control`). Isso fecha o Ticket e devolve a Conversation ao Agent.
 
 ### Ticket
 
@@ -40,12 +40,11 @@ Toda mudança (assumir, devolver, expirar) publica `handoff_updated`; o chat atu
 | `closed_at` | Quando foi devolvido ou expirou. |
 | `agent_type` | Sempre `whatsapp_agent` hoje; o filtro por `sales`/`sac` é resto do desenho antigo. |
 
-`GET /tickets` aceita `status`, `agent_type`, `assigned_to`, `skip` e `limit` (máx. 100) e lista só os Tickets das Instances do usuário (superusuário: todos). `GET`, `PATCH` e `assign` de um Ticket de outra Instance respondem 404. `assign` (e `PATCH ?assigned_to=`) só aceita um usuário da mesma Company da Instance do Ticket; numa Instance sem Company, só o superusuário atribui. `GET /conversations/{id}/human-control-status` só lê: mostra o estado atual e `timeout_due` (o prazo venceu e o worker vai devolver); não muda nada.
+`GET /tickets` aceita `status`, `agent_type`, `assigned_to`, `skip` e `limit` (máx. 100) e lista só os Tickets das Instances do usuário (superusuário: todos). `GET /tickets/{id}` de um Ticket de outra Instance responde 404. Ticket só se lê por ali: não existe `PATCH` nem `assign`, o único caminho de assumir e devolver é `take-control` / `release-control` da Conversation (UPDATE condicional; outro Attendant com a Conversation recebe 409). `GET /conversations/{id}/human-control-status` só lê: mostra o estado atual e `timeout_due` (o prazo venceu e o worker vai devolver); não muda nada.
 
 ### Limites conhecidos
 
 - Não há Handoff automático quando um Attendant escreve pelo celular; só "Assumir" (`take-control`) ou a Tool ligam o estado. Escrever pelo celular durante um Handoff apenas reinicia o timeout.
-- `PATCH /tickets/{id}` recebe `status` e `assigned_to` como query string, não JSON, e aceita `open`, `in_progress` e `closed`; `expired` só o sistema grava.
 - Sem o worker rodando, o timeout só é aplicado quando o Contact escreve de novo. `GET .../human-control-status` não aplica o timeout; só informa `timeout_due`.
 
 ## Cancelamento, alteração e estorno de Pix

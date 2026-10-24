@@ -8,8 +8,9 @@ import pytest
 from app.agent import executor
 from app.agent.contracts import DEFAULT_MAX_TOKENS, Tool, ToolResult
 from app.core import database
-from app.models import Agent, Company, Contact, Conversation, ConversationMemorySummary, Instance, Message
+from app.models import Agent, Company, Contact, Conversation, ConversationMemorySummary, Instance, Message, Ticket
 from tests.agent_fakes import FakeMessagesClient, FakePack, reply, text, tool_use, without_turn_context
+from tests.access_helpers import make_user
 from tests.conftest import TestingSessionLocal
 
 
@@ -93,6 +94,26 @@ async def test_conversation_em_handoff_nao_responde_nem_chama_o_modelo(turn_setu
 
     assert result.reply_text is None
     assert agent["client"].requests == []
+
+
+@pytest.mark.asyncio
+async def test_devolver_pela_rota_de_controle_humano_fecha_o_ticket_e_o_agent_volta_a_responder(
+    client, turn_setup, agent
+):
+    db, conversation, contact, instance = turn_setup
+    headers = make_user(client, db, "atendente@example.com", superuser=True)
+    agent["client"].script = [reply(text("Voltei!"))]
+
+    client.post(f"/api/v1/conversations/{conversation.id}/take-control", json={}, headers=headers)
+    mudo = await executor.handle_incoming(db, conversation, contact, instance, "Alguém aí?")
+    released = client.post(f"/api/v1/conversations/{conversation.id}/release-control", headers=headers)
+    db.expire_all()
+    result = await executor.handle_incoming(db, conversation, contact, instance, "Voltou?")
+
+    assert mudo.reply_text is None
+    assert released.status_code == 200
+    assert db.query(Ticket).one().status == "closed"
+    assert result.reply_text == "Voltei!"
 
 
 @pytest.mark.asyncio
