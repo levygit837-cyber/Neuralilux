@@ -3,15 +3,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List
 
 
-_INSECURE_SECRET_KEY_PREFIX = "change-me-in-production"
-_INSECURE_WEBHOOK_TOKEN_PREFIX = "change-me"
+EXAMPLE_SECRET_PREFIX = "change-me"  # todo valor de exemplo do repo (.env.example e defaults) começa assim
+_DEVELOPMENT = "development"
+_MIN_KEY_LENGTH = 32
+_GENERATE_HINT = 'python3 -c "import secrets; print(secrets.token_urlsafe(48))"'
 
 
 class Settings(BaseSettings):
     # Project
     PROJECT_NAME: str = "Neuralilux"
     VERSION: str = "0.1.0"
-    ENVIRONMENT: str = "development"
+    ENVIRONMENT: str = "production"  # padrão seguro: só "development" explícito libera os defaults de exemplo e o /docs
     DEBUG: bool = False
 
     # Database
@@ -35,6 +37,10 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-me-in-production-use-strong-secret-key-here"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+
+    # Criptografia em repouso das chaves de API dos Gateways. Independente da SECRET_KEY: rotacionar o JWT não
+    # destrói as chaves salvas. Trocar esta invalida as chaves gravadas (é preciso informá-las de novo).
+    GATEWAY_ENCRYPTION_KEY: str = "change-me-dev-only-gateway-encryption-key"
 
     # Gateway local "Kiro-backend" (semeado na primeira execucao; depois editavel pela API/UI)
     KIRO_GATEWAY_URL: str = "http://localhost:5580"  # raiz; o cliente acrescenta /v1/messages
@@ -64,10 +70,32 @@ class Settings(BaseSettings):
     TOOL_EVENT_INCLUDE_RAW_PAYLOADS: bool = False
 
     @model_validator(mode="after")
-    def _refuse_example_secret_key(self) -> "Settings":
-        if self.ENVIRONMENT != "development" and self.SECRET_KEY.startswith(_INSECURE_SECRET_KEY_PREFIX):
+    def _refuse_example_secrets_outside_development(self) -> "Settings":
+        if self.ENVIRONMENT == _DEVELOPMENT:
+            return self
+        problems = [
+            f"{name} vazio ou de exemplo"
+            for name, value in (
+                ("SECRET_KEY", self.SECRET_KEY),
+                ("EVOLUTION_WEBHOOK_TOKEN", self.EVOLUTION_WEBHOOK_TOKEN),
+                ("GATEWAY_ENCRYPTION_KEY", self.GATEWAY_ENCRYPTION_KEY),
+            )
+            if not value or value.startswith(EXAMPLE_SECRET_PREFIX)
+        ]
+        problems += [
+            f"{name} com menos de {_MIN_KEY_LENGTH} caracteres"
+            for name, value in (("SECRET_KEY", self.SECRET_KEY), ("GATEWAY_ENCRYPTION_KEY", self.GATEWAY_ENCRYPTION_KEY))
+            if value and not value.startswith(EXAMPLE_SECRET_PREFIX) and len(value) < _MIN_KEY_LENGTH
+        ]
+        if self.SECRET_KEY and self.SECRET_KEY == self.GATEWAY_ENCRYPTION_KEY:
+            problems.append("GATEWAY_ENCRYPTION_KEY igual à SECRET_KEY (devem ser valores diferentes)")
+        if problems:
             raise ValueError(
-                "SECRET_KEY de exemplo nao pode ser usada com ENVIRONMENT != development; defina uma chave forte"
+                f"Configuração recusada com ENVIRONMENT='{self.ENVIRONMENT}' (sem ENVIRONMENT definido vale 'production'): "
+                + "; ".join(problems)
+                + ". Em desenvolvimento local, defina ENVIRONMENT=development no backend/.env. "
+                f"Fora dele, defina valores fortes e distintos para SECRET_KEY, EVOLUTION_WEBHOOK_TOKEN e "
+                f"GATEWAY_ENCRYPTION_KEY, as duas chaves com ao menos {_MIN_KEY_LENGTH} caracteres (gere cada um com: {_GENERATE_HINT})"
             )
         return self
 
@@ -75,16 +103,6 @@ class Settings(BaseSettings):
     def _window_block_fits_the_window(self) -> "Settings":
         if not 1 <= self.MEMORY_WINDOW_BLOCK <= self.MEMORY_WINDOW:
             raise ValueError("MEMORY_WINDOW_BLOCK deve ficar entre 1 e MEMORY_WINDOW")
-        return self
-
-    @model_validator(mode="after")
-    def _refuse_example_webhook_token(self) -> "Settings":
-        token = self.EVOLUTION_WEBHOOK_TOKEN
-        if self.ENVIRONMENT != "development" and (not token or token.startswith(_INSECURE_WEBHOOK_TOKEN_PREFIX)):
-            raise ValueError(
-                "EVOLUTION_WEBHOOK_TOKEN vazio ou de exemplo nao pode ser usado com ENVIRONMENT != development; "
-                "defina um token forte (sem ele o webhook da Evolution responde 401)"
-            )
         return self
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")

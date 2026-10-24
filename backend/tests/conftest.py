@@ -13,6 +13,10 @@ if os.path.exists(TEST_DB_PATH):  # sobra de uma execução morta cujo pid foi r
 if os.environ.get("RUN_E2E") != "1":
     os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH}"
 
+# Sem ENVIRONMENT=development explícito a app recusa segredos de exemplo (e a CI não tem segredos): a suíte
+# declara o modo de desenvolvimento aqui, antes de qualquer import de `app`.
+os.environ["ENVIRONMENT"] = "development"
+
 import pytest
 import pytest_asyncio
 from unittest.mock import AsyncMock

@@ -6,7 +6,7 @@ import pytest
 from cryptography.fernet import Fernet
 
 from app.core.config import settings
-from app.core.crypto import decrypt_secret, encrypt_secret
+from app.core.crypto import _fernet_for, decrypt_secret, encrypt_secret
 from app.llm import registry
 from app.llm.client import GatewayMessagesClient
 from app.llm.errors import LLMNotConfiguredError
@@ -83,7 +83,7 @@ def test_undecryptable_api_key_raises_explicitly_and_is_not_cached(db):
     db.commit()
     registry.invalidate()
 
-    with pytest.raises(LLMNotConfiguredError, match="SECRET_KEY"):
+    with pytest.raises(LLMNotConfiguredError, match="GATEWAY_ENCRYPTION_KEY"):
         registry.resolve("default")
     # Segunda chamada nao devolve um `None` em cache: continua falhando ate corrigir a chave...
     with pytest.raises(LLMNotConfiguredError):
@@ -121,23 +121,48 @@ def test_ensure_default_gateway_seeds_kiro_backend_with_messages_model_and_is_id
     assert db.query(GatewayModel).one().reasoning_effort == "high"  # preserva edicao do usuario
 
 
-def _legacy_token(plaintext: str) -> str:
+def _sha256_token(plaintext: str) -> str:
     key = base64.urlsafe_b64encode(hashlib.sha256(settings.SECRET_KEY.encode()).digest())
     return Fernet(key).encrypt(plaintext.encode()).decode()
 
 
-def test_reencrypt_migrates_legacy_sha256_tokens_and_is_idempotent(db):
-    legacy = InferenceGateway(name="old", base_url="http://old.test", api_key_encrypted=_legacy_token("sk-old"))
+def _hkdf_secret_key_token(plaintext: str) -> str:
+    """Formato de antes da chave propria: HKDF sobre a SECRET_KEY."""
+    return _fernet_for(settings.SECRET_KEY).encrypt(plaintext.encode()).decode()
+
+
+def test_reencrypt_migrates_secret_key_derived_tokens_and_is_idempotent(db):
+    sha = InferenceGateway(name="sha", base_url="http://sha.test", api_key_encrypted=_sha256_token("sk-sha"))
+    hkdf = InferenceGateway(name="hkdf", base_url="http://hkdf.test", api_key_encrypted=_hkdf_secret_key_token("sk-hkdf"))
     current = InferenceGateway(name="new", base_url="http://new.test", api_key_encrypted=encrypt_secret("sk-new"))
     no_key = InferenceGateway(name="open", base_url="http://open.test")
-    db.add_all([legacy, current, no_key])
+    db.add_all([sha, hkdf, current, no_key])
     db.commit()
+    untouched = current.api_key_encrypted
 
-    assert registry.reencrypt_gateway_secrets(db) == 1
+    assert registry.reencrypt_gateway_secrets(db) == 2
     db.expire_all()
-    assert decrypt_secret(db.get(InferenceGateway, legacy.id).api_key_encrypted) == "sk-old"
-    assert decrypt_secret(db.get(InferenceGateway, current.id).api_key_encrypted) == "sk-new"
+    assert decrypt_secret(db.get(InferenceGateway, sha.id).api_key_encrypted) == "sk-sha"
+    assert decrypt_secret(db.get(InferenceGateway, hkdf.id).api_key_encrypted) == "sk-hkdf"
+    assert db.get(InferenceGateway, current.id).api_key_encrypted == untouched
 
+    after_first = {g.id: g.api_key_encrypted for g in db.query(InferenceGateway).all()}
+    assert registry.reencrypt_gateway_secrets(db) == 0
+    db.expire_all()
+    assert {g.id: g.api_key_encrypted for g in db.query(InferenceGateway).all()} == after_first
+    assert decrypt_secret(db.get(InferenceGateway, sha.id).api_key_encrypted) == "sk-sha"
+
+
+def test_rotating_secret_key_after_migration_does_not_affect_gateway_keys(db, monkeypatch):
+    db.add(InferenceGateway(name="old", base_url="http://old.test", api_key_encrypted=_hkdf_secret_key_token("sk-old")))
+    db.commit()
+    registry.reencrypt_gateway_secrets(db)
+
+    monkeypatch.setattr(settings, "SECRET_KEY", "chave-jwt-rotacionada-" + "x" * 32)
+
+    db.expire_all()
+    gateway = db.query(InferenceGateway).one()
+    assert decrypt_secret(gateway.api_key_encrypted) == "sk-old"
     assert registry.reencrypt_gateway_secrets(db) == 0
 
 
@@ -146,3 +171,5 @@ def test_reencrypt_skips_tokens_that_open_with_neither_key(db):
     db.commit()
 
     assert registry.reencrypt_gateway_secrets(db) == 0
+    db.expire_all()
+    assert db.query(InferenceGateway).one().api_key_encrypted == "lixo"

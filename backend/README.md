@@ -50,7 +50,7 @@ SEED_DEV_SUPERUSER=1 python scripts/seed_data.py
 SUPERUSER_EMAIL=admin@empresa.com SUPERUSER_PASSWORD='...' python scripts/create_superuser.py
 ```
 
-Banco existente com Gateways gravados antes do HKDF: rode `python scripts/reencrypt_gateway_secrets.py` **antes** de subir a app (passo único, idempotente). Contexto em [setup.md](../docs/setup.md#banco-já-existente-com-gateways-gravados-antes-do-hkdf).
+Banco existente com chaves de Gateway criptografadas com a `SECRET_KEY`: defina `GATEWAY_ENCRYPTION_KEY` no `.env` e rode `python scripts/reencrypt_gateway_secrets.py` **antes** de subir a app (passo único, idempotente). Contexto em [setup.md](../docs/setup.md#banco-já-existente-chaves-de-gateway-gravadas-com-a-secret_key).
 
 ## Testes
 
@@ -64,7 +64,7 @@ Os testes rodam em SQLite (`tests/conftest.py` força `DATABASE_URL` para um arq
 
 ## Gateways de inferência
 
-Todo modelo é acessado por um Gateway que fala o protocolo Anthropic Messages ([ADR 0002](../docs/adr/0002-anthropic-messages-via-gateways.md)). Cadastro e atribuição: [setup.md](../docs/setup.md#5-gateway). Chaves criptografadas (HKDF): [setup.md](../docs/setup.md#banco-já-existente-com-gateways-gravados-antes-do-hkdf). Erros e timeouts: [operations.md](../docs/operations.md#o-agent-não-responde).
+Todo modelo é acessado por um Gateway que fala o protocolo Anthropic Messages ([ADR 0002](../docs/adr/0002-anthropic-messages-via-gateways.md)). Cadastro e atribuição: [setup.md](../docs/setup.md#5-gateway). Chaves criptografadas (`GATEWAY_ENCRYPTION_KEY`): [setup.md](../docs/setup.md#banco-já-existente-chaves-de-gateway-gravadas-com-a-secret_key). Erros e timeouts: [operations.md](../docs/operations.md#o-agent-não-responde).
 
 ## Webhook da Evolution
 
