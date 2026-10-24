@@ -144,6 +144,72 @@ def test_superuser_binds_the_agent_of_the_instances_company(client, db):
     assert response.json()["agent_id"] == agent.id
 
 
+def test_superuser_cannot_bind_an_agent_of_another_company_to_the_instance(client, db):
+    # 404, como para o usuário comum: para esta Instance o Agent alheio não existe. O superusuário ganha acesso a
+    # qualquer Instance, não a vínculo que o Turn ignoraria.
+    instance_company = make_company(db, "Da Instance")
+    other = make_company(db, "Alheia")
+    admin = make_user(client, db, "admin@example.com", superuser=True)
+    foreign = _company_agent(db, other, name="Agente Alheio")
+    instance = make_instance(db, "evo-admin-foreign", "admin@example.com", instance_company)
+
+    response = client.patch("/api/v1/instances/evo-admin-foreign/agent-binding", headers=admin, json={"agent_id": foreign.id})
+
+    assert response.status_code == 404
+    db.refresh(instance)
+    assert instance.agent_id is None
+
+
+def test_status_of_a_legacy_instance_shows_the_company_agent_the_turn_would_use(client, db):
+    company = make_company(db, "Pizzaria")
+    headers = make_user(client, db, "dono@example.com", company=company)
+    agent = _company_agent(db, company, name="Atendente da Company")
+    instance = make_instance(db, "evo-legacy-status", "dono@example.com", company, agent_enabled=True)
+
+    response = client.get("/api/v1/instances/evo-legacy-status/agent-status", headers=headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert (data["agent_enabled"], data["agent_id"], data["agent_name"]) == (True, agent.id, "Atendente da Company")
+    db.refresh(instance)
+    assert instance.agent_id is None  # o GET não grava o vínculo
+    assert not db.dirty and not db.new
+
+
+def test_status_follows_the_turn_when_the_bound_agent_is_from_another_company(client, db):
+    mine = make_company(db, "Minha")
+    headers = make_user(client, db, "dono@example.com", company=mine)
+    own = _company_agent(db, mine, name="Meu")
+    foreign = _company_agent(db, make_company(db, "Alheia"), name="Alheio")
+    make_instance(db, "evo-stale-bind", "dono@example.com", mine, agent_id=foreign.id, agent_enabled=True)
+
+    data = client.get("/api/v1/instances/evo-stale-bind/agent-status", headers=headers).json()
+
+    assert (data["agent_enabled"], data["agent_id"]) == (True, own.id)
+
+
+def test_status_without_any_usable_agent_is_off_even_when_enabled(client, db):
+    company = make_company(db, "Sem Agent")
+    headers = make_user(client, db, "dono@example.com", company=company)
+    make_instance(db, "evo-no-agent", "dono@example.com", company, agent_enabled=True)
+
+    data = client.get("/api/v1/instances/evo-no-agent/agent-status", headers=headers).json()
+
+    assert (data["agent_enabled"], data["agent_id"], data["agent_name"]) == (False, None, None)
+
+
+def test_enabling_a_legacy_instance_uses_the_company_agent_fallback(client, db):
+    company = make_company(db, "Pizzaria")
+    headers = make_user(client, db, "dono@example.com", company=company)
+    agent = _company_agent(db, company)
+    make_instance(db, "evo-legacy-enable", "dono@example.com", company, agent_enabled=False)
+
+    response = client.patch("/api/v1/instances/evo-legacy-enable/agent-status", headers=headers, json={"agent_enabled": True})
+
+    assert response.status_code == 200
+    assert (response.json()["agent_enabled"], response.json()["agent_id"]) == (True, agent.id)
+
+
 def test_patch_agent_binding_unbinds_agent_and_disables_auto_reply(client, auth_headers, db):
     user = db.query(User).filter(User.email == "test@example.com").one()
     agent = Agent(
@@ -180,6 +246,19 @@ def test_patch_agent_binding_unbinds_agent_and_disables_auto_reply(client, auth_
     assert data["agent_id"] is None
     assert instance.agent_id is None
     assert instance.agent_enabled is False
+
+
+def test_unbinding_in_a_company_turns_replies_off_and_shows_the_agent_the_turn_would_fall_back_to(client, db):
+    company = make_company(db, "Pizzaria")
+    headers = make_user(client, db, "dono@example.com", company=company)
+    agent = _company_agent(db, company)
+    instance = make_instance(db, "evo-unbind-company", "dono@example.com", company, agent_id=agent.id, agent_enabled=True)
+
+    data = client.patch("/api/v1/instances/evo-unbind-company/agent-binding", headers=headers, json={"agent_id": None}).json()
+
+    db.refresh(instance)
+    assert (instance.agent_id, instance.agent_enabled) == (None, False)
+    assert (data["agent_enabled"], data["agent_id"]) == (False, agent.id)
 
 
 def test_list_agents_returns_only_active_agents_of_the_users_company(client, db):

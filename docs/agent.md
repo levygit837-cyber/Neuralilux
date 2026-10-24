@@ -33,8 +33,9 @@ A resolução só lê: não altera a Instance nem faz `commit`. Criar o Agent pa
 O acesso é decidido por `Agent.company_id`, nunca por `Agent.owner_id`: o usuário vê e vincula só Agents ativos da própria Company; o superusuário vê todos. Usuário sem Company não vê nenhum.
 
 - `GET /api/v1/agents/` lista os Agents ativos da Company do usuário.
-- `PATCH /api/v1/instances/{nome}/agent-binding` com Agent de outra Company (ou da Company do usuário mas diferente da Company da Instance) responde 404.
-- `PATCH .../agent-status` com `agent_enabled=true` responde 400 se o Agent ligado à Instance não é acessível ao usuário.
+- `PATCH /api/v1/instances/{nome}/agent-binding` só aceita Agent ativo da Company da Instance. Vale também para o superusuário: ele ganha acesso a qualquer Instance, não a um vínculo que o Turn ignoraria. Agent de outra Company, ou Instance sem Company, responde 404 (o Agent não existe para aquela Instance; não é um erro de formato do corpo, que seria 422).
+- `GET`/`PATCH .../agent-status` e a resposta de `agent-binding` mostram o Agent que o Turn usaria (`resolve_turn_agent`), sem gravar nada: `agent_id`/`agent_name` são os dele e `agent_enabled` só é `true` se `Instance.agent_enabled` está ligado **e** esse Agent existe. Uma Instance legada com `agent_enabled=true` e sem `agent_id` aparece, portanto, ligada e com o Agent da Company, que é quem de fato responde. Depois de desvincular, `agent_enabled` é `false` e `agent_id` continua mostrando o Agent da Company, o que voltaria a responder se alguém religasse.
+- `PATCH .../agent-status` com `agent_enabled=true` responde 400 quando não há Agent que o Turn possa usar.
 
 ## Estrutura do prompt
 

@@ -291,7 +291,7 @@ Arquivo novo da #53. 2 testes: 2 keep.
 |`test_event_bus_failure_does_not_undo_the_release`|`keep`|Bus fora do ar não desfaz a devolução: API responde 200 e a Conversation volta ao Agent.|
 
 #### `tests/api/test_instance_agent_status.py`
-11 testes: 11 keep (o `wiring` foi removido na #53).
+17 testes: 17 keep (o `wiring` foi removido na #53).
 
 | Teste | Categoria | Motivo / equivalente |
 |---|---|---|
@@ -304,6 +304,12 @@ Arquivo novo da #53. 2 testes: 2 keep.
 |`test_binding_an_agent_of_the_users_company_that_belongs_to_someone_else_works`|`keep`|`owner_id` não é critério: Agent da Company de outro dono vincula (#86).|
 |`test_enabling_a_bound_agent_that_is_from_another_company_is_rejected`|`keep`|Vínculo legado com Agent de outra Company não liga o auto-reply (#86).|
 |`test_superuser_binds_the_agent_of_the_instances_company`|`keep`|Superusuário vincula o Agent da Company da Instance (#86).|
+|`test_superuser_cannot_bind_an_agent_of_another_company_to_the_instance`|`keep`|Superusuário também recebe 404 ao vincular Agent de outra Company (#86).|
+|`test_status_of_a_legacy_instance_shows_the_company_agent_the_turn_would_use`|`keep`|Instance legada ligada e sem `agent_id`: o status mostra o Agent da Company, sem gravar (#86).|
+|`test_status_follows_the_turn_when_the_bound_agent_is_from_another_company`|`keep`|Vínculo com Agent de outra Company: o status mostra o Agent da própria Company (#86).|
+|`test_status_without_any_usable_agent_is_off_even_when_enabled`|`keep`|Sem Agent utilizável, o status é desligado mesmo com `agent_enabled` (#86).|
+|`test_enabling_a_legacy_instance_uses_the_company_agent_fallback`|`keep`|Ligar uma Instance legada usa o Agent da Company (#86).|
+|`test_unbinding_in_a_company_turns_replies_off_and_shows_the_agent_the_turn_would_fall_back_to`|`keep`|Desvincular desliga e mostra o Agent de fallback (#86).|
 |`test_list_agents_returns_only_active_agents_of_the_users_company`|`keep`|Lista só Agents ativos da Company do usuário (#86).|
 |`test_list_agents_for_a_user_without_company_is_empty`|`keep`|Usuário sem Company não vê Agent nenhum (#86).|
 |`test_superuser_lists_the_active_agents_of_every_company`|`keep`|Superusuário vê os Agents ativos de todas as Companies (#86).|

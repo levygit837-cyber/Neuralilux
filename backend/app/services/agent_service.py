@@ -24,12 +24,13 @@ def agents_for_user(db: Session, user: User) -> Query:
 def get_agent_for_instance(db: Session, agent_id: str, user: User, instance: Instance) -> Agent | None:
     """O Agent ativo `agent_id` se o usuário pode usá-lo na Instance, senão `None` (a rota responde 404).
 
-    Fora o superusuário, o Agent precisa ser da Company do usuário e da Company da Instance.
+    O Agent precisa ser da Company da Instance, inclusive para o superusuário: o Turn ignora vínculo com Agent de
+    outra Company, então aceitá-lo aqui seria um vínculo que nunca responde. Fora o superusuário, o Agent também
+    precisa ser da Company do usuário. Instance sem Company não aceita Agent.
     """
-    agent = agents_for_user(db, user).filter(Agent.id == agent_id).first()
-    if agent is None or user.is_superuser:
-        return agent
-    return agent if agent.company_id == instance.company_id else None
+    if instance.company_id is None:
+        return None
+    return agents_for_user(db, user).filter(Agent.id == agent_id, Agent.company_id == instance.company_id).first()
 
 
 def resolve_turn_agent(db: Session, instance: Instance) -> Agent | None:
