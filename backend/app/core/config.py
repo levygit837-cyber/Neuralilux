@@ -66,6 +66,11 @@ class Settings(BaseSettings):
 
     # Realtime
     REALTIME_REDIS_CHANNEL: str = "neuralilux:realtime:events"
+    REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS: float = 2.0
+    REDIS_SOCKET_TIMEOUT_SECONDS: float = 2.0
+    REDIS_HEALTH_CHECK_INTERVAL_SECONDS: int = 30
+    REALTIME_PUBLISH_TIMEOUT_SECONDS: float = 1.0  # teto que um evento de UI pode segurar o Turn
+    REALTIME_PUBLISH_COOLDOWN_SECONDS: float = 5.0  # após falhar, os eventos seguintes são descartados sem tentar
     TOOL_EVENT_PREVIEW_LIMIT: int = 240
     TOOL_EVENT_INCLUDE_RAW_PAYLOADS: bool = False
 
@@ -103,6 +108,15 @@ class Settings(BaseSettings):
     def _window_block_fits_the_window(self) -> "Settings":
         if not 1 <= self.MEMORY_WINDOW_BLOCK <= self.MEMORY_WINDOW:
             raise ValueError("MEMORY_WINDOW_BLOCK deve ficar entre 1 e MEMORY_WINDOW")
+        return self
+
+    @model_validator(mode="after")
+    def _cooldown_outlasts_publish_timeout(self) -> "Settings":
+        if self.REALTIME_PUBLISH_COOLDOWN_SECONDS <= self.REALTIME_PUBLISH_TIMEOUT_SECONDS:
+            raise ValueError(
+                "REALTIME_PUBLISH_COOLDOWN_SECONDS deve ser maior que REALTIME_PUBLISH_TIMEOUT_SECONDS "
+                "(senão o cooldown acaba antes de o teto de um publish terminar e cada evento paga o teto de novo)"
+            )
         return self
 
     model_config = SettingsConfigDict(env_file=".env", case_sensitive=True, extra="ignore")

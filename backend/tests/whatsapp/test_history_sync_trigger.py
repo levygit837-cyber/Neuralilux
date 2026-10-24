@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.whatsapp import consumer as consumer_module, history_sync
+from app.whatsapp import consumer as consumer_module, history_sync, status_events
 from app.whatsapp.consumer import WhatsAppMessageConsumer
 from consumer_helpers import process
 
@@ -113,3 +113,27 @@ async def test_worker_skips_with_an_info_log_when_another_process_is_importing(d
         call.args[0] for call in logs.info.call_args_list
     ]
     assert consumer._syncing == set()
+
+
+@pytest.mark.asyncio
+async def test_replayed_stale_open_does_not_start_a_history_sync(world, syncs, monkeypatch):
+    monkeypatch.setattr(status_events, "_last_connection_event", {})
+
+    def connection(state, date_time):
+        event = _event("connection.update", state=state)
+        event["data"]["date_time"] = date_time
+        return event
+
+    consumer = WhatsAppMessageConsumer()
+    await consumer.process_webhook_event(connection("open", "2026-01-01T12:10:00.000-03:00"))
+    await asyncio.sleep(0)
+    syncs["release"].set()
+    await consumer.drain()
+    assert len(syncs["started"]) == 1
+
+    await consumer.process_webhook_event(connection("close", "2026-01-01T12:20:00.000-03:00"))
+    await consumer.process_webhook_event(connection("open", "2026-01-01T12:10:00.000-03:00"))  # reenvio velho
+    await asyncio.sleep(0)
+    await consumer.drain()
+
+    assert len(syncs["started"]) == 1

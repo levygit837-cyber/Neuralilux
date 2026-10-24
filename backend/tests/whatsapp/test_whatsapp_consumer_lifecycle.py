@@ -6,7 +6,9 @@ import pytest
 from app.agent import executor
 from app.agent.loop import TurnResult
 from app.models import Conversation
-from app.realtime.event_bus import realtime_event_bus
+from app.core.config import settings
+from app.realtime import event_bus as event_bus_module
+from app.realtime.event_bus import RealtimeEventBus, realtime_event_bus
 from app.whatsapp import consumer as consumer_module
 from app.whatsapp.consumer import WhatsAppMessageConsumer, parse_content
 from consumer_helpers import messages, process, upsert
@@ -170,6 +172,31 @@ async def test_realtime_failure_does_not_stop_the_agent_or_the_reply(db, world, 
     assert world["turns"] == ["Oi"]
     assert len(world["sent"]) == 1
     assert sorted(m.message_id for m in messages(db)) == ["in-1", "out-1"]  # a reply ficou gravada mesmo assim
+
+
+@pytest.mark.asyncio
+async def test_redis_that_never_answers_does_not_stop_the_turn_or_the_reply(db, world, monkeypatch):
+    class HangingRedis:
+        @classmethod
+        def from_url(cls, *_args, **_kwargs):
+            return cls()
+
+        async def publish(self, *_args):
+            await asyncio.Event().wait()
+
+        async def aclose(self):
+            pass
+
+    hanging_bus = RealtimeEventBus()
+    monkeypatch.setattr(event_bus_module, "Redis", HangingRedis)
+    monkeypatch.setattr(settings, "REALTIME_PUBLISH_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(realtime_event_bus, "publish", hanging_bus.publish)
+
+    await asyncio.wait_for(process(WhatsAppMessageConsumer(), upsert()), timeout=5)
+
+    assert world["turns"] == ["Oi"]
+    assert len(world["sent"]) == 1
+    assert sorted(m.message_id for m in messages(db)) == ["in-1", "out-1"]
 
 
 @pytest.mark.parametrize(

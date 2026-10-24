@@ -134,6 +134,8 @@ O `finalizar` recusa em código, e o Agent repassa o motivo ao Contact. Os erros
 ### Dashboard sem eventos ao vivo
 
 - `thinking_event`, `tool_event` e `human_handoff_requested` saem do **worker** pelo Redis: API e worker precisam usar o mesmo `REDIS_URL`. O dashboard atual só consome `thinking_event`; os outros dois estão disponíveis no Socket.IO para quem os assinar.
+- **Redis lento ou fora**: o evento de UI nunca segura o Turn além de `REALTIME_PUBLISH_TIMEOUT_SECONDS` (1 s; o fechamento do cliente descartado roda em background) nem o derruba; o evento é perdido e logado (`Realtime event dropped`). Depois de uma falha, os eventos seguintes são descartados por `REALTIME_PUBLISH_COOLDOWN_SECONDS` (5 s) e o cliente reconecta do zero. O cooldown precisa ser maior que o teto: a app recusa subir se não for. O cliente usa `REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS`, `REDIS_SOCKET_TIMEOUT_SECONDS` e `REDIS_HEALTH_CHECK_INTERVAL_SECONDS`.
+- **503 no webhook / `Evolution webhook event lost` no log**: o RabbitMQ recusou o publish. A Evolution reenvia o webhook (até 10 vezes, backoff até 300 s; detalhes em [evolution-data-formats.md](agents/evolution-data-formats.md)); o caminho websocket não reenvia.
 - O socket exige o JWT em `auth.token`; sem ele a conexão é recusada. O cliente precisa chamar `subscribe_instance` e `join_conversation`.
 - Há polling de contingência no frontend para mensagens, mas não para esses eventos.
 

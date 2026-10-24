@@ -45,6 +45,26 @@ class ParsedContent:
     is_media: bool = False
 
 
+def webhook_message_ids(payload: Dict[str, Any]) -> list[str]:
+    """Ids das Messages do payload, para logar um evento perdido.
+
+    `messages.upsert` traz `key.id` (em `data` ou, no envelope do consumer, em `data.data`);
+    `messages.update` é plano e traz só `keyId`.
+    """
+    data = payload.get("data")
+    if isinstance(data, dict) and isinstance(data.get("data"), dict):
+        data = data["data"]
+    ids = []
+    for item in data if isinstance(data, list) else [data]:
+        if not isinstance(item, dict):
+            continue
+        key = item.get("key")
+        message_id = (key.get("id") if isinstance(key, dict) else None) or item.get("keyId")
+        if message_id:
+            ids.append(str(message_id))
+    return ids
+
+
 def _unwrap(message_data: Dict[str, Any]) -> Dict[str, Any]:
     """Desembrulha `ephemeralMessage`, `viewOnce*` etc. até a mensagem de verdade."""
     for _ in range(len(_WRAPPERS)):
@@ -109,18 +129,29 @@ def unwrap_event_payload(data: Dict[str, Any]) -> Dict[str, Any]:
     return data
 
 
-def normalize_message_status(status: Any) -> str:
-    mapping = {
-        "PENDING": "pending",
-        "pending": "pending",
-        "SERVER_ACK": "sent",
-        "sent": "sent",
-        "DELIVERY_ACK": "delivered",
-        "delivered": "delivered",
-        "READ": "read",
-        "read": "read",
-    }
-    return mapping.get(status, "sent")
+# Ordem do domínio: o status só avança. `failed` fica abaixo de `sent`: só vale enquanto a Message está
+# `pending`, e qualquer ack real a tira de `failed`.
+# Hoje o backend nunca grava `pending` (toda Message nasce `sent`), então `ERROR` -> `failed` não tem efeito:
+# `failed` (rank 1) fica abaixo de `sent` (rank 2) e seria ignorado como status velho.
+MESSAGE_STATUS_RANK = {"pending": 0, "failed": 1, "sent": 2, "delivered": 3, "read": 4}
+
+_EVOLUTION_MESSAGE_STATUS = {
+    "PENDING": "pending",
+    "ERROR": "failed",
+    "SERVER_ACK": "sent",
+    "DELIVERY_ACK": "delivered",
+    "READ": "read",
+    "PLAYED": "read",  # áudio/vídeo tocado: já foi lido
+}
+
+
+def normalize_message_status(status: Any) -> str | None:
+    """Status da Evolution (`StatusMessage`) no domínio; `None` para o que não é progresso de entrega (ex.: `DELETED`)."""
+    if not isinstance(status, str):
+        return None
+    if status in MESSAGE_STATUS_RANK:
+        return status
+    return _EVOLUTION_MESSAGE_STATUS.get(status)
 
 
 def normalize_connection_status(state: str) -> str:

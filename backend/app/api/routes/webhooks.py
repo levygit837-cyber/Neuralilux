@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from app.core.config import settings
 from app.whatsapp.message_queue import message_queue_service
+from app.whatsapp.webhook_parser import webhook_message_ids
 
 logger = structlog.get_logger()
 
@@ -91,13 +92,23 @@ async def evolution_webhook(
         safe_payload = _convert_bytes_to_base64(payload)
 
         # Publish webhook event to RabbitMQ for async processing
-        await message_queue_service.publish_webhook_event(safe_payload)
-
-        return {"status": "received", "event": final_event}
+        published = await message_queue_service.publish_webhook_event(safe_payload)
 
     except Exception as e:
         logger.error("Error processing webhook", error=str(e))
         raise HTTPException(status_code=500, detail="Error processing webhook")
+
+    if not published:
+        # 503 (e não 200) para a Evolution saber que o evento não foi aceito; ver docs/agents/evolution-data-formats.md.
+        logger.error(
+            "Evolution webhook event lost: publish to RabbitMQ failed",
+            event_type=final_event,
+            instance=payload.get("instance"),
+            message_ids=webhook_message_ids(safe_payload),
+        )
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Event queue unavailable")
+
+    return {"status": "received", "event": final_event}
 
 
 @router.get("/evolution/test")

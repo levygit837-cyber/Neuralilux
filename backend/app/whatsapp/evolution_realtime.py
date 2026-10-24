@@ -13,6 +13,7 @@ import structlog
 
 from app.core.config import settings
 from app.whatsapp.message_queue import message_queue_service
+from app.whatsapp.webhook_parser import webhook_message_ids
 
 logger = structlog.get_logger()
 
@@ -93,7 +94,13 @@ class EvolutionRealtimeService:
             "event": event_name,
             "source": "websocket",
         }
-        await message_queue_service.publish_webhook_event(normalized_payload)
+        if not await message_queue_service.publish_webhook_event(normalized_payload):
+            logger.error(
+                "Evolution realtime event lost: publish to RabbitMQ failed",
+                event_type=event_name,
+                instance=payload.get("instance"),
+                message_ids=webhook_message_ids(normalized_payload),
+            )
 
 
 evolution_realtime_service = EvolutionRealtimeService()

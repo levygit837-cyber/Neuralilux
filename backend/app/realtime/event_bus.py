@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from typing import Any, Awaitable, Callable, Optional
 
 import structlog
@@ -17,8 +18,22 @@ from app.core.config import settings
 logger = structlog.get_logger()
 
 
+def _new_client() -> Redis:
+    """Cliente com timeouts de conexão e de operação e health check: Redis travado vira erro, não espera infinita."""
+    return Redis.from_url(
+        settings.REDIS_URL,
+        encoding="utf-8",
+        decode_responses=True,
+        socket_connect_timeout=settings.REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS,
+        socket_timeout=settings.REDIS_SOCKET_TIMEOUT_SECONDS,
+        health_check_interval=settings.REDIS_HEALTH_CHECK_INTERVAL_SECONDS,
+    )
+
+
 class RealtimeEventBus:
     def __init__(self) -> None:
+        self._unavailable_until = 0.0
+        self._closing: set[asyncio.Task] = set()  # fechamentos de clientes descartados, em background
         self._redis: Optional[Redis] = None
         self._pub_redis: Optional[Redis] = None
         self._pub_loop: Optional[asyncio.AbstractEventLoop] = None
@@ -27,28 +42,63 @@ class RealtimeEventBus:
 
     async def _get_redis(self) -> Redis:
         if self._redis is None:
-            self._redis = Redis.from_url(
-                settings.REDIS_URL,
-                encoding="utf-8",
-                decode_responses=True,
-            )
+            self._redis = _new_client()
         return self._redis
 
     async def publish(self, event: dict[str, Any]) -> None:
+        """Publica um evento de UI sem nunca segurar nem derrubar quem chamou.
+
+        Evento de UI roda dentro do Turn e do lock da Conversation: falha ou lentidão do Redis
+        só perde o evento (logado). O teto de quem chama é REALTIME_PUBLISH_TIMEOUT_SECONDS: o
+        fechamento do cliente descartado roda em background. Depois de uma falha o bus pula os
+        publishes por REALTIME_PUBLISH_COOLDOWN_SECONDS e recria o cliente, para que uma sequência
+        de eventos do mesmo Turn não pague o teto a cada um.
+        """
+        if time.monotonic() < self._unavailable_until:
+            logger.warning("Realtime event dropped: Redis unavailable", event_type=event.get("type"))
+            return
+        try:
+            await asyncio.wait_for(self._publish(event), timeout=settings.REALTIME_PUBLISH_TIMEOUT_SECONDS)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # inclui TimeoutError do teto
+            self._unavailable_until = time.monotonic() + settings.REALTIME_PUBLISH_COOLDOWN_SECONDS
+            logger.warning(
+                "Realtime event dropped: Redis publish failed",
+                event_type=event.get("type"),
+                error=repr(exc),
+            )
+            self._discard_publisher()
+
+    async def _publish(self, event: dict[str, Any]) -> None:
         # O cliente Redis fica preso ao event loop que o criou. Um cliente de outro loop (já fechado)
         # é descartado sem aclose(), que falharia no loop morto, e um novo é criado neste.
         loop = asyncio.get_running_loop()
         if self._pub_redis is None or self._pub_loop is not loop:
-            self._pub_redis = Redis.from_url(
-                settings.REDIS_URL,
-                encoding="utf-8",
-                decode_responses=True,
-            )
+            self._pub_redis = _new_client()
             self._pub_loop = loop
         await self._pub_redis.publish(
             settings.REALTIME_REDIS_CHANNEL,
             json.dumps(event, default=str),
         )
+
+    def _discard_publisher(self) -> None:
+        """Descarta o cliente de publish (a próxima tentativa reconecta do zero) e o fecha em background."""
+        client, loop = self._pub_redis, self._pub_loop
+        self._pub_redis = None
+        self._pub_loop = None
+        if client is None or loop is not asyncio.get_running_loop():
+            return
+        task = asyncio.create_task(self._close_quietly(client))
+        self._closing.add(task)  # referência forte: o loop só guarda referência fraca da task
+        task.add_done_callback(self._closing.discard)
+
+    @staticmethod
+    async def _close_quietly(client: Redis) -> None:
+        try:
+            await asyncio.wait_for(client.aclose(), timeout=settings.REALTIME_PUBLISH_TIMEOUT_SECONDS)
+        except Exception:
+            pass
 
     async def start(
         self,
@@ -84,6 +134,9 @@ class RealtimeEventBus:
                 await asyncio.sleep(1)
 
     async def stop(self) -> None:
+        if self._closing:
+            await asyncio.gather(*self._closing, return_exceptions=True)
+
         if self._listener_task:
             self._listener_task.cancel()
             try:
