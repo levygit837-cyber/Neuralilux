@@ -3,8 +3,9 @@
 Todas as funções recebem `scope`: os ids das Instances que o usuário alcança (`instance_ids_for_user`; `None` é
 o superusuário, sem filtro). Só entram Conversations 1:1 (grupos não são atendimento do Agent).
 
-O período é "os últimos N dias, contando hoje", com os dias no fuso da Company. O período anterior são os N dias
-imediatamente antes; é a base de comparação das tendências.
+O período é "os últimos N dias, contando hoje", com os dias no fuso da Company, e vai da meia-noite local do primeiro
+dia até agora. O período anterior é o mesmo recorte N dias antes, `[início - N dias, agora - N dias)`: termina na mesma
+hora do dia, para que a tendência compare períodos do mesmo tamanho (e não N dias cheios contra um período em curso).
 """
 from __future__ import annotations
 
@@ -38,19 +39,27 @@ class Window:
     first_day: date  # primeiro dia local do período atual
     last_day: date  # hoje, no fuso da Company
     start: datetime  # UTC: início do primeiro dia local
-    previous_start: datetime  # UTC: início do período anterior (termina em `start`)
+    previous_start: datetime  # UTC: `start` menos N dias
+    previous_end: datetime  # UTC: `agora` menos N dias (hora de parede local), a mesma hora do dia do corte atual
 
 
 def window_for(period: str, zone: ZoneInfo, now: datetime) -> Window:
     days = PERIOD_DAYS[period]
-    last_day = now.astimezone(zone).date()
+    local_now = now.astimezone(zone)
+    last_day = local_now.date()
     first_day = last_day - timedelta(days=days - 1)
 
     def local_midnight(day: date) -> datetime:
         return datetime.combine(day, time.min, tzinfo=zone).astimezone(timezone.utc)
 
     return Window(
-        zone, days, first_day, last_day, local_midnight(first_day), local_midnight(first_day - timedelta(days=days))
+        zone=zone,
+        days=days,
+        first_day=first_day,
+        last_day=last_day,
+        start=local_midnight(first_day),
+        previous_start=local_midnight(first_day - timedelta(days=days)),
+        previous_end=(local_now - timedelta(days=days)).astimezone(timezone.utc),
     )
 
 
@@ -159,19 +168,19 @@ def handoffs_by_status(db: Session, scope: list[str] | None, start: datetime) ->
 def overview(db: Session, scope: list[str] | None, window: Window) -> DashboardOverview:
     """Os quatro cartões do topo, cada um com o valor do período e o do período anterior."""
     received, answered = response_counts(db, scope, window.start)
-    previous_received, previous_answered = response_counts(db, scope, window.previous_start, window.start)
+    previous_received, previous_answered = response_counts(db, scope, window.previous_start, window.previous_end)
     return DashboardOverview(
         conversations=CountMetric(
             current=new_conversations(db, scope, window.start),
-            previous=new_conversations(db, scope, window.previous_start, window.start),
+            previous=new_conversations(db, scope, window.previous_start, window.previous_end),
         ),
         messages=CountMetric(
             current=messages_count(db, scope, window.start),
-            previous=messages_count(db, scope, window.previous_start, window.start),
+            previous=messages_count(db, scope, window.previous_start, window.previous_end),
         ),
         handoffs=CountMetric(
             current=handoffs_count(db, scope, window.start),
-            previous=handoffs_count(db, scope, window.previous_start, window.start),
+            previous=handoffs_count(db, scope, window.previous_start, window.previous_end),
         ),
         response_rate=ResponseRateMetric(
             current=percent(answered, received),

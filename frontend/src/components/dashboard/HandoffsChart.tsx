@@ -48,7 +48,7 @@ export function HandoffsChart({ data, error, onRetry }: HandoffsChartProps) {
       </div>
 
       {error ? (
-        <div className="flex-1">
+        <div className="flex flex-1 flex-col">
           <WidgetError message={error} onRetry={onRetry} />
         </div>
       ) : !data ? (

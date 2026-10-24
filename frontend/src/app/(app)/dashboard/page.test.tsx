@@ -64,6 +64,14 @@ describe('DashboardPage', () => {
     expect(within(summary).getByText('2 de 4 mensagens de clientes respondidas')).toBeTruthy()
   })
 
+  it('expõe os valores por dia do gráfico a leitor de tela', async () => {
+    renderPage()
+
+    const table = await screen.findByRole('table', { name: 'Conversations novas por dia' })
+    const rows = within(table).getAllByRole('row').slice(1)
+    expect(rows.map((row) => row.textContent)).toEqual(['23/10/20261', '24/10/20260'])
+  })
+
   it('esconde a tendência quando o período anterior não tem base de comparação', async () => {
     renderPage()
 

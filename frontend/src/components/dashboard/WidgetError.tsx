@@ -8,7 +8,7 @@ export function WidgetError({ message, onRetry }: WidgetErrorProps) {
   return (
     <div
       role="alert"
-      className="flex h-full flex-col items-center justify-center gap-3 rounded-lg border border-status-error/30 bg-status-error/10 px-4 py-6 text-center text-sm text-status-error"
+      className="flex flex-1 flex-col items-center justify-center gap-3 rounded-lg border border-status-error/30 bg-status-error/10 px-4 py-6 text-center text-sm text-status-error"
     >
       <span>{message}</span>
       <button type="button" className="underline" onClick={onRetry}>

@@ -4,10 +4,10 @@ Termos conforme o [glossário](../CONTEXT.md). O código está em `backend/app/a
 
 ## Escopo e período
 
-- **Escopo.** Só entram as Instances ativas do usuário (`Instance.owner_id`); o superusuário vê todas. É o mesmo filtro de `/conversations` e `/tickets` (`instance_ids_for_user`). Usuário sem Instance vê zeros e taxa de resposta vazia, nunca dados de outro dono.
+- **Escopo.** Só entram as Instances ativas do usuário (`Instance.owner_id`); o superusuário vê todas. É o mesmo filtro de `/conversations` e `/tickets` (`instance_ids_for_user`). Usuário sem Instance vê zeros e taxa de resposta vazia, nunca dados de outro dono. Pertencer à mesma Company não dá acesso: quem não é dono de Instance vê zeros.
 - **Grupos ficam de fora.** Só contam Conversations 1:1 (`is_group = false`): o Agent nunca fala em grupo.
-- **Período** (`period=7d|30d|90d`, padrão `7d`): os últimos N dias, contando hoje. Os dias são locais, no fuso da Company do usuário (`Company.timezone`; sem Company, `America/Sao_Paulo`), e o período começa à meia-noite local do primeiro dia.
-- **Período anterior.** Os N dias imediatamente antes do período. É a base de toda tendência: o frontend compara `current` com `previous` e esconde a tendência quando `previous` é zero ou vazio (não há comparação honesta).
+- **Período** (`period=7d|30d|90d`, padrão `7d`): os últimos N dias, contando hoje, da meia-noite local do primeiro dia até agora. Os dias são locais, no fuso da Company do usuário (`Company.timezone`; sem Company, `America/Sao_Paulo`). O superusuário vê todas as Instances, mas os dias seguem o fuso da própria Company dele (ou o padrão), não o de cada Instance.
+- **Período anterior.** O mesmo recorte N dias antes: de `início - N dias` até `agora - N dias`. Termina na mesma hora do dia do corte atual, então os dois períodos têm o mesmo tamanho (às 07:00, 6 dias cheios mais 7 horas contra 6 dias cheios mais 7 horas, e não 7 dias cheios). É a base de toda tendência: o frontend compara `current` com `previous` e esconde a tendência quando `previous` é zero ou vazio (não há comparação honesta).
 
 ## Números
 
@@ -16,7 +16,7 @@ Termos conforme o [glossário](../CONTEXT.md). O código está em `backend/app/a
 | Conversas novas | `GET /dashboard/overview` → `conversations` | Conversations criadas no período (`Conversation.created_at`). Não é o total acumulado. |
 | Messages | `overview` → `messages` | Messages do período (`Message.timestamp`), entrada e saída, incluindo avisos do sistema. |
 | Handoffs | `overview` → `handoffs` | Tickets abertos no período (`Ticket.created_at`), qualquer status. Um Ticket é o registro de um Handoff. |
-| Taxa de resposta | `overview` → `response_rate` | Das Messages que o Contact enviou no período (`direction = incoming`), a porcentagem que tem depois, na mesma Conversation, uma Message de saída que não seja aviso do sistema (`sent_by = "system"`). Resposta do Agent e de um Attendant contam. `null` se o Contact não escreveu no período. Vem com `received` e `answered`. |
+| Taxa de resposta | `overview` → `response_rate` | Das Messages que o Contact enviou no período (`direction = incoming`), a porcentagem que tem depois, na mesma Conversation, uma Message de saída que não seja aviso do sistema (`sent_by = "system"`). Conta qualquer saída que não seja `system`: `sent_by` não distingue Agent de Attendant, então a taxa não mede "respondida pelo Agent" e inclui a resposta de um Attendant. `null` se o Contact não escreveu no período. Vem com `received` e `answered`. |
 | Conversas por dia | `GET /dashboard/conversations-over-time` | Conversas novas por dia local do período, com os dias sem nenhuma em zero. O agrupamento é feito em Python com o fuso da Company, não com função de data do banco, então dá o mesmo resultado em Postgres e SQLite. |
 | Messages por Instance | `GET /dashboard/messages-by-instance` | Messages do período por Instance ativa do escopo, com o nome real dela (`Instance.name`), da mais movimentada para a menos (até 10). Instance sem Message aparece com zero. |
 | Handoffs por status | `GET /dashboard/handoffs` | Tickets abertos no período agrupados por status (`open`, `in_progress`, `closed`, `expired`), sempre com as quatro chaves. |

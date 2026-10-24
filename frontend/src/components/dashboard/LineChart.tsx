@@ -60,7 +60,7 @@ export function LineChart({ data, period, error, onRetry }: LineChartProps) {
     return (
       <Card className="flex h-[380px] flex-col">
         {header}
-        <div className="flex-1">
+        <div className="flex flex-1 flex-col">
           <WidgetError message={error} onRetry={onRetry} />
         </div>
       </Card>
@@ -129,6 +129,24 @@ export function LineChart({ data, period, error, onRetry }: LineChartProps) {
             ))}
           </svg>
         )}
+
+        <table className="sr-only">
+          <caption>Conversations novas por dia</caption>
+          <thead>
+            <tr>
+              <th scope="col">Dia</th>
+              <th scope="col">Conversations novas</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.map((p) => (
+              <tr key={p.date}>
+                <th scope="row">{parseDay(p.date).toLocaleDateString('pt-BR')}</th>
+                <td>{p.count}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
 
         <div className="absolute bottom-0 flex w-full justify-between pt-2 text-[0.65rem] font-medium text-content-muted">
           {axisIndices.map((i) => (

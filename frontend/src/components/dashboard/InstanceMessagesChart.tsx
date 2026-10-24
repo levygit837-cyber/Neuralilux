@@ -3,6 +3,7 @@
 import { DeviceMobile } from '@phosphor-icons/react'
 import { Card } from '@/components/ui/Card'
 import { WidgetError } from '@/components/dashboard/WidgetError'
+import { formatCompactNumber } from '@/lib/utils'
 import type { InstanceMessages } from '@/types/dashboard'
 
 interface InstanceMessagesChartProps {
@@ -10,10 +11,6 @@ interface InstanceMessagesChartProps {
   instances?: InstanceMessages[]
   error?: string | null
   onRetry: () => void
-}
-
-function formatCount(count: number): string {
-  return count >= 1000 ? `${(count / 1000).toFixed(1)}k` : count.toString()
 }
 
 /** Messages do período por Instance, com o nome real de cada uma. */
@@ -33,7 +30,7 @@ export function InstanceMessagesChart({ instances, error, onRetry }: InstanceMes
       </div>
 
       {error ? (
-        <div className="flex-1">
+        <div className="flex flex-1 flex-col">
           <WidgetError message={error} onRetry={onRetry} />
         </div>
       ) : !instances ? (
@@ -48,7 +45,7 @@ export function InstanceMessagesChart({ instances, error, onRetry }: InstanceMes
             <li key={instance.instance_id}>
               <div className="mb-1 flex justify-between text-xs">
                 <span className="truncate font-medium text-content-light">{instance.name}</span>
-                <span className="text-content-muted">{formatCount(instance.count)}</span>
+                <span className="text-content-muted">{formatCompactNumber(instance.count)}</span>
               </div>
               <div className="h-2 w-full overflow-hidden rounded-full bg-brand-base">
                 <div

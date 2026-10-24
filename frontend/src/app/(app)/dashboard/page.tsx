@@ -10,11 +10,10 @@ import { PeriodSelector } from '@/components/dashboard/PeriodSelector'
 import { errorMessage } from '@/components/dashboard/WidgetError'
 import { useDashboardData } from '@/hooks/useDashboardData'
 import { countTrend, rateTrend } from '@/lib/dashboardTrend'
+import { formatCompactNumber } from '@/lib/utils'
 import type { DashboardPeriod } from '@/types/dashboard'
 
 const PERIOD_DAYS: Record<DashboardPeriod, number> = { '7d': 7, '30d': 30, '90d': 90 }
-
-const formatNumber = (value: number): string => (value >= 1000 ? `${(value / 1000).toFixed(1)}k` : value.toString())
 
 export default function DashboardPage() {
   const [period, setPeriod] = useState<DashboardPeriod>('7d')
@@ -42,7 +41,7 @@ export default function DashboardPage() {
             index={0}
             label="Conversas novas"
             icon={Chats}
-            value={data && formatNumber(data.conversations.current)}
+            value={data && formatCompactNumber(data.conversations.current)}
             trend={data && countTrend(data.conversations.current, data.conversations.previous)}
             error={overviewError}
             onRetry={retryOverview}
@@ -51,7 +50,7 @@ export default function DashboardPage() {
             index={1}
             label="Mensagens"
             icon={PaperPlaneRight}
-            value={data && formatNumber(data.messages.current)}
+            value={data && formatCompactNumber(data.messages.current)}
             trend={data && countTrend(data.messages.current, data.messages.previous)}
             error={overviewError}
             onRetry={retryOverview}
@@ -60,7 +59,7 @@ export default function DashboardPage() {
             index={2}
             label="Handoffs"
             icon={Headset}
-            value={data && formatNumber(data.handoffs.current)}
+            value={data && formatCompactNumber(data.handoffs.current)}
             caption="Tickets abertos no período"
             trend={data && countTrend(data.handoffs.current, data.handoffs.previous)}
             error={overviewError}

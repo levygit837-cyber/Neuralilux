@@ -32,7 +32,7 @@ export function MetricCard({ label, icon: MetricIcon, value, caption, trend, pro
 
   if (error) {
     return (
-      <Card className="min-h-40">
+      <Card className="flex min-h-40 flex-col">
         <h3 className="mb-3 text-sm font-medium text-content-muted">{label}</h3>
         <WidgetError message={error} onRetry={onRetry} />
       </Card>

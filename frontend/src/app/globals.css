@@ -85,15 +85,6 @@
     cursor: pointer;
   }
 
-  /* Bar Chart Enhancements */
-  .bar-fill {
-    transition: height 1s cubic-bezier(0.2, 0.8, 0.2, 1), background-color 0.3s;
-  }
-  .chart-bar-group:hover .bar-fill {
-    filter: brightness(1.2);
-    box-shadow: 0 0 15px rgb(var(--color-primary) / 0.4);
-  }
-
   /* Staggered Animations */
   .delay-100 { animation-delay: 100ms; }
   .delay-200 { animation-delay: 200ms; }
